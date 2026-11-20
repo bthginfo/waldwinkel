@@ -6,7 +6,7 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 
 ## Installieren
 
-- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://github.com/bthginfo/waldwinkel/releases/latest/download/Waldwinkel-Android.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
+- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://raw.githubusercontent.com/bthginfo/waldwinkel/5bd8798f204e9e7aca415675a0bb556599368565/Waldwinkel-1.9.1.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
 
 ## Neu in 1.9.1
