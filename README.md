@@ -9,7 +9,16 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Hof, Farnwald, Muschelbucht und Eichenhafen
 - Lade die signierte APK herunter und öffne sie auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://github.com/bthginfo/waldwinkel/releases/latest/download/Waldwinkel-Android.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
 
-## Neu in 0.7.0
+## Neu in 0.8.0
+
+- **Tierhaltung am Hof.** Baue am markierten Platz einen Hühnerstall oder eine Schafscheune. Danach kannst du ein Tier aufnehmen, füttern und streicheln. Gut versorgte Tiere liefern Eier oder Wolle. Zutrauen erhöht den Ertrag.
+- **Einrichten.** An der Werkbank gibt es 18 Möbel. Kaufe Baupläne am Markt, finde sie unterwegs oder verdiene sie mit Stadtaufträgen. Sobald das Möbel gebaut ist, wähle es über **Einrichten** und tippe auf einen freien Platz in der Hütte.
+- **Hofküche.** Sechs Rezepte nutzen Gemüse, Obst, Pilze, Nüsse und Eier. Beim Kochen triffst du mit dem Rühren den grünen Bereich. Beim Einmachen gibst du Zutaten in der angezeigten Reihenfolge hinzu. Für die Handmühle wechselst du zwischen links und rechts. Fertige Speisen und Mehl können in die Verkaufstruhe.
+- **Nachwachsende Kiefern.** Fällbare Kiefern wachsen nach drei Spieltagen nach.
+
+[Hofküche im Spiel](docs/hofkueche.png) · [Hühnerstall](docs/huehnerstall.png)
+
+## Seit 0.7.0
 
 - **Tagesablauf.** Der Tag beginnt um 06:00. Eine reale Sekunde entspricht einer Spielminute. Ab 19:00 wird es dämmrig, der Markt schließt um 20:00. Ab 22:00 ruhen Feldarbeit, Fischfang, Holz- und Erzabbau. Du kannst weiterlaufen, nach Hause gehen und in der Verkaufstruhe verkaufen. Schlafen im Bett beginnt den nächsten Tag.
 - **Anbau.** Tippe auf ein Beet und dann auf seine Aktion. Der Tanuki geht selbst in Reichweite und legt das Beet an, sät, gießt oder erntet. Über **Saatgut** wählst du direkt zwischen sechs Kulturen. Ein eigenes Symbol und die Gießkanne zeigen, wann ein Beet Wasser braucht.
@@ -46,7 +55,7 @@ Im Startmenü kannst du auf bis zu drei getrennten Plätzen ein **Neues Spiel** 
 | Kalender | Uhrzeit und Wetter stehen oben im HUD. Schlafen im Bett setzt die Uhr auf 06:00 und lässt gegossene Pflanzen wachsen. Regen gießt Pflanzen und neue Saat automatisch. Eine Jahreszeit dauert sieben Tage. |
 | Obstwiese | Äpfel und Waldbeeren pflücken. Jeder abgeerntete Baum oder Strauch trägt nach zwei Spieltagen wieder Früchte. |
 | Hafenmarkt | Beim Saatgutstand jeweils drei Samen der gewählten Sorte kaufen. Beim Ankäufer wechselt die linke Auswahltaste zwischen den verfügbaren Waren. Obst, Gemüse, Fisch, Eier, Wolle, Silber und Kristalle bringen Münzen. |
-| Tierweide | Huhn und Schaf adoptieren und am Trog füttern. Nach einem gefütterten Tag ist ein Ei bereit. Nach zwei gefütterten Tagen gibt das Schaf Wolle. An der Futterkiste wird Futter nachgekauft. |
+| Tiere | Baue das passende Gebäude am Hof und nimm ein Tier auf. Pflege und Ernte erfolgen am eigenen Stall. Futter kannst du an der Futterkiste auf der Tierweide nachkaufen. |
 | Mine | Kupfer und Silber liegen in den ersten Ebenen. Ab Tiefe 3 kommen Kristallnester und dunkles Gestein hinzu. Die Hafenschmiede kann die Spitzhacke für zwei Kupfer, zwei Holz und zwölf Münzen verbessern. Die verbesserte Hacke liefert zwei Erze pro Ader. |
 | Aufgaben | Am Brett oder links über **Aufgaben** öffnen. Die acht Aufgaben fördern Garten, Sammeln, Handel, Tiere und Mine. Für eine erfüllte Aufgabe gibt es Saatgut und Münzen. |
 | Haus, Wald und Steg | Möbel herstellen und versetzen, markierte Kiefern fällen, Stein abbauen und am Steg angeln. |
@@ -84,8 +93,7 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 ## Tests und nächste Etappen
 
-25 Rust-Tests decken unter anderem Tageswechsel, Erntequalität, Verkauf, zusammenhängende Fußwege, Kollisionen und die Übernahme alter Spielstände ab. Das Update von 0.6.0 wurde im Android-14-Emulator mit drei vorhandenen Spielständen geprüft. Die Aufnahmen stammen aus dem laufenden Bevy-Spiel.
+30 Rust-Tests decken unter anderem Tageswechsel, Erntequalität, Verkauf, Tierpflege, Blaupausen, Verarbeitungsminispiele, Kollisionen und die Übernahme alter Spielstände ab. Die Android-Builds werden im Android-14-Emulator über die vorherige Installation geprüft. Die Aufnahmen stammen aus dem laufenden Bevy-Spiel.
 
-1. **Ausbau und Verarbeitung.** Tiergebäude und Tierhaltung auf dem eigenen Hof, sammelbare Möbelrezepte für die Werkbank sowie Koch- und Verarbeitungsminispiele.
-2. **Neue Regionen.** Verbundene Gebiete in der Größenordnung der bisherigen Welt, eigene Materialien und Figuren, mehrstufige Questketten und je ein über eine Quest freischaltbarer Schnellreisepunkt. [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)
-3. **Kartenkämpfe.** Prozedurale Ebenen mit ansteigender Schwierigkeit und Rückkehr zu freigeschalteten Ruheplätzen. Karten kommen etwa aus Erkundung, Aufträgen, Handel und Kämpfen. Ein Deck umfasst zwölf Karten und wird am Kartenbinder daheim zusammengestellt. Kampftalente verbessern Werte wie Gesundheit und Resistenzen.
+1. **Neue Regionen.** Verbundene Gebiete in der Größenordnung der bisherigen Welt, eigene Materialien und Figuren, mehrstufige Questketten und je ein über eine Quest freischaltbarer Schnellreisepunkt. [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)
+2. **Kartenkämpfe.** Prozedurale Ebenen mit ansteigender Schwierigkeit und Rückkehr zu freigeschalteten Ruheplätzen. Karten kommen etwa aus Erkundung, Aufträgen, Handel und Kämpfen. Ein Deck umfasst zwölf Karten und wird am Kartenbinder daheim zusammengestellt. Kampftalente verbessern Werte wie Gesundheit und Resistenzen. [Bildreferenz für die Dämmergänge](art/references/daemmergaenge.png)

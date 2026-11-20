@@ -1,5 +1,6 @@
 use crate::{
     day::FarmClock,
+    furniture::{self, CATALOG},
     homestead::{Homestead, Product},
     session::Checkpoint,
     town::Journal,
@@ -16,7 +17,7 @@ use std::{
 pub const PLOT_COUNT: usize = 12;
 pub const FERTILIZER_PRICE: u32 = 4;
 const FERTILIZER_PACK: u32 = 2;
-const SAVE_VERSION: u8 = 6;
+const SAVE_VERSION: u8 = 7;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Quality {
@@ -173,6 +174,7 @@ pub struct Garden {
     pub fertilizer: u32,
     pub fertilized: [bool; PLOT_COUNT],
     fine_yields: [[u32; 2]; 6],
+    prepared: [u32; crate::processing::Dish::ALL.len()],
     harvest_rng: u64,
     pub extra_seeds: [u32; 2],
     pub yields: [u32; 3],
@@ -181,11 +183,13 @@ pub struct Garden {
     pub copper: u32,
     pub fish: u32,
     pub felled: Vec<usize>,
+    tree_regrowth: Vec<(usize, u32)>,
     pub broken: Vec<usize>,
     pub mined: std::collections::BTreeSet<(u32, u16)>,
     pub deepest: u32,
     pub furniture: [u8; FURNITURE_COUNT],
-    pub crafted: [bool; 3],
+    pub crafted: Vec<bool>,
+    pub blueprints: [bool; CATALOG.len()],
     pub challenge: usize,
     pub farm: Homestead,
     pub checkpoint: Option<Checkpoint>,
@@ -204,6 +208,7 @@ impl Default for Garden {
             fertilizer: 3,
             fertilized: [false; PLOT_COUNT],
             fine_yields: [[0; 2]; 6],
+            prepared: [0; crate::processing::Dish::ALL.len()],
             harvest_rng: now_ms(),
             extra_seeds: [4, 4],
             yields: [0; 3],
@@ -212,11 +217,13 @@ impl Default for Garden {
             copper: 0,
             fish: 0,
             felled: Vec::new(),
+            tree_regrowth: Vec::new(),
             broken: Vec::new(),
             mined: Default::default(),
             deepest: 0,
             furniture: [0; FURNITURE_COUNT],
-            crafted: [true, false, false],
+            crafted: (0..CATALOG.len()).map(|index| index == 0).collect(),
+            blueprints: furniture::starting_blueprints(),
             challenge: 0,
             farm: Homestead::default(),
             checkpoint: None,
@@ -258,6 +265,7 @@ impl Garden {
             Product::Crop(crop, quality) => {
                 &mut self.fine_yields[crop as usize][quality as usize - 1]
             }
+            Product::Prepared(dish) => &mut self.prepared[dish as usize],
             Product::Fish => &mut self.fish,
             Product::Mushroom => &mut self.town.goods[0],
             Product::Hazel => &mut self.town.goods[1],
@@ -273,6 +281,7 @@ impl Garden {
             }
             Product::Crop(crop, Quality::Normal) => self.farm.yields[crop as usize - 3],
             Product::Crop(crop, quality) => self.fine_yields[crop as usize][quality as usize - 1],
+            Product::Prepared(dish) => self.prepared[dish as usize],
             Product::Fish => self.fish,
             Product::Mushroom => self.town.goods[0],
             Product::Hazel => self.town.goods[1],
@@ -285,6 +294,20 @@ impl Garden {
         Quality::ALL.into_iter().fold(0_u32, |total, quality| {
             total.saturating_add(self.stock(Product::Crop(crop, quality)))
         })
+    }
+
+    pub fn take_crop(&mut self, crop: Crop, quantity: u32) -> bool {
+        if self.crop_total(crop) < quantity {
+            return false;
+        }
+        let mut left = quantity;
+        for quality in Quality::ALL {
+            let item = Product::Crop(crop, quality);
+            let amount = self.stock(item).min(left);
+            self.take_stock(item, amount);
+            left -= amount;
+        }
+        true
     }
 
     fn goods_index(item: Product) -> usize {
@@ -440,11 +463,28 @@ impl Garden {
         value ^ (value >> 31)
     }
 
+    pub fn chop_tree(&mut self, index: usize) -> bool {
+        if self.felled.contains(&index) {
+            return false;
+        }
+        self.felled.push(index);
+        self.tree_regrowth.push((index, self.day.saturating_add(3)));
+        self.wood = self.wood.saturating_add(3);
+        true
+    }
+
     pub fn sleep(&mut self) {
         self.clock = FarmClock::default();
         let rain = Sky::at(self.day) == Sky::Rain;
         self.farm.end_day(self.day);
         self.day = self.day.saturating_add(1);
+        let day = self.day;
+        self.tree_regrowth.retain(|&(tree, ready)| {
+            if ready <= day {
+                self.felled.retain(|&index| index != tree);
+            }
+            ready > day
+        });
         let wet_next = Sky::at(self.day) == Sky::Rain;
         for plot in &mut self.plots {
             if let Plot::Sown { crop, growth, wet } = *plot {
@@ -509,6 +549,21 @@ impl Garden {
             ));
         }
         garden.plots.resize(PLOT_COUNT, Plot::Grass);
+        garden.crafted.resize(CATALOG.len(), false);
+        for (index, &built) in garden.crafted.iter().enumerate() {
+            garden.blueprints[index] |= built;
+        }
+        if garden.version < 7 {
+            garden.farm.housing = garden.farm.animals.map(|animal| animal.owned);
+            garden.tree_regrowth = garden
+                .felled
+                .iter()
+                .map(|&index| (index, garden.day.saturating_add(3)))
+                .collect();
+            for plan in garden.town.earned_blueprints() {
+                garden.blueprints[plan] = true;
+            }
+        }
         garden.clock.restore();
         if Sky::at(garden.day) == Sky::Rain {
             for plot in &mut garden.plots {
@@ -698,5 +753,22 @@ mod tests {
             (g.plots.len(), g.plots[0], g.seeds, g.harvested, g.day),
             (12, Plot::Tilled, 4, 9, 1)
         );
+    }
+
+    #[test]
+    fn an_old_save_keeps_built_furniture_and_gives_adopted_animals_a_home() {
+        let path =
+            std::env::temp_dir().join(format!("waldwinkel-housing-{}.json", std::process::id()));
+        fs::write(
+            &path,
+            r#"{"version":6,"crafted":[true,true,true],"furniture":[2,0,0,0,1,0],"farm":{"animals":[{"owned":true,"pending":2},{}]},"town":{"quests":["Done","Offered","Offered"]}}"#,
+        ).unwrap();
+        let g = Garden::load(&path).unwrap();
+        fs::remove_file(path).unwrap();
+        assert_eq!(g.crafted.len(), CATALOG.len());
+        assert_eq!(g.furniture, [2, 0, 0, 0, 1, 0]);
+        assert!(g.crafted[2] && g.farm.animals[0].owned);
+        assert_eq!(g.farm.housing, [true, false]);
+        assert!(g.blueprints[crate::furniture::ARMCHAIR]);
     }
 }

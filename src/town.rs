@@ -166,6 +166,16 @@ impl Require {
 }
 
 impl Quest {
+    const ALL: [Self; 3] = [Self::Soup, Self::Chime, Self::Fountain];
+
+    fn blueprint(self) -> usize {
+        match self {
+            Self::Soup => crate::furniture::ARMCHAIR,
+            Self::Chime => crate::furniture::VINE_SHELF,
+            Self::Fountain => crate::furniture::WALL_HANGING,
+        }
+    }
+
     fn name(self) -> &'static str {
         match self {
             Self::Soup => "Für Maras Küche",
@@ -218,7 +228,8 @@ impl Quest {
                 g.farm.coins = g.farm.coins.saturating_add(coins);
                 g.add_seeds(crop, 2);
                 g.town.quests[self as usize] = QuestState::Done;
-                Ok(format!("Auftrag erfüllt · +{coins} Münzen · +2 Samen"))
+                crate::furniture::learn(g, self.blueprint());
+                Ok(format!("Erfüllt · +{coins} Münzen · +2 Samen · Bauplan"))
             }
             QuestState::Accepted => Err("Dir fehlen noch Zutaten oder Materialien.".into()),
             QuestState::Done => Err("Dieser Auftrag ist erfüllt.".into()),
@@ -243,6 +254,13 @@ pub struct Journal {
 }
 
 impl Journal {
+    pub fn earned_blueprints(&self) -> impl Iterator<Item = usize> + '_ {
+        Quest::ALL
+            .into_iter()
+            .filter(|&quest| self.quests[quest as usize] == QuestState::Done)
+            .map(Quest::blueprint)
+    }
+
     pub fn completed(&self) -> usize {
         self.quests
             .iter()

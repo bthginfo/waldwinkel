@@ -1,9 +1,11 @@
 mod adventure;
 mod day;
 mod farm_ui;
+mod furniture;
 mod garden;
 mod homestead;
 mod input;
+mod processing;
 mod session;
 mod terrain;
 mod town;

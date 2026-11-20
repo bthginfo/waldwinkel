@@ -902,10 +902,15 @@ fn approach(
     passable: impl Fn(Vec2) -> bool,
 ) -> VecDeque<Vec2> {
     let target = reach.point;
-    let near = |p: Vec2| reach.reached(p, &passable);
-    if near(start) {
+    if reach.reached(start, &passable) {
         return VecDeque::new();
     }
+    // Finish inside interaction range even when movement stops just short of a waypoint.
+    let goal = Reach {
+        limit: reach.limit - 0.025,
+        ..reach
+    };
+    let near = |p: Vec2| goal.reached(p, &passable);
     let radius = (reach.clearance + 0.22).max(0.94).min(reach.limit - 0.08);
     let direct = target + (start - target).normalize_or_zero() * radius;
     if near(direct) && clear_walk(start, direct, &passable) {

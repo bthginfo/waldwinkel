@@ -1,6 +1,7 @@
 use crate::{
     Controls, GardenFocus, Notice,
     farm_ui::{FarmMenu, FarmPage},
+    furniture::CATALOG,
     garden::{Crop, Garden, SavePath},
     homestead::{Animal, ORCHARD, Ore, Product, Village},
     session::Checkpoint,
@@ -17,6 +18,8 @@ pub const DOOR: Vec2 = Vec2::new(-2.08, 1.32);
 pub const PORTAL: Vec2 = Vec2::new(9., -8.90);
 pub const PIER: Vec2 = Vec2::new(5.8, 17.25);
 pub const SALE_CHEST: Vec2 = Vec2::new(0.66, 3.58);
+const KITCHEN: Vec2 = Vec2::new(9.12, 1.15);
+const PATTERN_STALL: Vec2 = Vec2::new(18.36, 5.49);
 const MARKER: &str = "selection";
 const TILE: f32 = 2.4;
 const GRID: i16 = 9;
@@ -27,12 +30,6 @@ const ROCK_RADIUS: f32 = 0.78;
 const ORE_RADIUS: f32 = 0.71;
 const BED_HALF_SIZE: Vec2 = Vec2::new(0.78, 1.04);
 const BENCH_HALF_SIZE: Vec2 = Vec2::new(0.71, 0.56);
-const FURNITURE_HALF_SIZES: [Vec2; 3] = [
-    Vec2::splat(0.77),
-    Vec2::new(0.73, 0.47),
-    Vec2::new(0.47, 0.48),
-];
-
 const TREES: [Vec2; 12] = [
     Vec2::new(-16.88, 6.9),
     Vec2::new(-16.60, 10.18),
@@ -65,8 +62,6 @@ const SLOTS: [Vec2; 6] = [
     Vec2::new(1.85, 1.98),
     Vec2::new(-2.62, 0.38),
 ];
-const FURNITURE: [&str; 3] = ["Tisch", "Regal", "Ofen"];
-const FURNITURE_MODELS: [&str; 3] = ["furniture_table", "furniture_shelf", "furniture_stove"];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Area {
@@ -107,6 +102,9 @@ pub enum Target {
     Portal,
     Pier,
     SaleChest,
+    Kitchen,
+    PatternStall,
+    FarmAnimal(Animal),
     Tree(usize),
     Rock(usize),
     MineRock(u16),
@@ -125,6 +123,12 @@ pub enum Target {
 impl Target {
     fn restriction(self, garden: &Garden) -> Option<&'static str> {
         match self {
+            Self::PatternStall if !garden.clock.market_open() => {
+                Some("Der Bauplanstand öffnet morgens um 06:00.")
+            }
+            Self::Village(Village::Animal(kind)) if garden.farm.animals[kind as usize].owned => {
+                Some("Dein Tier wartet in seinem Stall auf deinem Hof.")
+            }
             Self::Village(village) if village.closed(garden) => {
                 Some("Der Stand öffnet morgens um 06:00.")
             }
@@ -156,6 +160,9 @@ impl Target {
             Self::Portal => "Minenstollen",
             Self::Pier => "Angelsteg",
             Self::SaleChest => "Verkaufstruhe",
+            Self::Kitchen => "Hofküche",
+            Self::PatternStall => "Bauplanstand",
+            Self::FarmAnimal(kind) => kind.housing_name(),
             Self::Tree(_) => "Kiefer",
             Self::Rock(_) => "Steinblock",
             Self::MineRock(_) => "Kupferader",
@@ -177,6 +184,9 @@ impl Target {
             Self::Portal => "Mine betreten",
             Self::Pier => "Auswerfen",
             Self::SaleChest => "Truhe öffnen",
+            Self::Kitchen => "Küche öffnen",
+            Self::PatternStall => "Baupläne ansehen",
+            Self::FarmAnimal(_) => "Versorgen",
             Self::Tree(_) => "Baum fällen",
             Self::Rock(_) => "Stein abbauen",
             Self::MineRock(_) => "Kupfer abbauen",
@@ -197,6 +207,8 @@ impl Target {
             Self::Door => 0.86,
             Self::Portal => 0.95,
             Self::SaleChest => 0.53,
+            Self::Kitchen | Self::PatternStall => 0.88,
+            Self::FarmAnimal(_) => 0.51,
             Self::Tree(_) => 1.50,
             Self::Down | Self::Up => 0.65,
             Self::Village(target) => target.height(),
@@ -352,9 +364,6 @@ impl Adventure {
         Product::at(self.sale, garden).or_else(|| Product::at(0, garden))
     }
 
-    pub fn furniture_name(&self) -> &'static str {
-        FURNITURE[self.furniture]
-    }
     pub fn held_tool(&self) -> Tool {
         self.focus.map_or(Tool::Hoe, Target::tool)
     }
@@ -367,10 +376,19 @@ impl Adventure {
 
     pub fn walkable(&self, point: Vec2, garden: &Garden) -> bool {
         let within = |center: Vec2, radius: f32| point.distance_squared(center) < radius * radius;
+        let inside = |center: Vec2, half: Vec2| {
+            let offset = (point - center).abs();
+            offset.x < half.x && offset.y < half.y
+        };
         match self.area {
             Area::Island | Area::District(_) => {
                 world::walkable(point)
                     && !within(SALE_CHEST, 0.70)
+                    && !inside(KITCHEN, Vec2::new(1.15, 0.64))
+                    && !inside(PATTERN_STALL, Vec2::new(0.85, 0.51))
+                    && !Animal::ALL
+                        .into_iter()
+                        .any(|kind| inside(kind.site(), Vec2::new(1.57, 1.22)))
                     && !TREES.iter().enumerate().any(|(i, &tree)| {
                         let radius = if garden.felled.contains(&i) {
                             STUMP_RADIUS
@@ -386,10 +404,6 @@ impl Adventure {
             }
             Area::Home => {
                 let p = point - HOME;
-                let inside = |center: Vec2, half: Vec2| {
-                    let offset = (point - center).abs();
-                    offset.x < half.x && offset.y < half.y
-                };
                 p.x.abs() < 3.35
                     && p.y > -2.65
                     && p.y < 2.93
@@ -399,8 +413,8 @@ impl Adventure {
                     && !inside(HOME + Vec2::new(3.02, 2.37), Vec2::splat(0.34))
                     && !garden.furniture.iter().enumerate().any(|(i, &kind)| {
                         kind.checked_sub(1)
-                            .and_then(|kind| FURNITURE_HALF_SIZES.get(kind as usize))
-                            .is_some_and(|&half| inside(HOME + SLOTS[i], half))
+                            .and_then(|kind| CATALOG.get(kind as usize))
+                            .is_some_and(|design| inside(HOME + SLOTS[i], design.half))
                     })
             }
             Area::Mine(depth) => {
@@ -422,15 +436,17 @@ impl Adventure {
             Target::Rock(_) => ROCK_RADIUS + 0.06,
             Target::MineRock(_) => ORE_RADIUS + 0.06,
             Target::SaleChest => 0.74,
+            Target::Kitchen => 1.18,
+            Target::PatternStall => 0.94,
             Target::Bed => 1.10,
             Target::Bench => 0.91,
             Target::Slot(i) => {
                 let kind = garden.furniture[i]
                     .checked_sub(1)
                     .map_or(self.furniture, usize::from);
-                FURNITURE_HALF_SIZES
+                CATALOG
                     .get(kind)
-                    .map_or(0., |half| half.length() + 0.03)
+                    .map_or(0., |design| design.half.length() + 0.03)
             }
             Target::Village(Village::Orchard(i)) => {
                 if i < 4 {
@@ -464,6 +480,9 @@ impl Adventure {
             Target::Portal => PORTAL,
             Target::Pier => PIER,
             Target::SaleChest => SALE_CHEST,
+            Target::Kitchen => KITCHEN,
+            Target::PatternStall => PATTERN_STALL,
+            Target::FarmAnimal(kind) => kind.site() + Vec2::Y * 1.66,
             Target::Tree(i) => TREES[i],
             Target::Rock(i) => ROCKS[i],
             Target::Bed => HOME + Vec2::new(-2.03, -1.74),
@@ -487,17 +506,20 @@ impl Adventure {
                 Target::Portal,
                 Target::Pier,
                 Target::SaleChest,
+                Target::Kitchen,
+                Target::PatternStall,
             ]
             .into_iter()
+            .chain(Animal::ALL.into_iter().map(Target::FarmAnimal))
             .chain(District::ALL.into_iter().map(Target::Travel))
             .chain(Village::all().map(Target::Village))
             .chain(Npc::ALL.into_iter().map(Target::Person))
-            .chain(FINDS.iter().enumerate().filter_map(|(i, _)| {
-                garden
-                    .town
-                    .find_ready(i, garden.day)
-                    .then_some(Target::Find(i))
-            }))
+            .chain(
+                FINDS
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, &find)| find.available(garden, i).then_some(Target::Find(i))),
+            )
             .chain(
                 (0..TREES.len())
                     .filter(|i| !garden.felled.contains(i))
@@ -550,6 +572,24 @@ impl Adventure {
                     true,
                 );
             }
+            if let Target::FarmAnimal(kind) = target {
+                let (hint, action, enabled) = if garden.farm.housing[kind as usize] {
+                    Village::Animal(kind).describe(garden, self.crop, None)
+                } else {
+                    let (hint, available) = kind.housing_hint(garden);
+                    (hint, "Stall bauen", available)
+                };
+                return (
+                    target.name().into(),
+                    if walking {
+                        "Auf dem Weg …".into()
+                    } else {
+                        hint
+                    },
+                    action,
+                    enabled,
+                );
+            }
             if let Target::Village(location) = target {
                 let (detail, action, enabled) =
                     location.describe(garden, self.crop, self.offer(garden));
@@ -582,12 +622,12 @@ impl Adventure {
                 Target::Slot(i) => {
                     let old = garden.furniture[i]
                         .checked_sub(1)
-                        .and_then(|i| FURNITURE.get(i as usize));
+                        .and_then(|i| CATALOG.get(i as usize));
                     (
                         format!(
                             "{} · {}",
-                            old.copied().unwrap_or("Freier Platz"),
-                            FURNITURE[self.furniture]
+                            old.map_or("Freier Platz", |design| design.name),
+                            CATALOG[self.furniture].name
                         ),
                         if old.is_some() {
                             "Einpacken"
@@ -597,11 +637,13 @@ impl Adventure {
                     )
                 }
                 Target::Bench => (
-                    format!(
-                        "{} · Holz {} · Stein {} · Kupfer {}",
-                        FURNITURE[self.furniture], garden.wood, garden.stone, garden.copper
-                    ),
-                    "Herstellen",
+                    "Bekannte Baupläne und Materialien ansehen.".into(),
+                    "Werkbank öffnen",
+                ),
+                Target::Kitchen => ("Kochen, Einmachen und Mahlen.".into(), "Küche öffnen"),
+                Target::PatternStall => (
+                    "Hier kaufst du Baupläne für deine Werkbank.".into(),
+                    "Baupläne",
                 ),
                 Target::Pier => match self.waiting {
                     Some((bite, end)) if now >= bite && now <= end => {
@@ -799,15 +841,18 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
         }
         Target::Rock(_) | Target::MineRock(_) => hit(Vec2::splat(0.76), 0., 0.97),
         Target::SaleChest => hit(Vec2::new(0.64, 0.46), 0., 0.84),
+        Target::Kitchen | Target::PatternStall => hit(Vec2::new(0.96, 0.61), 0., 1.82),
+        Target::FarmAnimal(_) => ray_box(
+            ray,
+            base + Vec3::new(-1.50, 0., -3.15),
+            base + Vec3::new(1.50, 1.98, 0.28),
+        ),
         Target::Bed => hit(BED_HALF_SIZE, 0., 1.03),
         Target::Bench => hit(BENCH_HALF_SIZE, 0., 1.1),
         Target::Slot(i) => {
             let kind = garden.furniture[i].checked_sub(1)? as usize;
-            hit(
-                *FURNITURE_HALF_SIZES.get(kind)?,
-                0.,
-                [1.36, 1.78, 1.99][kind],
-            )
+            let design = CATALOG.get(kind)?;
+            hit(design.half.max(Vec2::splat(0.47)), 0., design.height)
         }
         _ => None,
     }
@@ -923,7 +968,8 @@ pub fn interact(
     }
     if controls.choice {
         if adventure.area == Area::Home {
-            adventure.furniture = (adventure.furniture + 1) % FURNITURE.len();
+            farm_menu.show(FarmPage::Furnish);
+            return;
         } else if adventure.focus == Some(Target::Village(Village::Sell)) {
             let next = adventure.sale + 1;
             adventure.sale = if Product::at(next, &garden).is_some() {
@@ -1019,13 +1065,33 @@ pub fn interact(
     let mut persistent = true;
     let message = match target {
         Target::Travel(_) => return,
-        Target::SaleChest | Target::Village(Village::Seeds) => {
-            farm_menu.show(if target == Target::SaleChest {
-                FarmPage::Sale
-            } else {
-                FarmPage::SeedShop
+        Target::SaleChest
+        | Target::Village(Village::Seeds)
+        | Target::Bench
+        | Target::PatternStall
+        | Target::Kitchen => {
+            farm_menu.show(match target {
+                Target::SaleChest => FarmPage::Sale,
+                Target::Bench => FarmPage::Workbench,
+                Target::PatternStall => FarmPage::BlueprintShop,
+                Target::Kitchen => FarmPage::Kitchen,
+                _ => FarmPage::SeedShop,
             });
             return;
+        }
+        Target::FarmAnimal(kind) => {
+            let action = if garden.farm.housing[kind as usize] {
+                Village::Animal(kind).work(&mut garden, adventure.crop, None)
+            } else {
+                kind.build_housing(&mut garden)
+            };
+            match action {
+                Ok(message) => message,
+                Err(message) => {
+                    persistent = false;
+                    message
+                }
+            }
         }
         Target::Find(i) => {
             let Some(message) = travel::collect(&mut garden, i) else {
@@ -1101,11 +1167,9 @@ pub fn interact(
             format!("Guten Morgen · Tag {}", garden.day)
         }
         Target::Tree(i) => {
-            if garden.felled.contains(&i) {
+            if !garden.chop_tree(i) {
                 return;
             }
-            garden.felled.push(i);
-            garden.wood = garden.wood.saturating_add(3);
             adventure.focus = None;
             "+3 Holz".into()
         }
@@ -1161,24 +1225,7 @@ pub fn interact(
                 "Dieses Möbel steht bereits im Raum.".into()
             } else {
                 garden.furniture[i] = (adventure.furniture + 1) as u8;
-                format!("{} aufgestellt.", FURNITURE[adventure.furniture])
-            }
-        }
-        Target::Bench => {
-            let item = adventure.furniture;
-            let (wood, stone, copper) = [(0, 0, 0), (3, 0, 0), (1, 3, 1)][item];
-            if garden.crafted[item] {
-                persistent = false;
-                "Schon vorhanden. Wähle einen Platz.".into()
-            } else if garden.wood < wood || garden.stone < stone || garden.copper < copper {
-                persistent = false;
-                format!("Benötigt · {wood} Holz / {stone} Stein / {copper} Kupfer")
-            } else {
-                garden.wood -= wood;
-                garden.stone -= stone;
-                garden.copper -= copper;
-                garden.crafted[item] = true;
-                format!("{} hergestellt.", FURNITURE[item])
+                format!("{} aufgestellt.", CATALOG[adventure.furniture].name)
             }
         }
     };
@@ -1226,6 +1273,7 @@ enum Stamp {
         broken: Vec<usize>,
         fruit: [bool; 7],
         animals: [bool; 2],
+        housing: [bool; 2],
         finds: [bool; FINDS.len()],
     },
     Home([u8; 6]),
@@ -1255,7 +1303,8 @@ pub fn draw(
             broken: garden.broken.clone(),
             fruit: std::array::from_fn(|i| garden.farm.fruit_ready(i, garden.day)),
             animals: garden.farm.animals.map(|animal| animal.owned),
-            finds: std::array::from_fn(|i| garden.town.find_ready(i, garden.day)),
+            housing: garden.farm.housing,
+            finds: std::array::from_fn(|i| FINDS[i].available(&garden, i)),
         },
         Area::Home => Stamp::Home(garden.furniture),
         Area::Mine(depth) => Stamp::Mine(
@@ -1293,6 +1342,7 @@ pub fn draw(
                 broken,
                 fruit,
                 animals,
+                housing,
                 finds,
             } => {
                 spawn(
@@ -1301,6 +1351,26 @@ pub fn draw(
                     world::exterior_ground(SALE_CHEST),
                     0.,
                 );
+                spawn("farm_kitchen", KITCHEN, world::exterior_ground(KITCHEN), 0.);
+                spawn(
+                    "pattern_stall",
+                    PATTERN_STALL,
+                    world::exterior_ground(PATTERN_STALL),
+                    0.,
+                );
+                for kind in Animal::ALL {
+                    let site = kind.site();
+                    spawn(
+                        if housing[kind as usize] {
+                            kind.housing_model()
+                        } else {
+                            "building_plot"
+                        },
+                        site,
+                        world::exterior_ground(site),
+                        0.,
+                    );
+                }
                 for (i, find) in FINDS.into_iter().enumerate() {
                     if finds[i] {
                         let point = find.position();
@@ -1343,12 +1413,7 @@ pub fn draw(
                     .into_iter()
                     .filter(|kind| animals[*kind as usize])
                     .map(|kind| {
-                        let base = Village::Animal(kind).position()
-                            + if kind == Animal::Hen {
-                                Vec2::new(-0.87, 0.45)
-                            } else {
-                                Vec2::new(-0.60, -0.61)
-                            };
+                        let base = kind.site() + Vec2::new(-0.17, 0.66);
                         let entity = spawn(
                             if kind == Animal::Hen {
                                 "farm_hen"
@@ -1374,11 +1439,8 @@ pub fn draw(
                 spawn("furniture_bench", adventure.position(Target::Bench), 0., 0.);
                 for (i, kind) in furniture.iter().enumerate() {
                     spawn("selection", HOME + SLOTS[i], 0.055, 0.);
-                    if let Some(name) = kind
-                        .checked_sub(1)
-                        .and_then(|v| FURNITURE_MODELS.get(v as usize))
-                    {
-                        spawn(name, HOME + SLOTS[i], 0.08, 0.);
+                    if let Some(name) = kind.checked_sub(1).and_then(|v| CATALOG.get(v as usize)) {
+                        spawn(name.model, HOME + SLOTS[i], 0.08, 0.);
                     }
                 }
                 spawn("selection", adventure.position(Target::Exit), 0.05, 0.);

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     adventure::{Area, Target},
     garden::{Crop, Garden, Quality},
+    processing::Dish,
 };
 
 pub const SEED_SHOP: Vec2 = Vec2::new(16.15, 3.02);
@@ -153,7 +154,16 @@ impl Village {
             ),
             Self::Animal(kind) => {
                 let state = farm.animals[kind as usize];
-                if !state.owned {
+                if !farm.housing[kind as usize] {
+                    (
+                        format!(
+                            "Baue auf deinem Hof zuerst das Gebäude „{}“.",
+                            kind.housing_name()
+                        ),
+                        "Stall am Hof",
+                        false,
+                    )
+                } else if !state.owned {
                     (
                         format!(
                             "{} bekommt ein Zuhause · {} Münzen",
@@ -171,6 +181,12 @@ impl Village {
                             farm.feed
                         ),
                         "Einsammeln",
+                        true,
+                    )
+                } else if state.fed_day == Some(g.day) && state.petted_day != Some(g.day) {
+                    (
+                        format!("Gefüttert · Zutrauen {} / 3", state.affection),
+                        "Streicheln",
                         true,
                     )
                 } else if state.fed_day == Some(g.day) {
@@ -258,6 +274,15 @@ impl Village {
                     g.add_stock(kind.product(), quantity);
                     return Ok(format!("+{quantity} {}", kind.product().name()));
                 }
+                if state.fed_day == Some(g.day) {
+                    state.petted_day = Some(g.day);
+                    state.affection = state.affection.saturating_add(1).min(3);
+                    return Ok(format!(
+                        "{} freut sich · Zutrauen {}/3",
+                        kind.name(),
+                        state.affection
+                    ));
+                }
                 state.fed_day = Some(g.day);
                 g.farm.feed -= 1;
                 Ok(format!("{} ist für heute versorgt.", kind.name()))
@@ -303,6 +328,68 @@ impl Animal {
             Self::Sheep => Product::Wool,
         }
     }
+
+    pub fn site(self) -> Vec2 {
+        match self {
+            Self::Hen => Vec2::new(2.62, 7.53),
+            Self::Sheep => Vec2::new(8.72, 8.47),
+        }
+    }
+
+    pub fn housing_name(self) -> &'static str {
+        match self {
+            Self::Hen => "Hühnerstall",
+            Self::Sheep => "Schafscheune",
+        }
+    }
+
+    pub fn housing_model(self) -> &'static str {
+        match self {
+            Self::Hen => "farm_coop",
+            Self::Sheep => "farm_barn",
+        }
+    }
+
+    fn housing_cost(self) -> (u32, u32) {
+        match self {
+            Self::Hen => (5, 3),
+            Self::Sheep => (9, 6),
+        }
+    }
+
+    pub fn housing_hint(self, garden: &Garden) -> (String, bool) {
+        let (wood, stone) = self.housing_cost();
+        (
+            format!(
+                "{}/{} Holz · {}/{} Stein",
+                garden.wood.min(wood),
+                wood,
+                garden.stone.min(stone),
+                stone
+            ),
+            garden.wood >= wood && garden.stone >= stone,
+        )
+    }
+
+    pub fn build_housing(self, garden: &mut Garden) -> Result<String, String> {
+        let (hint, enough) = self.housing_hint(garden);
+        if garden.farm.housing[self as usize] {
+            return Err("Das Gebäude steht bereits.".into());
+        }
+        if !enough {
+            return Err(hint);
+        }
+        let (wood, stone) = self.housing_cost();
+        garden.wood -= wood;
+        garden.stone -= stone;
+        garden.farm.housing[self as usize] = true;
+        Ok(format!(
+            "{} steht. Ein {} kann einziehen.",
+            self.housing_name(),
+            self.name()
+        ))
+    }
+
     fn cycle(self) -> u8 {
         match self {
             Self::Hen => 1,
@@ -316,6 +403,8 @@ impl Animal {
 pub struct AnimalState {
     pub owned: bool,
     fed_day: Option<u32>,
+    petted_day: Option<u32>,
+    affection: u8,
     care: u8,
     pending: u32,
 }
@@ -323,6 +412,7 @@ pub struct AnimalState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Product {
     Crop(Crop, Quality),
+    Prepared(Dish),
     Fish,
     Apple,
     Berry,
@@ -351,6 +441,7 @@ impl Product {
     pub fn name(self) -> &'static str {
         match self {
             Self::Crop(crop, _) => crop.name(),
+            Self::Prepared(dish) => dish.name(),
             Self::Fish => "Fisch",
             Self::Apple => "Äpfel",
             Self::Berry => "Waldbeeren",
@@ -380,6 +471,7 @@ impl Product {
     pub fn value(self) -> u32 {
         match self {
             Self::Crop(crop, quality) => quality.price(crop.price().div_ceil(2)),
+            Self::Prepared(dish) => dish.value(),
             Self::Fish | Self::Egg => 5,
             Self::Apple | Self::Berry => 2,
             Self::Wool => 8,
@@ -395,6 +487,7 @@ impl Product {
             .into_iter()
             .flat_map(|crop| Quality::ALL.map(move |quality| Self::Crop(crop, quality)))
             .chain(Self::GATHERED)
+            .chain(Dish::ALL.map(Self::Prepared))
             .filter(|&item| garden.stock(item) > 0)
     }
 
@@ -409,6 +502,7 @@ pub struct Homestead {
     pub coins: u32,
     pub feed: u32,
     pub animals: [AnimalState; 2],
+    pub housing: [bool; 2],
     pub fruit_days: [Option<u32>; 7],
     pub goods: [u32; 6],
     pub seeds: [u32; 3],
@@ -426,6 +520,7 @@ impl Default for Homestead {
             coins: 20,
             feed: 3,
             animals: [AnimalState::default(); 2],
+            housing: [false; 2],
             fruit_days: [None; 7],
             goods: [0; 6],
             seeds: [3; 3],
@@ -451,7 +546,9 @@ impl Homestead {
                 state.care = state.care.saturating_add(1);
                 if state.care >= animal.cycle() {
                     state.care = 0;
-                    state.pending = state.pending.saturating_add(1);
+                    state.pending = state
+                        .pending
+                        .saturating_add(1 + u32::from(state.affection == 3));
                 }
             }
         }
@@ -557,11 +654,17 @@ mod tests {
     #[test]
     fn animals_only_produce_after_fed_days() {
         let mut g = Garden::default();
+        g.farm.housing[Animal::Hen as usize] = true;
         let hen = Village::Animal(Animal::Hen);
         hen.work(&mut g, Crop::Carrot, None).unwrap();
         g.sleep();
         assert!(hen.describe(&g, Crop::Carrot, None).0.contains("füttern"));
         hen.work(&mut g, Crop::Carrot, None).unwrap();
+        assert!(
+            hen.work(&mut g, Crop::Carrot, None)
+                .unwrap()
+                .contains("Zutrauen")
+        );
         assert!(hen.work(&mut g, Crop::Carrot, None).is_err());
         g.sleep();
         hen.work(&mut g, Crop::Carrot, None).unwrap();
@@ -569,8 +672,23 @@ mod tests {
     }
 
     #[test]
+    fn adopting_an_animal_requires_its_own_building() {
+        let mut g = Garden::default();
+        let sheep = Village::Animal(Animal::Sheep);
+        assert!(sheep.work(&mut g, Crop::Carrot, None).is_err());
+        g.wood = 9;
+        g.stone = 6;
+        assert!(Animal::Sheep.build_housing(&mut g).is_ok());
+        assert_eq!((g.wood, g.stone), (0, 0));
+        assert!(sheep.work(&mut g, Crop::Carrot, None).is_ok());
+        assert!(g.farm.animals[Animal::Sheep as usize].owned);
+        assert!(!g.farm.housing[Animal::Hen as usize]);
+    }
+
+    #[test]
     fn wool_needs_two_fed_days_and_can_be_sold() {
         let mut g = Garden::default();
+        g.farm.housing[Animal::Sheep as usize] = true;
         let pen = Village::Animal(Animal::Sheep);
         pen.work(&mut g, Crop::Carrot, None).unwrap();
         let coins = g.farm.coins;

@@ -77,6 +77,7 @@ pub enum FindLoot {
     Product(Product),
     Wood,
     Seeds(Crop),
+    Blueprint(usize),
 }
 
 #[derive(Clone, Copy)]
@@ -97,6 +98,7 @@ impl Find {
             FindLoot::Product(Product::Hazel) => "Haselnüsse",
             FindLoot::Product(Product::Shell) => "Muscheln",
             FindLoot::Seeds(_) => "Wildes Saatgut",
+            FindLoot::Blueprint(_) => "Möbelbauplan",
             _ => "Treibholz",
         }
     }
@@ -106,6 +108,7 @@ impl Find {
             FindLoot::Product(Product::Hazel) => "find_hazel",
             FindLoot::Product(Product::Shell) => "find_shell",
             FindLoot::Seeds(_) => "find_seeds",
+            FindLoot::Blueprint(_) => "find_blueprint",
             _ => "find_driftwood",
         }
     }
@@ -117,15 +120,25 @@ impl Find {
         }
     }
 
+    pub fn available(self, garden: &Garden, index: usize) -> bool {
+        match self.loot {
+            FindLoot::Blueprint(plan) => !garden.blueprints[plan],
+            _ => garden.town.find_ready(index, garden.day),
+        }
+    }
+
     pub fn reward(self) -> String {
         match self.loot {
             FindLoot::Seeds(crop) => format!("+{} Samen · {}", self.quantity, crop.name()),
+            FindLoot::Blueprint(plan) => {
+                format!("Bauplan · {}", crate::furniture::CATALOG[plan].name)
+            }
             _ => format!("+{} {}", self.quantity, self.name()),
         }
     }
 }
 
-pub const FINDS: [Find; 28] = [
+pub const FINDS: [Find; 31] = [
     Find {
         district: District::Forest,
         local: Vec2::new(-6.8, 2.4),
@@ -294,17 +307,38 @@ pub const FINDS: [Find; 28] = [
         loot: FindLoot::Seeds(Crop::Sunflower),
         quantity: 2,
     },
+    Find {
+        district: District::Forest,
+        local: Vec2::new(-6.55, -1.2),
+        loot: FindLoot::Blueprint(crate::furniture::FERN_POT),
+        quantity: 1,
+    },
+    Find {
+        district: District::Beach,
+        local: Vec2::new(2.52, -3.18),
+        loot: FindLoot::Blueprint(crate::furniture::HARBOR_CHEST),
+        quantity: 1,
+    },
+    Find {
+        district: District::Forest,
+        local: Vec2::new(-14.8, 13.18),
+        loot: FindLoot::Blueprint(crate::furniture::CUSHION_BENCH),
+        quantity: 1,
+    },
 ];
 
 pub fn collect(g: &mut Garden, index: usize) -> Option<String> {
     let find = *FINDS.get(index)?;
-    if !g.town.find_ready(index, g.day) {
+    if !find.available(g, index) {
         return None;
     }
     g.town.record_pick(index, g.day);
     match find.loot {
         FindLoot::Product(item) => g.add_stock(item, find.quantity),
         FindLoot::Seeds(crop) => g.add_seeds(crop, find.quantity),
+        FindLoot::Blueprint(plan) => {
+            crate::furniture::learn(g, plan);
+        }
         FindLoot::Wood => g.wood = g.wood.saturating_add(find.quantity),
     }
     Some(find.reward())

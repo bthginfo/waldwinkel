@@ -627,7 +627,18 @@ def character():
         hat.append([(r*math.cos(a),.857*r*math.sin(a)-.020,y+.042*math.cos(a+.62))
                     for i in range(16) for a in [TAU*i/16]])
     body.rings(hat,["bb8f53"]*16+["e4bc76"]*16+["edc984"]*16+["d7ab63"]*16+["e7bc73"]*16+["d9ab65","f0cc84"])
-    body.pole((0,-.02,1.455),(0,-.02,1.507),.276,"b66c47",14,tip=.255)
+    body.pole((0,-.02,1.455),(0,-.02,1.507),.276,"a87753",14,tip=.255)
+    body.pole((0,-.02,1.463),(0,-.02,1.494),.274,"698675",16,tip=.264)
+    body.ellipsoid(.123,.222,1.482,.051,.026,.045,"edc27d",8,4)
+    for i in range(16):
+        a=i*TAU/16
+        x,z=.350*math.cos(a),.301*math.sin(a)-.020
+        y=1.433+.042*math.cos(a+.62)
+        body.pole((x,z,y),(x+.054*math.cos(a),z+.047*math.sin(a),y-.006),
+                  .006,"c39960",4)
+    body.box(0,-.167,.687,.282,.145,.31,"a97a53",.066)
+    body.box(0,-.243,.751,.24,.046,.139,"c69764",.041)
+    body.ellipsoid(0,-.273,.73,.03,.016,.025,"dda771",8,4)
     # Thin belt ribbon, then the hem of the sleeve and hands.
     arm.ellipsoid(0,.00,-.094,.085,.080,.135,"e3c79f",8,4)
     arm.ellipsoid(0,.012,-.226,.065,.062,.104,"795741",8,5)
@@ -935,6 +946,227 @@ def farm_assets():
         for dx,dy in [(-.047,-.02),(.036,.007),(.009,.05)]:
             seeds.ellipsoid(x+dx,z+.044,h+dy,.033,.023,.034,"ead5a0",6,3)
     return [chest,can,drop,mulch,seeds]
+
+
+def workshop_assets():
+    models=[]
+    def make(name, asset):
+        model=Model(name,asset)
+        models.append(model)
+        return model
+
+    plot=make("Bauplatz · Pflöcke und Schnur","building_plot")
+    outline=[(-1.29,-.98),(1.29,-.98),(1.29,.98),(-1.29,.98)]
+    for x,z in outline:
+        plot.box(x,z,.22,.095,.095,.44,"a27b55",.016)
+        plot.box(x,z,.41,.109,.105,.065,"d0a86c",.012)
+    for (x,z),(xx,zz) in zip(outline,outline[1:]+outline[:1]):
+        middle=((x+xx)/2,(z+zz)/2,.22)
+        plot.pole((x,z,.34),middle,.019,"d9c597",6)
+        plot.pole(middle,(xx,zz,.34),.019,"d9c597",6)
+
+    for kind,wide,depth,high,roof in [
+        ("coop",1.92,1.29,1.22,"a4a578"),("barn",2.62,1.89,1.63,"b97458")
+    ]:
+        pen=make("Hühnerstall" if kind=="coop" else "Schafscheune","farm_"+kind)
+        pen.box(0,-.12,.11,wide+.13,depth+.11,.23,"a79a84",.063)
+        for i in range(10):
+            y=.23+(i+.5)*high/10
+            for z in [depth/2-.12,-depth/2-.12]:
+                pen.box(0,z,y,wide,.10,high/10-.007,["b68157","c38e61","c89666"][i%3],.018)
+            for x in [-wide/2,wide/2]:
+                pen.box(x,-.12,y,.12,depth,high/10-.009,"b77f58",.013)
+        for x in [-wide/2,wide/2]:
+            for z in [depth/2-.10,-depth/2-.10]:
+                pen.box(x,z,high*.53+.19,.15,.15,high+.05,"8a6148",.024)
+        y=high+.25
+        for side in [-1,1]:
+            for j in range(9):
+                z=(j-4)*(depth+.35)/9-.12
+                pen.pole((0,z,y+.47),(side*(wide/2+.13),z,y-.14),(depth+.35)/18,
+                         blend(roof,"e2bd82",j%3*.12),6)
+        pen.pole((0,-depth/2-.31,y+.51),(0,depth/2+.08,y+.51),.092,"c49161",8)
+        front=depth/2-.051
+        for x in [-.28,.28]:
+            pen.box(x,front,.61,.54,.09,.81,"956b50",.036)
+            pen.pole((x-.21,front+.056,.28),(x+.21,front+.056,.92),.045,"c19066",4)
+        pen.box(0,front+.18,.159,.89,.29,.124,"c3a378",.024)
+        window(pen,wide*.31,front-.012,y-.23,.37,.33)
+        lantern(pen,-wide*.31,front+.17,y-.42)
+        for i in range(4):
+            x=wide*.44+(i%2)*.11
+            pen.box(x,front+.23,.11+i*.035,.37,.29,.069,"d5ac70",.025,.15*i)
+        pen.box(-wide*.44,front+.19,.15,.53,.31,.27,"a97d55",.036)
+
+    kitchen=make("Hofküche · Herd, Einkochen und Handmühle","farm_kitchen")
+    kitchen.box(0,0,.135,2.08,1.02,.27,"b0957a",.055)
+    for x in [-.92,.92]:
+        kitchen.box(x,-.34,.93,.14,.16,1.83,"94694c",.021)
+    kitchen.box(0,-.24,1.71,2.02,.52,.14,"ba9568",.028)
+    for j in range(9):
+        x=(j-4)*.242
+        kitchen.pole((x,-.66,1.84),(x,.29,1.53),.129,
+                     ["c9875c","d69a69","be7b53"][j%3],6)
+    kitchen.box(-.47,-.05,.49,.79,.69,.67,"9a8070",.057)
+    kitchen.box(-.47,.302,.456,.63,.049,.358,"4c4f46",.024)
+    kitchen.ellipsoid(-.47,.324,.463,.23,.024,.124,"f3a861",9,4,mode="light")
+    kitchen.pole((-.47,-.084,.825),(-.47,-.084,.997),.223,"5b6255",10,tip=.244)
+    kitchen.pole((-.47,-.084,1.003),(-.47,-.084,1.047),.224,"829087",10,tip=.163)
+    kitchen.ellipsoid(-.47,-.084,1.074,.043,.045,.031,"b9aa86",8,4)
+    kitchen.box(.47,-.016,.62,.91,.72,.49,"ab7950",.041)
+    kitchen.box(.47,.006,.877,.95,.76,.091,"d0a576",.025)
+    kitchen.pole((.67,-.08,.936),(.67,-.08,1.099),.212,"a59c87",10)
+    kitchen.pole((.67,-.08,1.085),(.84,-.03,1.176),.029,"725d46",6)
+    for i,(x,tint) in enumerate([(.01,"b97773"),(.24,"ebad71"),(.40,"8b9c64")]):
+        kitchen.pole((x,.247,.929),(x,.247,1.126),.068,tint,8,tip=.075)
+        kitchen.pole((x,.247,1.118),(x,.247,1.152),.081,"ddbd8a",8)
+    lantern(kitchen,.88,.22,1.39)
+
+    stall=make("Bauplanstand · Tintenfass und Pergament","pattern_stall")
+    stall.box(0,-.04,.27,1.42,.67,.54,"966747",.045)
+    stall.box(0,.02,.62,1.54,.78,.125,"d3a36e",.032)
+    for x in [-.70,.70]:
+        stall.box(x,-.28,1.04,.12,.12,1.47,"8f664a",.025)
+    for i in range(7):
+        x=(i-3)*.226
+        stall.pole((x,-.53,1.70),(x,.40,1.43),.116,
+                   "769279" if i%2 else "dfca97",5)
+    for i,x in enumerate([-.39,-.11,.19]):
+        stall.box(x,.15,.70,.23,.37,.048,"e8c996",.011,.06*(i-1))
+        stall.pole((x-.092,.311,.725),(x+.088,.317,.725),.027,"c49a62",7)
+    stall.pole((.50,.02,.68),(.50,.02,.751),.08,"527166",7,tip=.051)
+    stall.pole((.50,.02,.752),(.59,-.022,.926),.015,"e4d8b0",5,tip=.004)
+    roll=make("Gefundener Bauplan · Pergament und Siegel","find_blueprint")
+    roll.box(.02,.03,.105,.383,.257,.047,"ecd49e",.018,.22)
+    roll.pole((-.23,-.04,.128),(.19,.075,.128),.058,"dab782",8)
+    roll.pole((-.17,-.094,.13),(.19,-.008,.13),.039,"ead3a8",8)
+    roll.box(.02,-.01,.176,.069,.24,.034,"788d74",.012,-.10)
+    roll.ellipsoid(.025,.074,.200,.045,.051,.018,"ad6252",7,3)
+
+    for asset,tint,cushion in [
+        ("blue_bench","79918d",False),("cushion","a77c61",True)
+    ]:
+        bench=make("Kissenbank" if cushion else "Blaue Sitzbank","furniture_"+asset)
+        for x in [-.51,.51]:
+            bench.box(x,0,.235,.13,.57,.47,"95674b",.025)
+            if not cushion:
+                bench.box(x,-.237,.673,.081,.081,.56,"72665b",.016)
+        bench.box(0,0,.48,1.34,.62,.14,tint,.041)
+        if cushion:
+            for x,c in [(-.34,"ad7567"),(.34,"d5ad75")]:
+                bench.box(x,.025,.601,.62,.56,.149,c,.053)
+        else:
+            bench.box(0,-.248,.77,1.28,.09,.273,"819b8c",.025)
+
+    lamp=make("Laternenständer","furniture_lantern")
+    lamp.pole((0,0,0),(0,0,.097),.24,"a38862",8,tip=.21)
+    lamp.pole((0,0,.09),(0,0,1.39),.072,"8d6148",6,tip=.059)
+    lantern(lamp,0,.111,1.267)
+    lamp.box(0,.05,1.447,.357,.24,.084,"a97653",.024)
+
+    pot=make("Farntopf","furniture_fern")
+    pot.pole((0,0,0),(0,0,.397),.204,"b87959",10,tip=.294)
+    pot.pole((0,0,.361),(0,0,.407),.30,"cc9671",10)
+    pot.pole((0,0,.406),(0,0,.423),.263,"746144",10)
+    fern(pot,0,0,.65)
+    for j in range(8):
+        a=j*TAU/8
+        pot.pole((0,0,.411),(.41*math.cos(a),.41*math.sin(a),.73+.14*math.cos(j)),.04,"81a078",5,tip=.007)
+
+    for asset,w,colors in [("armchair",1.01,["a0a475","adb485"]),
+                            ("sofa",1.53,["ad7464","dfa878","899b78"])]:
+        chair=make("Lesesessel" if asset=="armchair" else "Patchworksofa","furniture_"+asset)
+        for x in [-w*.42,w*.42]:
+            for z in [0.31,-.31]:
+                chair.pole((x,z,0),(x,z,.285),.055,"825c46",5)
+            chair.box(x,-.02,.60,.17,.77,.32,"b58d6b",.059)
+        chair.box(0,-.015,.35,w,.82,.26,"91735f",.061)
+        for i,color in enumerate(colors):
+            x=w*((i+.5)/len(colors)-.5)*.83
+            chair.box(x,.042,.531,w*.80/len(colors),.64,.17,color,.063)
+            chair.box(x,-.36,.815,w*.82/len(colors),.21,.55,color,.067)
+
+    for asset,label,tint in [("display","Glasvitrine","8ca99a"),
+                             ("vines","Rankregal","a0875a"),
+                             ("herbs","Kräutervitrine","798179")]:
+        shelf=make(label,"furniture_"+asset)
+        for x in [-.51,.51]:
+            shelf.box(x,0,.83,.13,.60,1.63,tint,.026)
+        shelf.box(0,-.26,.81,1.12,.09,1.55,"a37f60",.028)
+        for i,y in enumerate([.15,.55,1.03,1.58]):
+            shelf.box(0,0,y,1.15,.616,.099,tint,.031)
+            if i==3:
+                continue
+            for j,x in enumerate([-.35,.04,.36]):
+                h=.102+j*.025
+                shelf.pole((x,.075,y+.052),(x,.075,y+.056+2*h),.071,
+                           ["e5b377","c28773","93a77c"][(j+i)%3],7,tip=.066)
+                if asset=="vines":
+                    for k in range(3):
+                        shelf.ellipsoid(x+k*.032-.034,.16,y+.19+k*.085,.096,.035,.058,
+                                        "829f70",6,4,angle=.34*k)
+        if asset=="display":
+            for x in [-.283,.283]:
+                shelf.box(x,.277,.857,.057,.08,1.36,"9eb6a6",.015)
+                for y in [.45,1.14]:
+                    shelf.face([(x-.19,.325,y+.10),(x+.145,.325,y-.08),
+                                (x+.12,.325,y-.104),(x-.19,.325,y+.072)],"b8d0ba")
+        if asset=="herbs":
+            shelf.box(0,.28,1.43,1.10,.08,.32,"829579",.027)
+            for x in [-.37,0,.37]:
+                window(shelf,x,.31,1.434,.25,.12)
+
+    chest=make("Hafentruhe","furniture_harbor_chest")
+    chest.box(0,0,.274,1.07,.69,.51,"a87a62",.039)
+    chest.box(0,-.005,.57,1.14,.72,.16,"899d90",.056)
+    chest.box(0,.361,.432,.225,.045,.146,"cda86d",.015)
+    chest.box(0,.395,.443,.10,.066,.074,"7f6852",.014)
+    for side in [-1,1]:
+        chest.box(side*.43,0,.32,.096,.734,.535,"858c76",.021)
+
+    desk=make("Schreibtisch","furniture_desk")
+    for x in [-.55,.55]:
+        for z in [-.343,.30]:
+            desk.box(x,z,.356,.12,.14,.72,"946a50",.033)
+    desk.box(0,0,.733,1.36,.742,.166,"c89166",.029)
+    desk.box(.345,.08,.492,.545,.57,.271,"a97854",.034)
+    desk.box(.348,.38,.504,.12,.04,.068,"bf9b67",.011)
+    desk.box(-.18,.122,.841,.287,.36,.029,"ebd7ab",.012,.25)
+    desk.pole((.48,-.21,.816),(.48,-.21,.969),.063,"688379",8,tip=.051)
+
+    stove=make("Blauer Kachelofen","furniture_blue_stove")
+    for i in range(6):
+        stove.box(0,-.02,.14+i*.13,.84,.75,.128,["688983","77968c","87a398"][i%3],.031)
+    stove.pole((0,-.084,.815),(0,-.084,1.91),.16,"62585a",8,tip=.135)
+    stove.box(0,.365,.44,.45,.06,.43,"494b4a",.053)
+    stove.box(0,.407,.429,.315,.034,.246,"d18e55",.056,mode="light")
+
+    rug=make("Wollteppich","furniture_rug")
+    rug.box(0,0,.028,1.30,1.03,.034,"939b73",.058)
+    for x in [-.48,.48]:
+        rug.box(x,0,.049,.126,.91,.013,"e8ce95",.011)
+    for z in [-.453,.453]:
+        rug.box(0,z,.051,1.24,.099,.015,"d7b085",.012)
+    for x in [-.25,0,.25]:
+        rug.box(x,0,.053,.118,.118,.008,"cdab83",.014,angle=math.pi/4)
+
+    copper=make("Kupferlampentisch","furniture_copper_lamp")
+    copper.pole((0,0,0),(0,0,.078),.346,"ae795c",9,tip=.326)
+    copper.pole((0,0,.081),(0,0,.601),.11,"99694d",9)
+    copper.pole((0,0,.582),(0,0,.719),.45,"c69b72",12)
+    copper.pole((0,0,.72),(0,0,.982),.087,"b77d56",8,tip=.057)
+    copper.pole((0,0,.983),(0,0,1.18),.204,"db9a67",10,tip=.13)
+    copper.pole((0,0,.958),(0,0,.979),.198,"f0c985",10,mode="light")
+
+    harp=make("Walnussharfe","furniture_harp")
+    harp.box(0,0,.086,1.045,.618,.17,"956b55",.047)
+    harp.pole((-.40,0,.16),(-.42,0,1.59),.092,"aa7b57",7,tip=.069)
+    harp.pole((-.42,0,1.57),(.46,0,.86),.091,"a57753",7)
+    harp.pole((.46,0,.86),(.29,0,.17),.106,"8f634a",7)
+    for i in range(8):
+        x=-.32+i*.094
+        harp.pole((x,.02,.186),(x,.02,1.47-i*.077),.013,"dfbe82",5)
+    return models
 
 
 ORCHARD_POINTS = [
@@ -1965,7 +2197,7 @@ def generate():
     landscape.bake_heightmap(ROOT)
     resources=resource_models()
     extra=[*garden(),*character(),*effects(),*furniture_models(),*resources,*new_game_models(),*farm_assets(),
-           *deep_mine_assets(resources),*find_assets(),*npc_models()]
+           *deep_mine_assets(resources),*find_assets(),*npc_models(),*workshop_assets()]
     exterior=[*world,*districts,*terrain]
     exterior_assets={model.asset for model in exterior}
     offsets={asset:Vector(point(*location,0)) for asset,location in landscape.ORIGINS.items()}

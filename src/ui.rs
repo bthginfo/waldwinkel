@@ -921,7 +921,7 @@ pub fn update(
     }
     for (utility, mut label) in &mut labels {
         let next = match utility.0 {
-            Utility::Choice if adventure.area == Area::Home => adventure.furniture_name(),
+            Utility::Choice if adventure.area == Area::Home => "Einrichten",
             Utility::Choice => {
                 homestead::choice_label(adventure.area, adventure.focus, adventure.offer(&garden))
                     .unwrap_or("Saatgut")
