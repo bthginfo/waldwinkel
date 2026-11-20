@@ -1099,7 +1099,7 @@ impl Adventure {
             ),
             Area::Home => (
                 "Deine Hütte".into(),
-                "Tippe auf Bett, Werkbank, Kartenbinder oder Möbelplatz.".into(),
+                "Tippe auf ein Möbel, das Bett oder den Kartenbinder. Die Werkbank steht auf dem Hof.".into(),
                 "Ort wählen",
                 true,
             ),

@@ -230,7 +230,7 @@ impl Project {
             }
             Self::Forge => {
                 garden.workshop.forge = true;
-                "Der Schmiedetisch steht neben der Werkbank.".into()
+                "Der Schmiedetisch steht jetzt am östlichen Hofweg.".into()
             }
             Self::Room(_) => {
                 garden.workshop.house += 1;
