@@ -6,6 +6,8 @@ Die kurzen Rückmeldungen für Gartenarbeit, Handwerk und Duelle sind getrennt a
 
 Im Kartenkampf hört man zuerst das Gleiten des Papiers. Treffer, Schild und Sporen klingen mit dem Effekt an. Beim Kochen hört man das Messer auf dem Brett, das Rühren und das fertige Gericht. Glas und Handmühle verwenden andere Geräusche. `python art/action_audio.py` mischt diese Rückmeldungen aus den mitgelieferten Ausschnitten und kurzen Resonanzen.
 
+`python art/footsteps.py` mischt aus den mitgelieferten Aufnahmen je zwei kurze Schritte für Gras, Holz, Stein, Sand und Schnee. Die Schrittfolge richtet sich nach der zurückgelegten Strecke. Dadurch sind Schleichschritte seltener und leiser als beim Laufen.
+
 ## Aufnahmen
 
 - Klavier aus der **VS Chamber Orchestra Community Edition**, aufgenommen von Simon Dalzell. Harfe aus derselben Bibliothek. Lizenz CC0 1.0. [VSCO 2 CE](https://github.com/sgossner/VSCO-2-CE/tree/440300901dfe9275fd84e0b7763af1f8443ae62e)
@@ -16,4 +18,4 @@ Im Kartenkampf hört man zuerst das Gleiten des Papiers. Treffer, Schild und Spo
 - **Digging Into Soft Soil with Small Trowell**, dhallcomposer. Lizenz CC0. [Aufnahme](https://freesound.org/people/dhallcomposer/sounds/696531/)
 - **Scooping Water with Plastic Watering Can**, qubodup. Lizenz CC0. [Aufnahme](https://freesound.org/people/qubodup/sounds/210424/)
 
-Die benutzten Ausschnitte sind gefiltert, zugeschnitten und in den Spielmix integriert. `python art/render_score.py /pfad/zum/sample-cache` rendert Musik und Ausschnitte mit NumPy und FFmpeg. `art/build_audio.py` erzeugt die übrigen Geräusche für Schritte, Wellen und Regen.
+Die benutzten Ausschnitte sind gefiltert, zugeschnitten und in den Spielmix integriert. `python art/render_score.py /pfad/zum/sample-cache` rendert Musik und Ausschnitte mit NumPy und FFmpeg. `art/build_audio.py` erzeugt unter anderem Wellen und Regen.

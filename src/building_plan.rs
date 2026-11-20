@@ -237,6 +237,8 @@ fn source(need: Need, garden: &Garden) -> (&'static str, Target) {
             }
             Product::Spoils(_) => ("Wegwachten und Dämmergänge", Target::DuskGate),
             Product::Seasonal(season) => (season.find_hint(), forest),
+            Product::Grass => ("Wildgras am Hof und auf den Weiden", Target::Find(51)),
+            Product::Milk => ("Füttere dein Schaf und sammle seine Erzeugnisse ein", Target::FarmAnimal(crate::homestead::Animal::Sheep)),
             Product::Crop(_, _) => unreachable!(),
         },
     }

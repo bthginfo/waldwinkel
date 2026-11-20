@@ -61,7 +61,7 @@ impl Utility {
             Self::Inventory => controls.inventory = true,
             Self::Menu => controls.menu = true,
             Self::Fertilize => controls.fertilize = true,
-            Self::FieldTool => controls.field_tool = true,
+            Self::FieldTool => controls.wheel = true,
         }
     }
 }
@@ -250,6 +250,7 @@ pub fn resize(
     mut scale: ResMut<UiScale>,
     mut hud: Single<&mut Node, With<Hud>>,
     player: Single<&Gardener>,
+    controller: Res<crate::controller::Controller>,
     mut field_button: Single<&mut Visibility, With<FieldToolButton>>,
 ) {
     let [left, top, right, bottom] = insets.0.map(|v| v / window.scale_factor());
@@ -263,8 +264,8 @@ pub fn resize(
     let fertilizer = !adventure.map
         && focus.selected.is_some_and(|i| garden.fertilizable(i))
         && !garden.clock.night();
-    let field_tools =
-        adventure.area == Area::Island && !adventure.map && player.position.length() < 17.;
+    let field_tools = !adventure.map
+        && (controller.active || adventure.area == Area::Island && player.position.length() < 17.);
     field_button.set_if_neq(if field_tools {
         Visibility::Inherited
     } else {
@@ -344,7 +345,7 @@ pub fn map_labels(
         }
     }
     let (node, visible) = &mut *pin;
-    let point = tracked_pin(&adventure, &garden, camera, &view, layout.scale)
+    let point = tracked_pin(&adventure, &garden, camera, &view, &layout)
         .filter(|(target, _)| {
             !matches!(target, Target::Person(npc)
                 if adventure.map || npc.quest_mark(&garden).is_some())
@@ -967,7 +968,12 @@ pub fn sync_visibility(
     ready: Res<Ready>,
     session: Res<Session>,
     dialog: Res<Dialog>,
-    farm_menu: Res<crate::farm_ui::FarmMenu>,
+    overlays: (
+        Res<crate::farm_ui::FarmMenu>,
+        Res<crate::wheel::Wheel>,
+        Res<crate::decorate::Layout>,
+        Res<crate::night::Night>,
+    ),
     keys: Res<ButtonInput<KeyCode>>,
     mut show: Local<Option<bool>>,
     mut hud: Single<&mut Visibility, (With<Hud>, Without<Loading>)>,
@@ -976,10 +982,14 @@ pub fn sync_visibility(
     if keys.just_pressed(KeyCode::F10) {
         *show = Some(!show.unwrap_or(true));
     }
+    let (farm_menu, wheel, layout, night) = overlays;
     **hud = if ready.0
         && session.playing()
         && !dialog.open()
         && !farm_menu.open()
+        && !wheel.open()
+        && !layout.open()
+        && !night.active()
         && show.unwrap_or(true)
     {
         Visibility::Inherited
@@ -1165,14 +1175,16 @@ pub fn update(
     }
     if focus.selected.is_none() && adventure.focus.is_none() && !garden.clock.night() {
         let step = crate::campaign::next(&garden);
-        if adventure.area.outdoors() && step != crate::campaign::Step::Done {
+        if adventure.area.outdoors()
+            && !matches!(step, crate::campaign::Step::Done | crate::campaign::Step::Tutorial(_))
+        {
             panel.title = step.title().into();
             panel.detail = step.hint(&garden, panel.pad);
         } else if panel.pad {
-            panel.detail = "← → Ziel wählen · X direkt · ↑ Journal · Y Karte".into();
+            panel.detail = "A · Interagieren   X · Werkzeugrad   ↑ · Journal".into();
         }
     }
-    if (notice.index.is_none() || notice.index == focus.selected) && now < notice.until {
+    if notice.toast.is_none() && (notice.index.is_none() || notice.index == focus.selected) && now < notice.until {
         panel.detail.clone_from(&notice.message);
     }
     let (action_color, action_visible) = &mut *action_surface;
@@ -1183,7 +1195,10 @@ pub fn update(
         Visibility::Inherited
     });
     if island_map {
-        panel.title = "! Neuer Auftrag · ? Abgabebereit".into();
+        panel.title = adventure.tracked_target(&garden).map_or_else(
+            || "! Neuer Auftrag · ? Abgabebereit".into(),
+            |target| format!("Auftragsgebiet · {}", District::at(adventure.position(target, &garden)).map_or("Hof", District::name)),
+        );
         panel.detail = if panel.pad {
             if let Some(target) = adventure.map_focus {
                 panel.title = target.name().into();
@@ -1204,6 +1219,13 @@ pub fn update(
     }
     for (utility, mut label) in &mut labels {
         let next = match utility.0 {
+            Utility::Choice if panel.pad && adventure.area == Area::Home => "LT Einrichten",
+            Utility::Choice if panel.pad => "LT Saatgut",
+            Utility::Task if panel.pad => "↑ Journal",
+            Utility::Map if panel.pad && adventure.map => "Y Nahansicht",
+            Utility::Map if panel.pad => "Y Karte",
+            Utility::Inventory if panel.pad => "View Tasche",
+            Utility::FieldTool if panel.pad => "X Werkzeuge",
             Utility::Choice if adventure.area == Area::Home => "Einrichten",
             Utility::Choice => {
                 homestead::choice_label(adventure.area, adventure.focus, adventure.offer(&garden))
@@ -1214,6 +1236,7 @@ pub fn update(
             Utility::Map if adventure.area.outdoors() => "Karte",
             Utility::Map => "Übersicht",
             Utility::Inventory => "Tasche",
+            Utility::FieldTool if focus.tool == crate::fieldwork::FieldTool::Auto => "Werkzeuge",
             Utility::FieldTool => focus.tool.name(),
             _ => continue,
         };
@@ -1252,8 +1275,9 @@ pub fn update(
             Field::Detail => panel.detail.clone(),
             Field::Action => {
                 let label = panel.action.map_or(panel.fallback, Action::label);
-                let prefix = if panel.pad && panel.enabled {
-                    "X · "
+                let label = if panel.pad && label == "Ort wählen" { "Interagieren" } else { label };
+                let prefix = if panel.pad && (panel.enabled || label == "Interagieren") {
+                    "A · "
                 } else {
                     ""
                 };

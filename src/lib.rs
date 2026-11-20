@@ -7,9 +7,11 @@ mod commissions;
 mod controller;
 mod craft;
 mod day;
+mod decorate;
 mod duel;
 mod evening_market;
 mod farm_ui;
+mod feedback;
 mod fieldwork;
 mod figure;
 mod forest;
@@ -21,8 +23,10 @@ mod homestead;
 mod input;
 mod inventory;
 mod logbook;
+mod navigation_ui;
 #[cfg(target_os = "android")]
 mod mobile;
+mod night;
 mod onboarding;
 mod processing;
 mod progression;
@@ -42,6 +46,7 @@ mod ui;
 mod water;
 mod waywatch;
 mod weather;
+mod wheel;
 mod wildlife;
 mod workshop;
 mod world;
@@ -64,14 +69,13 @@ struct Controls {
     cycle: bool,
     pad_cycle: i8,
     pad_action: bool,
-    pad_quick: bool,
     cancel: bool,
     act: bool,
     zoom: f32,
     map: bool,
     choice: bool,
     fertilize: bool,
-    field_tool: bool,
+    wheel: bool,
     task: bool,
     inventory: bool,
     menu: bool,
@@ -82,6 +86,7 @@ struct GardenFocus {
     selected: Option<usize>,
     pending: Option<(Action, garden::Crop)>,
     tool: fieldwork::FieldTool,
+    pad_lock: bool,
 }
 
 #[derive(Resource, Default)]
@@ -90,6 +95,7 @@ struct Notice {
     message: String,
     action: Option<Action>,
     until: f32,
+    toast: Option<feedback::Tone>,
 }
 
 impl Notice {
@@ -164,6 +170,10 @@ pub fn main() {
         .init_resource::<controller::Controller>()
         .init_resource::<GardenFocus>()
         .init_resource::<Notice>()
+        .init_resource::<night::Night>()
+        .init_resource::<decorate::Layout>()
+        .init_resource::<wheel::Wheel>()
+        .init_resource::<wheel::Pictures>()
         .init_resource::<input::Gesture>()
         .init_resource::<ui::HudLayout>()
         .init_resource::<resident_view::ResidentPins>()
@@ -195,6 +205,7 @@ pub fn main() {
                 wildlife::setup,
             ),
         )
+        .add_systems(Startup, (night::setup, wheel::setup, navigation_ui::setup, decorate::setup, feedback::setup))
         .add_systems(
             Update,
             (
@@ -204,9 +215,18 @@ pub fn main() {
                 farm_ui::input,
                 battle_ui::input,
                 input::collect,
+                wheel::input,
+                decorate::input,
                 session::open_menu,
             )
                 .chain(),
+        )
+        .add_systems(
+            Update,
+            (night::update.after(adventure::interact).before(ui::update),
+             wheel::update.after(wheel::input).before(ui::sync_visibility),
+             decorate::draw.after(adventure::interact),
+             feedback::update.after(adventure::interact)),
         )
         .add_systems(
             Update,
@@ -273,7 +293,7 @@ pub fn main() {
         .add_systems(PostUpdate, session::autosave)
         .add_systems(
             PostUpdate,
-            (ui::map_labels, resident_view::update)
+            (ui::map_labels, resident_view::update, navigation_ui::update)
                 .after(bevy::render::camera::CameraUpdateSystem)
                 .before(bevy::ui::UiSystem::Prepare),
         );
@@ -300,28 +320,12 @@ pub fn main() {
 fn select_plot(
     controls: Res<Controls>,
     adventure: Res<Adventure>,
+    garden: Res<Garden>,
     mut focus: ResMut<GardenFocus>,
-    mut player: Single<&mut Gardener>,
-    mut notice: ResMut<Notice>,
-    time: Res<Time>,
+    player: Single<&Gardener>,
 ) {
     if adventure.area != Area::Island {
         return;
-    }
-    if controls.field_tool && !adventure.map && player.position.length() < 17. {
-        focus.tool = focus.tool.next();
-        if focus.pending.take().is_some() {
-            player.stop();
-        }
-        *notice = Notice {
-            message: if focus.tool == fieldwork::FieldTool::Auto {
-                "Werkzeugwahl automatisch".into()
-            } else {
-                format!("{} bleibt ausgewählt", focus.tool.name())
-            },
-            until: time.elapsed_secs() + Notice::DURATION,
-            ..default()
-        };
     }
     if controls.move_axis != Vec2::ZERO
         && focus
@@ -330,12 +334,13 @@ fn select_plot(
     {
         focus.selected = None;
         focus.pending = None;
+        focus.pad_lock = false;
     }
     if controls.cycle && !adventure.map && player.position.length() < 16. {
         focus.selected = Some(
             focus
                 .selected
-                .map_or(0, |previous| (previous + 1) % PLOTS.len()),
+                .map_or(0, |previous| (previous + 1) % garden.active_beds()),
         );
         focus.pending = None;
     }
@@ -350,7 +355,7 @@ fn act(
     mut notice: ResMut<Notice>,
     mut garden: ResMut<Garden>,
     path: Res<SavePath>,
-    mut farm_menu: ResMut<farm_ui::FarmMenu>,
+    mut wheel: ResMut<wheel::Wheel>,
     mut watered: EventWriter<world::Watered>,
 ) {
     if controls.move_axis != Vec2::ZERO
@@ -368,6 +373,7 @@ fn act(
     let Some(index) = focus.selected else {
         let closest = PLOTS
             .iter()
+            .take(garden.active_beds())
             .enumerate()
             .min_by(|(_, a), (_, b)| {
                 a.distance_squared(player.position)
@@ -389,7 +395,8 @@ fn act(
         && garden.plots[index].stage() == garden::Stage::Soil
         && garden.seed_count(adventure.crop) == 0
     {
-        farm_menu.show(farm_ui::FarmPage::Seeds);
+        wheel.choose_seeds(adventure.crop);
+        player.stop();
         return;
     }
     let requested = if controls.fertilize {
@@ -416,14 +423,25 @@ fn act(
         .map(|action| (action, adventure.crop))
         .or(focus.pending)
     else {
+        if controls.act && focus.tool != fieldwork::FieldTool::Auto {
+            *notice = Notice {
+                index: Some(index),
+                message: if focus.tool == fieldwork::FieldTool::Fertilizer && garden.fertilizer == 0 {
+                    "Dünger bekommst du bei Lina in Eichenhafen.".into()
+                } else {
+                    format!("{} passt gerade nicht zu diesem Beet.", focus.tool.name())
+                },
+                until: now + Notice::DURATION,
+                ..default()
+            };
+        }
         return;
     };
     let reach = world::work_reach(PLOTS[index], action, &garden);
     if !reach.reached(player.position, &|p| adventure.walkable(p, &garden)) {
         if requested.is_some() {
-            focus.pending = player
-                .navigate(reach, &adventure, &garden)
-                .then_some((action, crop));
+            player.navigate_over_time(reach, &adventure, &garden);
+            focus.pending = Some((action, crop));
         }
         if !player.approaching() {
             focus.pending = None;
@@ -466,6 +484,7 @@ fn act(
         }
         if let Some(next) = stroke.next {
             focus.selected = Some(next);
+            focus.pad_lock = controls.pad_action || focus.pad_lock;
             message.push_str(&format!(" · Nächstes Beet {}", next + 1));
         }
         adventure::commit(

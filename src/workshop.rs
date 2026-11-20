@@ -78,8 +78,8 @@ impl ToolKind {
 
     pub fn effect(self) -> &'static str {
         match self {
-            Self::Axe => "Mehr Holz pro Baum",
-            Self::Pickaxe => "Mehr Stein und Erz",
+            Self::Axe => "Kupfer fällt Laubbäume · Silber fällt Moorbäume",
+            Self::Pickaxe => "Kupfer baut Silber ab · Silber löst Kristalle",
             Self::Can => "Gießt in der Reihe · Kupfer 2 Beete · Silber 3 Beete",
             Self::Hoe => "Lockert in der Reihe · Kupfer 2 Beete · Silber 3 Beete",
         }
@@ -155,6 +155,7 @@ pub enum Project {
     Restore,
     Forge,
     Loom,
+    Field,
     Room(usize),
 }
 
@@ -170,6 +171,7 @@ impl Project {
                     .then_some(Self::Loom),
             )
             .chain((state.restored && state.house < 2).then_some(Self::Room(state.house as usize)))
+            .chain((state.restored && !garden.expanded_field).then_some(Self::Field))
     }
 
     pub fn name(self) -> &'static str {
@@ -177,6 +179,7 @@ impl Project {
             Self::Restore => "Werkbank instand setzen",
             Self::Forge => "Schmiedetisch bauen",
             Self::Loom => "Webrahmen bauen",
+            Self::Field => "Garten erweitern",
             Self::Room(index) => ROOMS[index],
         }
     }
@@ -200,6 +203,7 @@ impl Project {
                 copper: 2,
                 ..Default::default()
             },
+            Self::Field => Cost { wood: 8, stone: 4, ..Default::default() },
             Self::Room(0) => Cost {
                 wood: 12,
                 stone: 6,
@@ -224,11 +228,20 @@ impl Project {
             Self::Restore => garden.workshop.restored,
             Self::Forge => garden.workshop.forge,
             Self::Loom => garden.workshop.loom,
+            Self::Field => garden.expanded_field,
             Self::Room(index) => usize::from(garden.workshop.house) > index,
         }
     }
 
     pub fn detail(self, garden: &Garden) -> String {
+        if self == Self::Field {
+            let requirement = if garden.harbor.phase == crate::harbor::Phase::Open {
+                ""
+            } else {
+                " · Erst den Fischersteg wiedereröffnen"
+            };
+            return format!("6 neue Beete · {}{requirement}", self.cost().detail(garden));
+        }
         if let Self::Room(i) = self
             && !garden.workshop.rooms[i]
         {
@@ -242,6 +255,7 @@ impl Project {
             && self.cost().ready(garden)
             && match self {
                 Self::Room(i) => garden.workshop.rooms[i],
+                Self::Field => garden.harbor.phase == crate::harbor::Phase::Open,
                 _ => true,
             }
     }
@@ -267,12 +281,15 @@ impl Project {
                 garden.workshop.loom = true;
                 "Der Webrahmen steht am östlichen Hofweg.".into()
             }
+            Self::Field => {
+                garden.expanded_field = true;
+                "Die südliche Wiese ist erschlossen · Sechs neue Beete".into()
+            }
             Self::Room(_) => {
                 garden.workshop.house += 1;
                 format!(
-                    "{} gebaut · {} Möbelplätze im Haus",
-                    self.name(),
-                    garden.workshop.slots()
+                    "{} gebaut · Mehr Platz für deine Möbel",
+                    self.name()
                 )
             }
         })

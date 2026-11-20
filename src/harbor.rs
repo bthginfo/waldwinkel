@@ -69,7 +69,7 @@ impl Phase {
                 "Bo braucht Treibholz vom Hafenufer und zwei Holz. Fiete kennt den angeschwemmten Stapel unterhalb des Bautischs."
             }
             Self::Landing => {
-                "Fertige an deiner Hofwerkbank Kupferbeschläge aus zwei Kupfer. Bring sie mit vier Holz und zwei Stein zum Bautisch."
+                "Bring vier Holz, zwei Stein und zwei Kupfer zum Bautisch. Gefertigte Kupferbeschläge kannst du stattdessen verwenden."
             }
             Self::Rails => {
                 "Für die Wiedereröffnung kochen die Nachbarn zusammen. Bring drei Stück Gemüse oder Obst aus deinen Beeten mit."
@@ -206,12 +206,14 @@ pub fn supplies(garden: &Garden) -> String {
             u8::from(garden.harbor.driftwood),
             garden.wood.min(2),
         ),
-        Phase::Landing => format!(
-            "{}/1 Kupferbeschläge · {}/4 Holz · {}/2 Stein",
-            u8::from(garden.harbor.fittings),
-            garden.wood.min(4),
-            garden.stone.min(2),
-        ),
+        Phase::Landing => {
+            let metal = if garden.harbor.fittings {
+                "Beschläge bereit".into()
+            } else {
+                format!("{}/2 Kupfer für Beschläge", garden.copper.min(FITTING_COPPER))
+            };
+            format!("{metal} · {}/4 Holz · {}/2 Stein", garden.wood.min(4), garden.stone.min(2))
+        }
         Phase::Rails => format!(
             "{}/{OFFERING} Ernte aus deinen Beeten",
             crops(garden).min(OFFERING)
@@ -225,7 +227,8 @@ pub fn can_build(garden: &Garden) -> bool {
         && !garden.clock.night()
         && match garden.harbor.phase {
             Phase::Damaged => garden.harbor.driftwood && garden.wood >= 2,
-            Phase::Landing => garden.harbor.fittings && garden.wood >= 4 && garden.stone >= 2,
+            Phase::Landing => (garden.harbor.fittings || garden.copper >= FITTING_COPPER)
+                && garden.wood >= 4 && garden.stone >= 2,
             Phase::Rails => crops(garden) >= OFFERING,
             Phase::Open => false,
         }
@@ -250,6 +253,9 @@ pub fn build(garden: &mut Garden) -> Result<String, String> {
         Phase::Landing => {
             garden.wood -= 4;
             garden.stone -= 2;
+            if !garden.harbor.fittings {
+                garden.copper -= FITTING_COPPER;
+            }
             garden.harbor.fittings = false;
             (
                 Phase::Rails,
@@ -292,6 +298,22 @@ pub fn catch(garden: &mut Garden, spot: Fishing) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_second_stage_accepts_raw_copper_at_the_building_table() {
+        let mut garden = Garden::default();
+        garden.harbor.started = true;
+        garden.harbor.phase = Phase::Landing;
+        garden.wood = 4;
+        garden.stone = 2;
+        garden.copper = 1;
+        assert!(build(&mut garden).is_err());
+        assert_eq!((garden.wood, garden.stone, garden.copper), (4, 2, 1));
+        garden.copper = 2;
+        assert!(build(&mut garden).is_ok());
+        assert_eq!(garden.harbor.phase, Phase::Rails);
+        assert_eq!((garden.wood, garden.stone, garden.copper), (0, 0, 0));
+    }
     use crate::{Adventure, adventure::Target, garden::Quality};
 
     #[test]

@@ -21,6 +21,7 @@ pub struct DuelPane;
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 pub enum DuelButton {
     Play(usize),
+    Commit,
     End,
     Retreat,
     Stay,
@@ -74,7 +75,19 @@ struct Feedback {
 }
 
 #[derive(Resource, Default)]
-pub struct CombatMotion(Option<Feedback>);
+pub struct CombatMotion {
+    feedback: Option<Feedback>,
+    selected: Option<usize>,
+}
+
+fn hand_selection(hand: &[Card], energy: u8, previous: Option<usize>, step: i8) -> Option<usize> {
+    if hand.is_empty() {
+        return None;
+    }
+    let usual = hand.iter().position(|card| card.cost() <= energy).unwrap_or(0);
+    let from = previous.map_or(usual, |i| i.min(hand.len() - 1));
+    Some((from as isize + step as isize).rem_euclid(hand.len() as isize) as usize)
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Guardian {
@@ -130,7 +143,7 @@ pub fn animate_guardian(
     mut guardian: Query<(&GuardianMotion, &mut Transform)>,
 ) {
     let now = time.elapsed_secs();
-    let pulse = motion.0.filter(|fx| fx.opponent && menu.battle().is_some()).map_or(0., |fx| {
+    let pulse = motion.feedback.filter(|fx| fx.opponent && menu.battle().is_some()).map_or(0., |fx| {
         let start = fx.at + if fx.card.is_some() { 0.21 } else { 0.08 };
         let progress = ((now - start) / 0.31).clamp(0., 1.);
         (std::f32::consts::PI * progress).sin()
@@ -388,6 +401,9 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                         })
                         .with_children(|actions| {
                             actions
+                                .spawn((DuelButton::Commit, ui::dialog_button(121.)))
+                                .with_child(fonts.button("Karte spielen", 13.));
+                            actions
                                 .spawn((DuelButton::Pack, ui::dialog_button(104.)))
                                 .with_child((DuelText::Pack, fonts.button("Proviant", 13.)));
                             actions
@@ -466,6 +482,14 @@ pub fn input(
     let press = choices
         .iter()
         .find_map(|(button, pressed)| (*pressed == Interaction::Pressed).then_some(*button));
+    if battle.hand_controls() {
+        let selected = hand_selection(&battle.hand, battle.energy, motion.selected, controller.step.x as i8);
+        if motion.selected != selected { motion.selected = selected; }
+        if let Some(DuelButton::Play(index)) = press {
+            motion.selected = Some(index);
+            return;
+        }
+    }
     let keyboard = if keys.just_pressed(KeyCode::Escape) {
         Some(if battle.pack_open {
             DuelButton::Pack
@@ -497,8 +521,16 @@ pub fn input(
         .position(|key| keys.just_pressed(key))
         .map(DuelButton::Play)
     };
-    let Some(button) = press.or(keyboard) else {
+    let pad_play = (battle.hand_controls() && controller.accept)
+        .then_some(motion.selected).flatten().map(DuelButton::Play);
+    let Some(button) = press.or(keyboard).or(pad_play) else {
         return;
+    };
+    let button = if button == DuelButton::Commit {
+        let Some(index) = motion.selected else { return };
+        DuelButton::Play(index)
+    } else {
+        button
     };
     let battle = menu.battle_mut().expect("open battle");
     let now = time.elapsed_secs();
@@ -588,7 +620,10 @@ pub fn input(
                 return;
             }
         }
-        (Outcome::Running, DuelButton::End) => battle.end_turn(),
+        (Outcome::Running, DuelButton::End) => {
+            battle.end_turn();
+            motion.selected = None;
+        }
         _ => return,
     }
     let strike = old.0.saturating_sub(battle.enemy_hp) + old.1.saturating_sub(battle.enemy_guard);
@@ -613,7 +648,7 @@ pub fn input(
             Some((100. * t.translation().xy() / size).clamp(Vec2::ZERO, Vec2::splat(100.)))
         })
         .unwrap_or(Vec2::new(50., 76.));
-    motion.0 = Some(Feedback {
+    motion.feedback = Some(Feedback {
         at: now, card: played, from,
         to: if opponent { Vec2::new(71., 39.) } else { Vec2::new(29., 40.) },
         amount, kind, opponent, sounded: false,
@@ -668,10 +703,11 @@ pub fn animate_feedback(
     fly_node.display = Display::None;
     hit_node.display = Display::None;
     if menu.battle().is_none() || !session.playing() {
-        motion.0 = None;
+        motion.feedback = None;
+        motion.selected = None;
         return;
     }
-    let Some(fx) = &mut motion.0 else { return };
+    let Some(fx) = &mut motion.feedback else { return };
     let age = time.elapsed_secs() - fx.at;
     if let Some(card) = fx.card.filter(|_| age < 0.36) {
         let t = (age / 0.36).clamp(0., 1.);
@@ -703,7 +739,7 @@ pub fn animate_feedback(
         sounds.write(cue);
     }
     if local > 0.62 {
-        motion.0 = None;
+        motion.feedback = None;
         return;
     }
     let t = local / 0.62;
@@ -735,12 +771,13 @@ pub fn update(
     time: Res<Time>,
     garden: Res<Garden>,
     controller: Res<crate::controller::Controller>,
+    motion: Res<CombatMotion>,
     mut veil: Single<&mut Node, With<DuelPane>>,
     mut fields: Query<(&DuelText, &mut Text)>,
     mut pictures: Query<(&CardPicture, &mut ImageNode)>,
     mut bars: Query<(&HealthFill, &mut Node), (Without<DuelPane>, Without<DuelButton>)>,
     mut buttons: Query<
-        (&DuelButton, &Interaction, &mut Node, &mut BackgroundColor, &mut FocusEnabled),
+        (&DuelButton, &Interaction, &mut Node, &mut BackgroundColor, &mut FocusEnabled, &mut BorderColor),
         Without<DuelPane>,
     >,
 ) {
@@ -760,7 +797,7 @@ pub fn update(
             node.width = Val::Percent(if (target-next).abs() < 0.12 { target } else { next });
         }
     }
-    if menu.is_changed() || session.is_changed() || controller.is_changed() {
+    if menu.is_changed() || session.is_changed() || controller.is_changed() || motion.is_changed() {
         for (CardPicture(i), mut picture) in &mut pictures {
             if let Some(card) = battle.hand.get(*i) {
                 let icon = &icons.0[*card as usize];
@@ -826,18 +863,30 @@ pub fn update(
                     let (draw, trash) = battle.piles();
                     let mut help = format!("{draw} im Zugstapel · {trash} abgelegt");
                     if controller.active {
-                        help.push_str("\nA · Spielen   Y · Zug beenden   B · Zurück");
+                        help.push_str("\n← → Karte   A · Spielen   Y · Zug beenden");
                         if !battle.training && !battle.ration_used
                             && Ration::ALL.into_iter().any(|r| garden.stock(Product::Prepared(r.dish())) > 0)
                         {
                             help.push_str("   X · Proviant");
                         }
                     }
+                    if !controller.active && battle.hand_controls() {
+                        help.push_str("\nKarte antippen, dann „Karte spielen“.");
+                    }
                     help
                 }
                 DuelText::Piles => String::new(),
                 DuelText::Rule if battle.pack_open => {
                     format!("Ein Proviant pro Kampf · {}", battle.enemy.provision_hint())
+                }
+                DuelText::Rule if battle.training && battle.hand_controls() && battle.round == 1 => {
+                    if battle.guard == 0 {
+                        "Spiele Rindenschild. Schild fängt den nächsten Angriff ab.".into()
+                    } else if battle.energy > 0 {
+                        "Dein Schild steht. Spiele einen Angriff oder beende den Zug.".into()
+                    } else {
+                        "Beende den Zug. Der Gegner greift an und deine Kraft füllt sich wieder.".into()
+                    }
                 }
                 DuelText::RationDetail(ration) => {
                     let stock = garden.stock(Product::Prepared(ration.dish()));
@@ -849,11 +898,16 @@ pub fn update(
                 }
                 DuelText::Rule => {
                     let conditions = battle.conditions();
-                    if conditions.is_empty() {
-                        battle.trial.filter(|_| battle.outcome == Outcome::Running)
-                            .map_or("", |trial| trial.watch.rule()).into()
-                    } else {
+                    if !conditions.is_empty() {
                         conditions
+                    } else if let Some(trial) = battle.trial.filter(|_| battle.outcome == Outcome::Running) {
+                        trial.watch.rule().into()
+                    } else if let Some(card) = motion.selected.filter(|_| battle.hand_controls())
+                        .and_then(|index| battle.hand.get(index))
+                    {
+                        format!("{} · {}", card.name(), battle.card_description(*card))
+                    } else {
+                        String::new()
                     }
                 },
                 DuelText::Pack => if battle.pack_open {
@@ -887,7 +941,7 @@ pub fn update(
             }
         }
     }
-    for (&button, &interaction, mut node, mut color, mut focus) in &mut buttons {
+    for (&button, &interaction, mut node, mut color, mut focus, mut border) in &mut buttons {
         let (visible, enabled) = match button {
             DuelButton::Play(i) => (
                 battle.outcome == Outcome::Running
@@ -903,6 +957,7 @@ pub fn update(
                 battle.outcome == Outcome::Running && !battle.retreat_pending,
                 true,
             ),
+            DuelButton::Commit => (battle.hand_controls() && !controller.active, motion.selected.is_some()),
             DuelButton::Stay => (battle.retreat_pending, true),
             DuelButton::Pack => (
                 battle.outcome == Outcome::Running
@@ -926,13 +981,36 @@ pub fn update(
             Display::None
         };
         focus.0 = visible && enabled;
+        if let DuelButton::Play(index) = button {
+            let selected = motion.selected == Some(index) && battle.hand_controls();
+            let Val::Px(previous) = node.top else {
+                node.top = Val::Px(0.);
+                continue;
+            };
+            node.top = Val::Px(previous + (if selected { -7. } else { 0. } - previous) * ease);
+            border.0 = if selected {
+                Color::srgb_u8(237, 174, 67)
+            } else {
+                battle.hand.get(index).map_or(Color::srgb_u8(165, 132, 91), |card| card_tint(card.emblem()))
+            };
+        }
         color.0 = match button {
             DuelButton::Play(_) if !enabled => Color::srgb_u8(202, 196, 176),
-            DuelButton::Play(_) if interaction != Interaction::None => {
+            DuelButton::Play(i) if interaction != Interaction::None || motion.selected == Some(i) => {
                 Color::srgb_u8(210, 222, 173)
             }
             DuelButton::Play(_) => ui::cream(),
             _ => ui::button_color(interaction, enabled),
         };
+    }
+}
+
+fn card_tint(role: Emblem) -> Color {
+    match role {
+        Emblem::Strike => Color::srgb_u8(182, 101, 63),
+        Emblem::Guard => Color::srgb_u8(79, 142, 163),
+        Emblem::Spore => Color::srgb_u8(134, 150, 76),
+        Emblem::Heal => Color::srgb_u8(113, 157, 113),
+        Emblem::Focus => Color::srgb_u8(152, 118, 175),
     }
 }

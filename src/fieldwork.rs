@@ -17,30 +17,30 @@ pub enum FieldTool {
     Seeds,
     Water,
     Harvest,
+    Fertilizer,
+    Axe,
+    Pickaxe,
 }
 
 impl FieldTool {
-    pub fn next(self) -> Self {
-        match self {
-            Self::Auto => Self::Hoe,
-            Self::Hoe => Self::Seeds,
-            Self::Seeds => Self::Water,
-            Self::Water => Self::Harvest,
-            Self::Harvest => Self::Auto,
-        }
-    }
-
     pub fn name(self) -> &'static str {
         match self {
-            Self::Auto => "Werkzeug",
+            Self::Auto => "Automatisch",
             Self::Hoe => "Hacke",
-            Self::Seeds => "Saatgutreihe",
+            Self::Seeds => "Saatgut",
             Self::Water => "Gießkanne",
             Self::Harvest => "Erntekorb",
+            Self::Fertilizer => "Dünger",
+            Self::Axe => "Axt",
+            Self::Pickaxe => "Spitzhacke",
         }
     }
 
     pub fn action(self, garden: &Garden, plot: usize, crop: Crop) -> Option<Action> {
+        if self == Self::Fertilizer {
+            return (garden.fertilizable(plot) && garden.fertilizer > 0)
+                .then_some(Action::Fertilize);
+        }
         let action = garden.action(plot, crop)?;
         match self {
             Self::Auto => Some(action),

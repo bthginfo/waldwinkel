@@ -112,5 +112,7 @@ pub fn product_icon(product: Product) -> &'static str {
         Product::Mushroom => "mushroom",
         Product::Hazel => "hazel",
         Product::Shell => "shell",
+        Product::Grass => "grass",
+        Product::Milk => "milk",
     }
 }

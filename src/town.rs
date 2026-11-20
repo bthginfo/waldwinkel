@@ -138,7 +138,7 @@ impl Npc {
                 "Gleich südwestlich vom Bautisch habe ich Treibholz zusammengebunden. Die Bretter tragen uns noch viele Jahre."
             }
             (Self::Bo, harbor::Phase::Landing) => {
-                "Der Anleger trägt wieder. Kupferbeschläge halten die neuen Geländer zusammen, auch bei starkem Wind."
+                "Der Anleger trägt wieder. Bring zwei Kupfer oder fertige Beschläge zusammen mit Holz und Stein zum Bautisch."
             }
             (Self::Fiete, harbor::Phase::Landing) => {
                 "Ich habe meinen Eimer schon zum Anleger gebracht. Probier es mit der Angel am Ende der frischen Bretter."
@@ -594,11 +594,15 @@ pub fn input(
             *controls = Controls::default();
             None
         }
-        DialogueButton::Trade if npc == Npc::Runa && garden.clock.market_open() => {
+        DialogueButton::Trade if matches!(npc, Npc::Runa | Npc::Miro | Npc::Lina) && garden.clock.market_open() => {
             dialog.close();
             *gesture = Gesture::default();
             *controls = Controls::default();
-            farm_menu.show(FarmPage::CardShop);
+            farm_menu.show(match npc {
+                Npc::Lina => FarmPage::SeedShop,
+                Npc::Miro => FarmPage::MarketSale,
+                _ => FarmPage::CardShop,
+            });
             None
         }
         DialogueButton::Trade if !dialog.trading && npc.merchant().is_some() => {

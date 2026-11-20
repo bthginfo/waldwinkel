@@ -134,7 +134,11 @@ impl Frontier {
         let needed = self as usize + 1;
         if g.town.completed() < needed {
             return (
-                format!("{} / {needed} Stadtaufträge erfüllt.", g.town.completed()),
+                format!(
+                    "{}/{needed} Stadtaufträge. Sprich mit {} in Eichenhafen.",
+                    g.town.completed(),
+                    crate::town::next_city_order(g).map_or("den Nachbarn", crate::town::Npc::name),
+                ),
                 "Gesperrt",
                 false,
             );

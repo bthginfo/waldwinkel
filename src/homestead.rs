@@ -204,9 +204,9 @@ impl Village {
                     )
                 } else {
                     (
-                        format!("Einmal täglich füttern · {} Futter", farm.feed),
+                        format!("Einmal täglich füttern · {} Gras · {} Futter", farm.grass, farm.feed),
                         "Füttern",
-                        farm.feed > 0,
+                        farm.grass > 0 || farm.feed > 0,
                     )
                 }
             }
@@ -288,6 +288,10 @@ impl Village {
                     let quantity = std::mem::take(&mut state.pending);
                     g.farm.collected = g.farm.collected.saturating_add(quantity);
                     g.add_stock(kind.product(), quantity);
+                    if kind == Animal::Sheep {
+                        g.add_stock(Product::Milk, quantity);
+                        return Ok(format!("+{quantity} Wolle · +{quantity} Schafmilch"));
+                    }
                     return Ok(format!("+{quantity} {}", kind.product().name()));
                 }
                 if state.fed_day == Some(g.day) {
@@ -300,8 +304,14 @@ impl Village {
                     ));
                 }
                 state.fed_day = Some(g.day);
-                g.farm.feed -= 1;
-                Ok(format!("{} ist für heute versorgt.", kind.name()))
+                let food = if g.farm.grass > 0 {
+                    g.farm.grass -= 1;
+                    "Gras"
+                } else {
+                    g.farm.feed -= 1;
+                    "Futter"
+                };
+                Ok(format!("{} hat {} gefressen. Schau morgen wieder nach.", kind.name(), food))
             }
             Self::Orchard(i) => {
                 g.farm.fruit_days[i] = Some(g.day);
@@ -347,8 +357,8 @@ impl Animal {
 
     pub fn site(self) -> Vec2 {
         match self {
-            Self::Hen => Vec2::new(2.62, 7.53),
-            Self::Sheep => Vec2::new(8.72, 8.47),
+            Self::Hen => Vec2::new(-6.4, 9.4),
+            Self::Sheep => Vec2::new(13.05, 8.83),
         }
     }
 
@@ -447,10 +457,12 @@ pub enum Product {
     Mushroom,
     Hazel,
     Shell,
+    Grass,
+    Milk,
 }
 
 impl Product {
-    const GATHERED: [Self; 11] = [
+    const GATHERED: [Self; 13] = [
         Self::Fish,
         Self::Herring,
         Self::Apple,
@@ -462,6 +474,8 @@ impl Product {
         Self::Mushroom,
         Self::Hazel,
         Self::Shell,
+        Self::Grass,
+        Self::Milk,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -482,6 +496,8 @@ impl Product {
             Self::Mushroom => "Pilze",
             Self::Hazel => "Haselnüsse",
             Self::Shell => "Muscheln",
+            Self::Grass => "Wildgras",
+            Self::Milk => "Schafmilch",
         }
     }
     pub fn quality(self) -> Option<Quality> {
@@ -514,6 +530,8 @@ impl Product {
             Self::Crystal => 13,
             Self::Mushroom | Self::Hazel => 3,
             Self::Shell => 4,
+            Self::Grass => 1,
+            Self::Milk => 6,
         }
     }
 
@@ -540,6 +558,8 @@ impl Product {
 pub struct Homestead {
     pub coins: u32,
     pub feed: u32,
+    pub grass: u32,
+    pub milk: u32,
     pub animals: [AnimalState; 2],
     pub housing: [bool; 2],
     pub fruit_days: [Option<u32>; 7],
@@ -558,6 +578,8 @@ impl Default for Homestead {
         Self {
             coins: 20,
             feed: 3,
+            grass: 0,
+            milk: 0,
             animals: [AnimalState::default(); 2],
             housing: [false; 2],
             fruit_days: [None; 7],
@@ -603,6 +625,14 @@ pub enum Ore {
 }
 
 impl Ore {
+    pub fn tool_level(self) -> u8 {
+        match self {
+            Self::Copper => 0,
+            Self::Silver => 1,
+            Self::Crystal => 2,
+        }
+    }
+
     pub fn at(depth: u32, cell: u16) -> Self {
         if depth >= 3 {
             return match u32::from(cell).wrapping_add(depth) % 5 {
@@ -668,6 +698,25 @@ pub fn choice_label(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wild_grass_feeds_a_sheep_and_care_produces_milk() {
+        let mut garden = Garden::default();
+        garden.farm.housing[Animal::Sheep as usize] = true;
+        garden.farm.animals[Animal::Sheep as usize].owned = true;
+        garden.add_stock(Product::Grass, 2);
+        let feed = Village::Animal(Animal::Sheep);
+        let before = garden.farm.feed;
+        for _ in 0..2 {
+            feed.work(&mut garden, Crop::Carrot, None).unwrap();
+            garden.sleep();
+        }
+        assert_eq!(garden.stock(Product::Grass), 0);
+        assert_eq!(garden.farm.feed, before);
+        feed.work(&mut garden, Crop::Carrot, None).unwrap();
+        assert_eq!(garden.stock(Product::Milk), 1);
+        assert_eq!(garden.stock(Product::Wool), 1);
+    }
 
     #[test]
     fn fruit_returns_and_can_fund_older_game_saves() {

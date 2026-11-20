@@ -48,6 +48,15 @@ impl Node {
         self.variant != 8
     }
 
+    pub fn tool_level(self) -> u8 {
+        match self.variant {
+            6 => 1,
+            7 => 2,
+            8 if self.scale > 1.27 => 1,
+            _ => 0,
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self.variant {
             0..=5 => "Kiefer",

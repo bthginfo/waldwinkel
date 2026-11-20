@@ -76,7 +76,7 @@ impl Step {
     pub fn hint(self, garden: &Garden, controller: bool) -> String {
         match self {
             Self::Tutorial(lesson) => lesson.instruction(garden, controller, false),
-            Self::Garden if controller => "A wählt ein nahes Beet. Erneut A bearbeitet es.".into(),
+            Self::Garden if controller => "Stell dich vor ein Beet und drücke A. X öffnet das Werkzeugrad.".into(),
             Self::Garden => garden.onboarding.hint().into(),
             Self::MeetBo => "Folge dem Weg nach Eichenhafen und sprich mit Bo.".into(),
             Self::Watch(site) => site.summary(garden),

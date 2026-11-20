@@ -27,7 +27,7 @@ use crate::{
 };
 
 pub const SPAWN: Vec2 = Vec2::new(-0.62, 3.47);
-pub const PLOTS: [Vec2; 12] = [
+pub const PLOTS: [Vec2; crate::garden::PLOT_COUNT] = [
     Vec2::new(1.59, 0.48),
     Vec2::new(3.15, 0.48),
     Vec2::new(4.71, 0.48),
@@ -40,6 +40,12 @@ pub const PLOTS: [Vec2; 12] = [
     Vec2::new(6.78, 5.52),
     Vec2::new(8.34, 5.52),
     Vec2::new(9.90, 5.52),
+    Vec2::new(1.55, 10.48),
+    Vec2::new(3.11, 10.48),
+    Vec2::new(4.67, 10.48),
+    Vec2::new(1.55, 12.10),
+    Vec2::new(3.11, 12.10),
+    Vec2::new(4.67, 12.10),
 ];
 const REACH: f32 = 1.30;
 const SPEED: f32 = 4.80;
@@ -446,8 +452,8 @@ pub fn ground_point(ray: Ray3d, area: Area, garden: &Garden) -> Option<Vec2> {
 pub fn show_exterior(
     adventure: Res<Adventure>,
     menu: Res<crate::farm_ui::FarmMenu>,
-    mut entities: Query<&mut Visibility, (With<Exterior>, Without<Gardener>)>,
-    mut hero: Single<&mut Visibility, With<Gardener>>,
+    mut entities: Query<&mut Visibility, (With<Exterior>, Without<Gardener>, Without<PlotModel>)>,
+    mut hero: Single<&mut Visibility, (With<Gardener>, Without<Exterior>)>,
     mut previous: Local<Option<bool>>,
 ) {
     let preview = menu.room_preview().is_some();
@@ -481,10 +487,32 @@ pub fn update_camera(
     adventure: Res<Adventure>,
     garden: Res<Garden>,
     menu: Res<crate::farm_ui::FarmMenu>,
+    layout: Res<crate::decorate::Layout>,
     time: Res<Time>,
     mut last: Local<Option<(Area, bool, bool)>>,
 ) {
     let (projection, transform, frame) = &mut *camera;
+    if layout.open() {
+        let (point, height, width) = if adventure.area.outdoors() {
+            (Vec2::new(1.5, 5.5), 24., 30.)
+        } else {
+            let east = if garden.workshop.house == 1 { 1.5 } else { 0. };
+            (adventure.area.origin() + Vec2::X * east, 9.3, 16.)
+        };
+        frame.focus = position3(point, 0.);
+        frame.distance = 30.;
+        frame.height = height;
+        frame.width = width;
+        transform.translation = frame.focus + Vec3::Y * frame.distance;
+        transform.look_at(frame.focus, Vec3::NEG_Z);
+        **projection = Projection::Orthographic(OrthographicProjection {
+            scaling_mode: ScalingMode::AutoMin { min_width: width, min_height: height },
+            far: 120.,
+            ..OrthographicProjection::default_3d()
+        });
+        *last = None;
+        return;
+    }
     let preview = menu.room_preview();
     let area = if preview.is_some() {
         Area::Home
@@ -618,11 +646,20 @@ pub(crate) fn approach_camera(point: Vec2, eye: f32, height: f32, zoom: f32, tow
 pub fn update_plots(
     mut commands: Commands,
     garden: Res<Garden>,
+    adventure: Res<Adventure>,
+    menu: Res<crate::farm_ui::FarmMenu>,
     models: Res<Models>,
-    mut plots: Query<&mut PlotModel>,
+    mut plots: Query<(&mut PlotModel, &mut Visibility)>,
 ) {
     let winter = Season::at(garden.day) == Season::Winter;
-    for mut plot in &mut plots {
+    for (mut plot, mut visibility) in &mut plots {
+        let active = plot.index < garden.active_beds();
+        visibility.set_if_neq(if active && adventure.area.outdoors() && menu.room_preview().is_none() {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+        if !active { continue; }
         let fertilized = garden.fertilized[plot.index];
         if plot.fertilized != fertilized {
             replace_model(
@@ -921,6 +958,10 @@ pub fn animate_gardener(
         Tool::Weapon(garden.rpg.gear)
     } else if let Some((tool, _)) = swing {
         tool
+    } else if focus.tool == crate::fieldwork::FieldTool::Axe {
+        Tool::Axe
+    } else if focus.tool == crate::fieldwork::FieldTool::Pickaxe {
+        Tool::Pickaxe
     } else if pouring
         || (adventure.area == Area::Island
             && adventure.focus.is_none()

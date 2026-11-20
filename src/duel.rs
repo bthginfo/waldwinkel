@@ -783,6 +783,10 @@ pub struct Battle {
 }
 
 impl Battle {
+    pub(crate) fn hand_controls(&self) -> bool {
+        self.outcome == Outcome::Running && !self.pack_open && !self.retreat_pending
+    }
+
     pub fn new(level: u32, progress: &Progress) -> Self {
         Self::encounter(level, Enemy::at(level), progress)
     }

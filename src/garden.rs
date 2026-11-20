@@ -19,7 +19,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-pub const PLOT_COUNT: usize = 12;
+pub const PLOT_COUNT: usize = 18;
 pub const FERTILIZER_PRICE: u32 = 4;
 const FERTILIZER_PACK: u32 = 2;
 const SAVE_VERSION: u8 = 16;
@@ -216,7 +216,7 @@ pub struct Garden {
     pub day: u32,
     pub clock: FarmClock,
     pub fertilizer: u32,
-    pub fertilized: [bool; PLOT_COUNT],
+    pub fertilized: Vec<bool>,
     fine_yields: [[u32; 2]; 6],
     prepared: [u32; crate::processing::Dish::ALL.len()],
     materials: [u32; crate::craft::Recipe::ALL.len()],
@@ -235,6 +235,9 @@ pub struct Garden {
     pub mined: std::collections::BTreeSet<(u32, u16)>,
     pub deepest: u32,
     pub furniture: Vec<u8>,
+    pub decorations: Vec<crate::decorate::Furniture>,
+    pub building_layout: [Option<crate::decorate::Pose>; 5],
+    pub expanded_field: bool,
     pub crafted: Vec<bool>,
     pub blueprints: Vec<bool>,
     pub challenge: usize,
@@ -267,7 +270,7 @@ impl Default for Garden {
             day: 1,
             clock: FarmClock::default(),
             fertilizer: 3,
-            fertilized: [false; PLOT_COUNT],
+            fertilized: vec![false; PLOT_COUNT],
             fine_yields: [[0; 2]; 6],
             prepared: [0; crate::processing::Dish::ALL.len()],
             materials: [0; crate::craft::Recipe::ALL.len()],
@@ -286,6 +289,9 @@ impl Default for Garden {
             mined: Default::default(),
             deepest: 0,
             furniture: vec![0; FURNITURE_COUNT],
+            decorations: Vec::new(),
+            building_layout: [None; 5],
+            expanded_field: false,
             crafted: vec![false; CATALOG.len()],
             blueprints: vec![false; CATALOG.len()],
             challenge: 0,
@@ -311,6 +317,10 @@ impl Default for Garden {
 }
 
 impl Garden {
+    pub fn active_beds(&self) -> usize {
+        if self.expanded_field { PLOT_COUNT } else { 12 }
+    }
+
     fn seed_slot(&mut self, crop: Crop) -> &mut u32 {
         match crop {
             Crop::Carrot => &mut self.seeds,
@@ -353,6 +363,8 @@ impl Garden {
             Product::Mushroom => &mut self.town.goods[0],
             Product::Hazel => &mut self.town.goods[1],
             Product::Shell => &mut self.town.goods[2],
+            Product::Grass => &mut self.farm.grass,
+            Product::Milk => &mut self.farm.milk,
             _ => &mut self.farm.goods[Self::goods_index(item)],
         }
     }
@@ -374,6 +386,8 @@ impl Garden {
             Product::Mushroom => self.town.goods[0],
             Product::Hazel => self.town.goods[1],
             Product::Shell => self.town.goods[2],
+            Product::Grass => self.farm.grass,
+            Product::Milk => self.farm.milk,
             _ => self.farm.goods[Self::goods_index(item)],
         }
     }
@@ -456,6 +470,9 @@ impl Garden {
     }
 
     pub fn fertilizable(&self, index: usize) -> bool {
+        if index >= self.active_beds() {
+            return false;
+        }
         self.plots.get(index).is_some_and(|plot| {
             matches!(plot.stage(), Stage::Soil | Stage::Sprout | Stage::Young)
                 && !self.fertilized[index]
@@ -467,7 +484,7 @@ impl Garden {
     }
 
     pub fn action(&self, index: usize, crop: Crop) -> Option<Action> {
-        if self.clock.night() {
+        if self.clock.night() || index >= self.active_beds() {
             return None;
         }
         let plot = *self.plots.get(index)?;
@@ -688,6 +705,8 @@ impl Garden {
             ));
         }
         garden.plots.resize(PLOT_COUNT, Plot::Grass);
+        garden.fertilized.resize(PLOT_COUNT, false);
+        garden.decorations.retain(|item| item.design < crate::furniture::CATALOG.len());
         if let Some(prologue) = &mut garden.prologue {
             if prologue.plot.is_some_and(|index| index >= PLOT_COUNT) {
                 prologue.plot = None;
@@ -986,9 +1005,11 @@ mod tests {
         let g = Garden::load(&path).unwrap();
         fs::remove_file(path).unwrap();
         assert_eq!(
-            (g.plots.len(), g.plots[0], g.seeds, g.harvested, g.day),
+            (g.active_beds(), g.plots[0], g.seeds, g.harvested, g.day),
             (12, Plot::Tilled, 4, 9, 1)
         );
+        assert_eq!(g.plots.len(), PLOT_COUNT);
+        assert_eq!(g.fertilized.len(), PLOT_COUNT);
     }
 
     #[test]

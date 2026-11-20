@@ -126,7 +126,7 @@ pub fn collect(
     ready: Res<Ready>,
     session: Res<Session>,
     dialog: Res<Dialog>,
-    farm_menu: Res<crate::farm_ui::FarmMenu>,
+    overlays: (Res<crate::farm_ui::FarmMenu>, Res<crate::wheel::Wheel>, Res<crate::night::Night>, Res<crate::decorate::Layout>),
     controller: Res<crate::controller::Controller>,
     mut was_live: Local<bool>,
     mut gesture: ResMut<Gesture>,
@@ -140,7 +140,9 @@ pub fn collect(
         || lifecycle
             .read()
             .any(|event| matches!(event, AppLifecycle::WillSuspend | AppLifecycle::Suspended));
-    let live = session.playing() && !dialog.open() && !farm_menu.open() && ready.0;
+    let (farm_menu, tool_wheel, night, decor) = overlays;
+    let live = session.playing() && !dialog.open() && !farm_menu.open()
+        && !tool_wheel.open() && !night.active() && !decor.open() && ready.0;
     let just_opened = live && !*was_live;
     *was_live = live;
     if lost_focus || !live || just_opened {
@@ -239,15 +241,14 @@ pub fn collect(
         keyboard.clamp_length_max(1.)
     };
     controls.act |= controller.act;
-    controls.pad_action = controller.act;
-    controls.pad_quick = controller.quick;
+    controls.pad_action = controller.act || controller.fertilizer;
     controls.pad_cycle = controller.cycle;
     controls.cancel = controller.back;
     controls.task |= controller.task;
     controls.inventory |= controller.inventory;
     controls.choice |= controller.seeds;
     controls.fertilize |= controller.fertilizer;
-    controls.field_tool |= controller.field_tool;
+    controls.wheel |= controller.wheel;
     controls.map |= controller.map;
     controls.zoom += controller.zoom;
     controls.cycle = keys.just_pressed(KeyCode::Tab);

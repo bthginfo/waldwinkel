@@ -226,7 +226,7 @@ impl Session {
         self.screen == Screen::Playing
     }
 
-    fn save(
+    pub(crate) fn save(
         &mut self,
         slots: &mut SaveSlots,
         garden: &mut Garden,
@@ -254,8 +254,12 @@ pub fn playing(
     session: Res<Session>,
     dialog: Res<Dialog>,
     farm_menu: Res<crate::farm_ui::FarmMenu>,
+    wheel: Res<crate::wheel::Wheel>,
+    night: Res<crate::night::Night>,
+    layout: Res<crate::decorate::Layout>,
 ) -> bool {
     session.playing() && !dialog.open() && !farm_menu.open()
+        && !wheel.open() && !night.active() && !layout.open()
 }
 
 #[derive(Component)]
@@ -424,7 +428,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
 pub fn input(
     buttons: Query<(&MenuButton, &Interaction), Changed<Interaction>>,
     keys: Res<ButtonInput<KeyCode>>,
-    ready: Res<Ready>,
+    layers: (Res<Ready>, Res<crate::wheel::Wheel>, Res<crate::night::Night>, Res<crate::decorate::Layout>),
     time: Res<Time>,
     mut session: ResMut<Session>,
     mut slots: ResMut<SaveSlots>,
@@ -439,6 +443,10 @@ pub fn input(
     mut dialog: ResMut<Dialog>,
     mut farm_menu: ResMut<crate::farm_ui::FarmMenu>,
 ) {
+    let (ready, wheel, night, layout) = layers;
+    if wheel.open() || night.active() || layout.open() {
+        return;
+    }
     #[cfg(target_os = "android")]
     if session.document.is_some() {
         return;
@@ -602,10 +610,14 @@ pub fn input(
                     session.message.clear();
                     slots.note.clear();
                 }
-                Ok(()) => session.message = "Spielstand gespeichert.".into(),
+                Ok(()) => {
+                    session.message = "Spielstand gespeichert.".into();
+                    *notice = crate::feedback::make(crate::feedback::Tone::Success, session.message.clone(), time.elapsed_secs());
+                }
                 Err(error) => {
                     warn!("Spielstand konnte nicht gespeichert werden: {error}");
                     session.message = "Speichern fehlgeschlagen. Bitte erneut versuchen.".into();
+                    *notice = crate::feedback::make(crate::feedback::Tone::Problem, session.message.clone(), time.elapsed_secs());
                 }
             }
         }
@@ -772,7 +784,7 @@ pub fn update(
                 "Steuerkreuz · Spielstand wählen   A · Bestätigen".into()
             }
             MenuText::PadHelp(_) => {
-                "A bestätigen · B zurück · LB/RB Zoom · LT Saatgut · RT Dünger".into()
+                "A · Aktion vor dir   X · Werkzeugrad   Y · Inselkarte\nLT · Saatgut / Einrichten   View · Tasche   ↑ · Journal\nLB/RB · Zoomen   RT · Düngen   B · Zurück".into()
             }
             MenuText::ActiveSlot => format!(
                 "Spielstand {} · Tag {}",

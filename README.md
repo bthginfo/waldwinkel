@@ -1,4 +1,4 @@
-# Waldwinkel 1.9.2
+# Waldwinkel 1.10.0
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
@@ -6,8 +6,19 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 
 ## Installieren
 
-- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://raw.githubusercontent.com/bthginfo/waldwinkel/3ea80d0a486f9db497c4b3bec01efb4a72263d6a/Waldwinkel-1.9.2.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
+- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK 1.10.0](https://raw.githubusercontent.com/bthginfo/waldwinkel/1681ef5649703f7d5b0e6e5b8ea3b44b07dd6e9f/Waldwinkel-1.10.0.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
+
+## Neu in 1.10.0
+
+- **Xbox-Steuerung.** **A** benutzt das passende Ziel direkt vor dem Tanuki. **X** öffnet das Werkzeugrad, **LT** das Saatgut oder die Einrichtung im Haus. Werkzeuge, Samen und Mengen stehen direkt im Rad. Die Tastenhinweise wechseln passend zur Welt, zu Menüs und zum Duell.
+- **Hof und Haus.** Möbel und gebaute Hofstationen lassen sich in Draufsicht im Raster verschieben und drehen. Die Beete bleiben beim Platzieren frei. Nach der Reparatur des Fischerstegs kannst du sechs weitere Beete anlegen.
+- **Werkzeuge und Tiere.** Für die stärkeren Bäume und Erzadern brauchst du Kupfer- oder Silberwerkzeuge. Wildgras wächst an Sammelstellen nach und eignet sich als Futter. Gefütterte Hühner legen Eier, gefütterte Schafe geben Wolle und Schafmilch.
+- **Karte und Sammeln.** Auf der Inselkarte siehst du das ungefähre Gebiet deines Auftrags. Auf größeren Bildschirmen zeigt die Minikarte die Richtung. Ein leichtes Glitzern markiert nahe Bäume, Steine und Funde, die du gerade abbauen oder sammeln kannst.
+- **Handel und Handwerk.** Die Marktauslage zeigt Waren und Preise als bebilderte Karten. Du kannst Einzelstücke oder ganze Stapel verkaufen. Für Möbel und Hofgebäude zeigen die Menüs Vorschaubilder der Blender-Modelle.
+- **Duell und Rückmeldung.** Die Karten haben neue Rahmen und Illustrationen. Im Übungsduell lernst du Schild, Angriff und Zugwechsel. Schlafen zeigt Tagwechsel, Ernte und Speicherstatus. Kauf, Verkauf und Aufträge bestätigen den Erfolg direkt im Spiel.
+
+[Saatgutrad](docs/110-saatgut.jpg) · [Einrichten im Raster](docs/110-einrichten.jpg) · [Auftragsgebiet](docs/110-auftragsgebiet.jpg) · [Kaufen](docs/110-markt.jpg) · [Verkaufen](docs/110-verkaufen.jpg) · [Übungsduell](docs/110-duell.jpg) · [Gespeichert nach dem Schlafen](docs/110-schlafen.jpg)
 
 ## Neu in 1.9.2
 
@@ -187,18 +198,19 @@ Im Startmenü kannst du auf bis zu drei getrennten Plätzen ein **Neues Spiel** 
 | Garten | Möhren, Rüben, Kürbisse, Erdbeeren, Tomaten und Sonnenblumen brauchen zwei bis fünf gegossene Tage. Eine Düngergabe vor der Reife reicht für die nächste Ernte. |
 | Kalender | Uhrzeit und Wetter stehen oben im HUD. Im Journal siehst du Saisonfunde und die nächsten Dorftreffen. Schlafen setzt die Uhr auf 06:00 und lässt gegossene Pflanzen wachsen. Regen gießt Pflanzen und neue Saat automatisch. |
 | Obstwiese | Pflücke Äpfel und Waldbeeren von Frühling bis Herbst. Abgeerntete Bäume und Sträucher tragen nach zwei Spieltagen wieder Früchte. |
-| Hafenmarkt | Beim Saatgutstand jeweils drei Samen der gewählten Sorte kaufen. Beim Ankäufer wechselt die linke Auswahltaste zwischen den verfügbaren Waren. Obst, Gemüse, Fisch, Eier, Wolle, Silber und Kristalle bringen Münzen. |
-| Tiere | Kaufe den Bauplan bei Bo oder am Bauplanstand, baue das passende Gebäude am Hof und nimm ein Tier auf. Pflege und Ernte erfolgen am eigenen Stall. Futter kannst du an der Futterkiste auf der Tierweide nachkaufen. |
-| Mine | Kupfer und Silber liegen in den ersten Ebenen. Ab Tiefe 3 kommen Kristallnester und dunkles Gestein hinzu. Mit einer Kupferspitzhacke erhältst du zwei Erze pro Ader, mit einer Silberspitzhacke drei. |
+| Hafenmarkt | Wähle eine bebilderte Ware und bestätige Kauf oder Verkauf separat. Saatgut kaufst du in Dreierpackungen. Beim Verkauf entscheidest du zwischen einem Stück und deinem ganzen Vorrat des gewählten Gegenstands. |
+| Tiere | Kaufe den Bauplan bei Bo oder am Bauplanstand, baue das passende Gebäude am Hof und nimm ein Tier auf. Sammle Wildgras oder kaufe Futter an der Futterkiste auf der Tierweide. Füttere und versorge deine Tiere am jeweiligen Stall. |
+| Mine | Kupfer kommt schon in der ersten Ebene vor. Mit der Kupferspitzhacke kannst du Silber abbauen. Für Kristalladern brauchst du die Silberspitzhacke. Werkzeugstufen erhöhen auch die Ausbeute pro Ader. |
 | Aufgaben | Am Brett oder unter **Journal → Aufträge** öffnen. Die acht Hofaufgaben fördern Garten, Sammeln, Handel, Tiere und Mine. Für eine erfüllte Aufgabe gibt es Saatgut und Münzen. |
 | Haus, Wald und Steg | Möbel an der Hofwerkbank herstellen und im Haus versetzen. Wildbäume fällen, Findlinge abbauen und am Steg angeln. |
 
 ### Steuerung
 
 - **Touch.** Tippe auf Boden, Gegenstände oder Figuren. Drücke die rechte Aktionstaste, um den gewählten Gegenstand zu benutzen oder eine Figur anzusprechen. Tippe auf ein Namensschild auf der Karte, um zu dieser Figur zu laufen.
-- **Xbox auf Android, in der Welt.** Der linke Stick bewegt den Tanuki. Links/rechts am Steuerkreuz wechselt das Ziel, **A** wählt oder bestätigt es und **X** führt eine nahe Aktion direkt aus. **↑** öffnet das Journal, **↓** und **View** die Tasche. **LT** öffnet Saatgut oder Möbel, **RT** düngt am gewählten Beet, **R3** wechselt das Feldwerkzeug. **LB/RB** zoomen, **Y** öffnet die Karte und **Menü** pausiert. Der rechte Stick steuert den Zeiger.
-- **Xbox in Menüs und auf der Karte.** Linker Stick oder Steuerkreuz wechselt den Menüfokus. **A** bestätigt, **B** geht zurück und **LB/RB** blättern. Auf der Karte wählst du mit links/rechts am Steuerkreuz einen Ort oder eine Figur und startest die Route mit **A**. Im Kampf spielt **A** die markierte Karte, **Y** beendet den Zug und **X** öffnet verfügbaren Proviant.
-- **Tastatur und Maus.** WASD und Pfeiltasten bewegen den Tanuki. Tab wechselt das Beet, Leertaste führt die Aktion aus. Das Mausrad zoomt. R wechselt das Feldwerkzeug. M öffnet die Karte, E die Saatguttasche, Q das Journal und I die Tasche. Im Kampf spielen die Ziffern 1–8 eine Karte aus. Leertaste oder Enter beenden den Zug. F10 blendet das HUD aus, F12 speichert ein Spielbild.
+- **Xbox in der Welt.** Linker Stick zum Laufen, **A** für die Aktion vor dir. Links/rechts am Steuerkreuz markiert gezielt ein anderes Objekt. **X** öffnet das Werkzeugrad. **LT** öffnet das Saatgut oder die Einrichtung im Haus, **RT** düngt. **↑** öffnet das Journal, **View** die Tasche, **Y** die Inselkarte und **Menü** das Pausenmenü. **LB/RB** zoomen.
+- **Xbox in Rädern und Menüs.** Stick oder Steuerkreuz zum Auswählen, **A** zum Bestätigen, **B** zurück. **LB/RB** blättern durch längere Listen. Beim Einrichten dreht **X** das Stück um 90 Grad. **Y** lagert ein platziertes Möbel ein.
+- **Xbox im Duell.** Links/rechts wählt eine Karte aus, **A** spielt sie, **Y** beendet den Zug. **X** öffnet verfügbaren Proviant. Bei Touch tippst du zuerst die Karte und danach **Karte spielen**.
+- **Tastatur und Maus.** WASD und Pfeiltasten bewegen den Tanuki. Tab wechselt das Beet, Leertaste führt die Aktion aus. Das Mausrad zoomt. R öffnet das Werkzeugrad, M die Karte, E das Saatgut, Q das Journal und I die Tasche. Im Kampf spielen die Ziffern 1–8 eine Karte aus. Leertaste oder Enter beenden den Zug. F10 blendet das HUD aus, F12 speichert ein Spielbild.
 
 ## Projekt ausführen und bauen
 
@@ -222,7 +234,7 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 - `art/Waldwinkel.blend` enthält die Modelle und eine Gesamtansicht der Landschaft. `blender -b -P art/build_scene.py` exportiert die Modelle als GLB und erzeugt das Höhenfeld für Ufer, Brücken und Hindernisse. Bevy animiert Beine, Schuhe, Arme und den Schweif des Tanuki über getrennte Drehpunkte.
 - `art/draw_icons.py` zeichnet die HUD-Symbole und das App-Icon. Die verwendeten Schriften sind DM Sans und DM Serif Text mit beigefügter OFL-Lizenz.
-- `art/draw_inventory.py` zeichnet die Gegenstandsbilder. `art/draw_card_portraits.py` erzeugt die Illustrationen für Karten und Kochstationen. `art/render_score.py` rendert die Musik. `art/build_audio.py` und `art/action_audio.py` erzeugen Umgebungsklänge und Effekte. [Quellen der Aufnahmen](docs/audio.md)
+- `art/draw_inventory.py` zeichnet die Gegenstandsbilder. `art/render_item_cards.py` rendert Möbel und Hofgebäude in Blender. `art/draw_guidance.py` zeichnet die Inselkarte aus dem Höhenfeld. `art/draw_card_portraits.py` erzeugt die Illustrationen für Karten und Kochstationen. `art/render_score.py` rendert die Musik. `art/build_audio.py`, `art/action_audio.py` und `art/footsteps.py` erzeugen Umgebungsklänge und Effekte. [Quellen der Aufnahmen](docs/audio.md)
 - Android leitet Controller-Ereignisse aus der NDK-Eingabewarteschlange an dasselbe Spiel- und UI-Eingabesystem weiter wie Touch. Die Schnittstelle liegt in `src/controller.rs`.
 - Blender liefert die Regen- und Schneemodelle. Bevy animiert den Niederschlag, färbt die Außenansicht nach Wetter und Jahreszeit und zeigt gegossenen Boden.
 - Blender exportiert saisonales Laub, Schneeauflagen und Fensterlicht als getrennte GLB-Ebenen. Beim Backen entsteht auch ein Höhenfeld für Regendach und Baumkronen. Die Wiesen verwenden ein gemeinsames Mesh mit saisonalen Vertexfarben. Die Niederschlagspartikel werden wiederverwendet.
@@ -238,10 +250,12 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 ## Tests
 
-91 Rust-Tests prüfen den Prolog bis zum Start der Geschichte, die Wegverbindungen, das Speichern, die Menünavigation und die Systeme für Hof, Handwerk und Kampf. Dazu kommen Prüfungen der 226 GLB-Dateien und Aufnahmen aus dem laufenden Spiel. Beim Update im Android-14-Emulator blieben drei vorhandene Testspielstände erhalten. Ein Update auf 1.9.2 erhielt zwei weitere Testspielstände auf Android 16 bytegenau. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen aus.
+94 Rust-Tests prüfen den Prolog bis zum Start der Geschichte, die Wegverbindungen, das Speichern, die Menünavigation und die Systeme für Hof, Handwerk und Kampf. Alle 227 GLB-Dateien sind lesbar. Ein Spieltest mit leerem Spielstand führte über die erste Aussaat, zwei Nächte, Werkbank, Ernte und Kochen bis zum Sieg im Übungsduell und zum Beginn der Hauptgeschichte. In weiteren Testspielständen ließ sich ein Möbel versetzen und drehen. Saatgutkauf, Einzelverkauf und die Reparatur des Fischerstegs mit Kupfer wurden im laufenden Spiel geprüft. Beim Update von 1.9.2 auf 1.10.0 blieben zwei Testspielstände auf Android 16 bytegenau erhalten. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen aus.
 
 Die Blender-Landschaften entstanden nach eigenen Bildreferenzen. [Insel und Pässe](art/references/insel.jpg) · [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)
 
 Für den Hausausbau dienten Baupläne und Handwerksfortschritt in Palia sowie der Kauf von Haus- und Stallausbauten beim Schreiner in Coral Island als Referenzen. [Palia](https://palia.com/news/dev-update-8) · [Coral Island](https://blog.stairwaygames.com/post/october-2021-dev-update)
+
+Für die Einweisung im Kartenduell und die Darstellung von Auftragsgebieten dienten die Spielanleitungen von Hearthstone, Marvel Snap und World of Warcraft als Referenzen. [Hearthstone](https://hearthstone.blizzard.com/en-us/news/18648148) · [Marvel Snap](https://marvelsnap.com/how-to-play/) · [World of Warcraft](https://news.blizzard.com/en-us/article/24315280/new-players-starter-guide-welcome-to-world-of-warcraft-forever)
 
 Der Prolog und das Hofbuch greifen zwei Ideen auf. Tätigkeiten lassen sich durch Ausprobieren lernen, und die Arbeit am eigenen Hof trägt zur Entwicklung der Insel bei. [Palia über Berufe](https://palia.com/news/the-skills-of-palia) · [Coral Island über den Stadtrang](https://blog.stairwaygames.com/post/december-2021-dev-update)

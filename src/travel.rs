@@ -133,6 +133,7 @@ impl Find {
             FindLoot::Product(Product::Mushroom) => "Pilze",
             FindLoot::Product(Product::Hazel) => "Haselnüsse",
             FindLoot::Product(Product::Shell) => "Muscheln",
+            FindLoot::Product(Product::Grass) => "Wildgras",
             FindLoot::Product(Product::Regional(material)) => material.name(),
             FindLoot::Seeds(_) => "Wildes Saatgut",
             FindLoot::Blueprint(_) => "Möbelbauplan",
@@ -145,6 +146,7 @@ impl Find {
             FindLoot::Product(Product::Mushroom) => "find_mushroom",
             FindLoot::Product(Product::Hazel) => "find_hazel",
             FindLoot::Product(Product::Shell) => "find_shell",
+            FindLoot::Product(Product::Grass) => "find_grass",
             FindLoot::Product(Product::Regional(material)) => material.model(),
             FindLoot::Seeds(_) => "find_seeds",
             FindLoot::Blueprint(_) | FindLoot::Card(_) => "find_blueprint",
@@ -179,7 +181,7 @@ impl Find {
     }
 }
 
-pub const FINDS: [Find; 51] = [
+pub const FINDS: [Find; 57] = [
     Find {
         district: District::Forest,
         local: Vec2::new(-6.8, 2.4),
@@ -486,6 +488,12 @@ pub const FINDS: [Find; 51] = [
         loot: FindLoot::Card(Card::QuartzThrust),
         quantity: 1,
     },
+    Find { district: District::Forest, local: Vec2::new(46.9, 15.7), loot: FindLoot::Product(Product::Grass), quantity: 2 },
+    Find { district: District::Forest, local: Vec2::new(53.4, 17.9), loot: FindLoot::Product(Product::Grass), quantity: 2 },
+    Find { district: District::Forest, local: Vec2::new(56.4, 18.9), loot: FindLoot::Product(Product::Grass), quantity: 2 },
+    Find { district: District::Forest, local: Vec2::new(8.6, 5.0), loot: FindLoot::Product(Product::Grass), quantity: 2 },
+    Find { district: District::Beach, local: Vec2::new(-6.1, -3.0), loot: FindLoot::Product(Product::Grass), quantity: 2 },
+    Find { district: District::Wind, local: Vec2::new(-12.2, -12.5), loot: FindLoot::Product(Product::Grass), quantity: 3 },
 ];
 
 pub fn collect(g: &mut Garden, index: usize) -> Option<String> {

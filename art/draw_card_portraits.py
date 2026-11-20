@@ -197,8 +197,38 @@ def scene(index):
     return image.convert("RGB")
 
 
+def gilded_plate(picture, index):
+    width, height = 378, 228
+    dark, tint, bright = map(rgb, PALETTES[index])
+    plate = Image.new("RGB", (width, height), dark)
+    px = plate.load()
+    rng = random.Random(20807 + index)
+    for y in range(height):
+        for x in range(width):
+            falloff = max(0., 1. - math.hypot((x - width * .38) / 242, (y - 28) / 162))
+            texture = .024 * math.sin(x * .28 + y * .098) + rng.uniform(-.018, .018)
+            mix = .20 + .43 * falloff + texture
+            px[x, y] = tuple(round(a + (b - a) * mix) for a, b in zip(dark, tint))
+    edges = ImageDraw.Draw(plate)
+    for br, radius, color in [(4, 22, (64, 43, 31)), (7, 21, bright), (11, 17, (145, 104, 61)),
+                              (14, 15, (80, 50, 34)), (18, 13, tuple(round(c*.86) for c in bright))]:
+        edges.rounded_rectangle((br, br, width-1-br, height-1-br), radius=radius, outline=color, width=2)
+    pane = picture.crop((8, 7, 244, 144)).resize((333, 183), Image.Resampling.LANCZOS)
+    mask = Image.new("L", pane.size)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, *pane.size), radius=19, fill=255)
+    plate.paste(pane, (22, 22), mask)
+    d = ImageDraw.Draw(plate, "RGBA")
+    for x, y, sx, sy in [(23,23,1,1),(355,23,-1,1),(23,205,1,-1),(355,205,-1,-1)]:
+        for j in range(3):
+            at = (x + sx * (13+j*7), y + sy * (4+j*4))
+            d.ellipse((at[0]-3, at[1]-2, at[0]+3, at[1]+2), fill=(*bright, 210))
+        d.polygon([(x-7,y),(x,y-7),(x+7,y),(x,y+7)],fill=(*bright,245))
+        d.polygon([(x-3,y),(x,y-3),(x+3,y),(x,y+3)],fill=(*dark,215))
+    return plate
+
+
 if __name__ == "__main__":
     for i in range(18):
-        scene(i).save(OUT / f"portrait_card_{i:02}.png", optimize=True)
+        gilded_plate(scene(i), i).save(OUT / f"portrait_card_{i:02}.png", optimize=True)
     for index, station in enumerate(("cook","preserve","mill"),start=17):
         scene(index).save(OUT / f"station_{station}.png", optimize=True)

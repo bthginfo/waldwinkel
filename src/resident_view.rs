@@ -174,7 +174,7 @@ pub fn update(
                 }
             }
             if let Some((target, center)) =
-                tracked_pin(&adventure, &garden, camera, &view, layout.scale)
+                tracked_pin(&adventure, &garden, camera, &view, &layout)
                 && !matches!(target, Target::Person(_))
             {
                 occupied.push((center, Vec2::new(53., 14.) * layout.scale));

@@ -149,27 +149,36 @@ impl Lesson {
             .map_or(1, |i| i + 1);
         match self {
             Self::Walk if pad => "Bewege den Tanuki mit dem linken Stick ein Stück über den Hof.".into(),
-            Self::Walk => "Tippe vor dir auf den Weg oder bewege den linken Stick auf dem Bildschirm.".into(),
-            Self::Till if pad => "Wähle mit A ein nahes Beet. Drücke A erneut, um es umzugraben.".into(),
+            Self::Walk => "Zieh den runden Stick links unten ein Stück in eine Richtung.".into(),
+            Self::Till if pad => "Stell dich vor das markierte Beet und drücke A. Mit X öffnest du das Werkzeugrad.".into(),
             Self::Till => "Tippe auf das markierte Wiesenbeet. Wähle danach „Beet anlegen“.".into(),
-            Self::Sow => format!("Wähle Beet {plot} und säe. Möhrensamen hast du bereits in der Tasche."),
-            Self::Water | Self::Tend => format!("Gieße Beet {plot}. Jede gegossene Nacht bringt die Pflanze einen Tag weiter."),
-            Self::Wood => "Wähle den markierten Baum und fälle ihn mit der Axt. Bäume wachsen nach.".into(),
-            Self::Stone => "Wähle den Findling und benutze die Spitzhacke. In der Mine gibt es auch Erz.".into(),
+            Self::Sow if pad => format!("Wähle mit LT die Möhren. Stell dich vor Beet {plot} und drücke A zum Säen."),
+            Self::Sow => format!("Wähle über „Saatgut“ die Möhren. Tippe am gewählten Beet {plot} auf „Aussäen“."),
+            Self::Water | Self::Tend if indoors => format!("Geh durch die Haustür zurück zum Hof. Beet {plot} braucht Wasser."),
+            Self::Water | Self::Tend if pad => format!("Wähle über X die Gießkanne. Stell dich vor Beet {plot} und drücke A."),
+            Self::Water | Self::Tend => format!("Wähle bei „Werkzeuge“ die Gießkanne. Tippe auf Beet {plot} und dann auf „Gießen“."),
+            Self::Wood if pad => "Wähle über X die Axt. Stell dich vor den markierten Baum und drücke A.".into(),
+            Self::Wood => "Tippe am markierten Baum auf „Markiertes Ziel“ und dann auf „Baum fällen“.".into(),
+            Self::Stone if pad => "Wähle über X die Spitzhacke. Stell dich vor den Findling und drücke A.".into(),
+            Self::Stone => "Tippe am Findling auf „Markiertes Ziel“ und dann auf „Stein abbauen“.".into(),
             Self::Bench => "Wähle die kaputte Werkbank vor dem Haus. Öffne die Bauprojekte und setze sie instand.".into(),
             Self::Boards if !crate::craft::Recipe::Boards.can_make(garden, crate::craft::Bench::Work, 1) =>
                 "Fälle noch einen Baum für die Bretter. Fertige sie dann an der Werkbank unter „Materialien“.".into(),
             Self::Boards => "Öffne die Werkbank und gehe zu „Materialien“. Fertige eine Ladung Fichtenbretter.".into(),
-            Self::Sleep if indoors => "Wähle das Bett, um zu schlafen. Der Hof wächst über Nacht und deine Ausdauer kehrt zurück.".into(),
+            Self::Sleep if indoors && pad => "Stell dich vor das Bett und drücke A. Beim Schlafen speichert Waldwinkel deinen Hof.".into(),
+            Self::Sleep if indoors => "Wähle das Bett. Dein Hof wird gespeichert und die Beete wachsen über Nacht.".into(),
             Self::Sleep => "Wähle die Haustür und drücke „Eintreten“. Geh drinnen zum Bett und schlafe.".into(),
-            Self::Harvest => format!("Ernte Beet {plot}. Die Ernte liegt danach in deiner Tasche."),
+            Self::Harvest if indoors => format!("Geh durch die Haustür zurück zum Hof. Beet {plot} ist erntebereit."),
+            Self::Harvest if pad => format!("Wähle über X den Erntekorb. Schau zu Beet {plot} und drücke A."),
+            Self::Harvest => format!("Wähle bei „Werkzeuge“ den Erntekorb und ernte Beet {plot}."),
+            Self::Kitchen if indoors => "Geh durch die Haustür zur Hofküche. Sie steht neben den Beeten.".into(),
             Self::Kitchen if Dish::CarrotSoup.ready(garden) => "Öffne die Hofküche und koche Möhren-Pilz-Suppe. Füge die Zutaten hinzu, rühre und schöpfe ab.".into(),
             Self::Kitchen => "Für die Suppe brauchst du zwei Möhren und einen Pilz. Pilze findest du am Farnbach.".into(),
             Self::Cards if indoors => "Öffne den Kartenbinder und wähle „Üben“. Der Strohwächter zeigt dir Angriff, Schutz und Zugwechsel.".into(),
             Self::Cards => "Geh durch die Haustür zum Kartenbinder. Dort wartet ein Übungsduell.".into(),
             Self::Map if indoors => "Geh durch die Tür nach draußen. In der Übersicht siehst du die Wege und markierten Ziele.".into(),
             Self::Map if pad => "Drücke Y für die Inselkarte. Die Markierung zeigt dir den Weg zu Bo.".into(),
-            Self::Map => "Öffne die Inselkarte über „Inselkarte“. Die Markierung zeigt dir den Weg zu Bo.".into(),
+            Self::Map => "Tippe auf „Karte“ oben links. Die Markierung zeigt dir den Weg zu Bo.".into(),
             Self::Complete => "Der Prolog ist geschafft. Bo wartet in Eichenhafen.".into(),
         }
     }
@@ -241,7 +250,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
             GlobalZIndex(5),
             Node {
                 position_type: PositionType::Absolute,
-                    top: Val::Px(83.),
+                bottom: Val::Px(128.),
                 left: Val::Percent(31.),
                 width: Val::Percent(37.),
                 padding: UiRect::axes(Val::Px(14.), Val::Px(8.)),
@@ -277,7 +286,12 @@ pub fn update(
     player: Single<&Gardener>,
     controls: Res<crate::Controls>,
     session: Res<Session>,
-    menu: Res<crate::farm_ui::FarmMenu>,
+    overlays: (
+        Res<crate::farm_ui::FarmMenu>,
+        Res<crate::wheel::Wheel>,
+        Res<crate::decorate::Layout>,
+        Res<crate::night::Night>,
+    ),
     controller: Res<crate::controller::Controller>,
     dialog: Res<crate::town::Dialog>,
     path: Res<SavePath>,
@@ -287,7 +301,9 @@ pub fn update(
     mut title: Single<&mut Text, (With<TutorialTitle>, Without<TutorialText>)>,
     mut body: Single<&mut Text, (With<TutorialText>, Without<TutorialTitle>)>,
 ) {
-    let active = session.playing() && !menu.open() && !dialog.open();
+    let (menu, wheel, layout, night) = overlays;
+    let active = session.playing() && !menu.open() && !dialog.open()
+        && !wheel.open() && !layout.open() && !night.active();
     if !active || garden.onboarding == Onboarding::Welcome {
         panel.set_if_neq(Visibility::Hidden);
         return;

@@ -48,6 +48,15 @@ pub fn ground(point: Vec2) -> f32 {
     grid(point).map_or(-1.43, height_at)
 }
 
+pub fn atlas_position(point: Vec2) -> Vec2 {
+    ((point - ORIGIN) / (STEP * Vec2::new((COLS - 1) as f32, (ROWS - 1) as f32)))
+        .clamp(Vec2::ZERO, Vec2::ONE)
+}
+
+pub fn atlas_ratio() -> f32 {
+    ROWS as f32 / COLS as f32
+}
+
 pub fn walkable(point: Vec2) -> bool {
     grid(point).is_some_and(|p| {
         let blocked = sample(p.x.round() as usize, p.y.round() as usize).1;

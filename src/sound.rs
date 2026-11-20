@@ -40,11 +40,12 @@ pub enum Cue {
     KitchenJar,
     KitchenMill,
     KitchenDone,
+    Dawn,
 }
 
 #[derive(Resource)]
 pub struct Sounds {
-    steps: [Handle<AudioSource>; 3],
+    steps: [[Handle<AudioSource>; 2]; 5],
     garden: [Handle<AudioSource>; 5],
     axe: [Handle<AudioSource>; 2],
     stone: [Handle<AudioSource>; 2],
@@ -63,6 +64,7 @@ pub struct Pace {
     distance: f32,
     take: usize,
     acted_at: f32,
+    confirmed_at: f32,
     field_cue: Option<(Action, f32)>,
     duck_until: f32,
 }
@@ -83,7 +85,12 @@ pub fn setup(mut commands: Commands, assets: Res<AssetServer>) {
     }
     let wave = |name| assets.load(format!("audio/{name}.wav"));
     commands.insert_resource(Sounds {
-        steps: ["step_grass", "step_wood", "step_snow"].map(wave),
+        steps: ["grass", "wood", "snow", "sand", "stone"].map(|surface| {
+            [
+                assets.load(format!("audio/step_{surface}.wav")),
+                assets.load(format!("audio/step_{surface}_alt.wav")),
+            ]
+        }),
         garden: [
             "soil_till",
             "soil_sow",
@@ -140,6 +147,12 @@ pub fn play(
     let district = District::at(point);
     let outside = area.outdoors();
 
+    if notice.toast == Some(crate::feedback::Tone::Success) && pace.confirmed_at != notice.until {
+        pace.confirmed_at = notice.until;
+        if audible && now < notice.until {
+            one_shot(&mut commands, &sounds.actions[7], 0.15, pace.take);
+        }
+    }
     if let Some(action) = notice.action.filter(|_| notice.until != pace.acted_at) {
         pace.acted_at = notice.until;
         let delay = if matches!(action, Action::Till | Action::Water) {
@@ -188,6 +201,7 @@ pub fn play(
             Cue::KitchenJar => (&sounds.actions[5], 0.38),
             Cue::KitchenMill => (&sounds.actions[6], 0.38),
             Cue::KitchenDone => (&sounds.actions[7], 0.43),
+            Cue::Dawn => (&sounds.skill, 0.22),
         };
         one_shot(&mut commands, clip, level, take);
         if !matches!(cue, Cue::CardSlide | Cue::Turn) {
@@ -275,15 +289,17 @@ pub fn play(
     let distance = previous
         .filter(|(past, _)| *past == area)
         .map_or(0., |(_, last)| last.distance(point));
-    if !audible || distance > 1.65 {
+    if !audible || distance > 1.65 || previous.is_some_and(|(past, _)| past != area) {
         pace.distance = 0.;
         return;
     }
+    let speed = (distance / time.delta_secs().max(0.001) / 4.8).clamp(0., 1.);
+    let stride = 0.68 + 0.32 * speed;
     pace.distance += distance;
-    if pace.distance < 0.49 {
+    if pace.distance < stride {
         return;
     }
-    pace.distance %= 0.49;
+    pace.distance %= stride;
     let wooden = area == Area::Home
         || (outside
             && (garden.harbor.phase.deck_height(point).is_some() || crate::world::on_dock(point)));
@@ -291,9 +307,13 @@ pub fn play(
         1
     } else if outside && Season::at(garden.day) == Season::Winter {
         2
+    } else if district == Some(District::Beach) && outside {
+        3
+    } else if !outside || matches!(district, Some(District::Town | District::Copper)) {
+        4
     } else {
         0
     };
-    one_shot(&mut commands, &sounds.steps[sample], 0.39, pace.take);
+    one_shot(&mut commands, &sounds.steps[sample][pace.take % 2], 0.29 + 0.13 * speed, pace.take);
     pace.take += 1;
 }

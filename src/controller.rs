@@ -7,6 +7,12 @@ pub enum Panel {
     Dialogue,
     Duel,
     Cinematic,
+    #[cfg(target_os = "android")]
+    Wheel,
+    #[cfg(target_os = "android")]
+    Rest,
+    #[cfg(target_os = "android")]
+    Decor,
 }
 
 #[derive(Component)]
@@ -18,14 +24,18 @@ pub struct Controller {
     pub zoom: f32,
     pub map: bool,
     pub act: bool,
-    pub quick: bool,
     pub back: bool,
     pub cycle: i8,
     pub task: bool,
     pub inventory: bool,
     pub seeds: bool,
     pub fertilizer: bool,
-    pub field_tool: bool,
+    pub wheel: bool,
+    pub accept: bool,
+    pub radial: Vec2,
+    pub rotate: bool,
+    pub store: bool,
+    pub step: Vec2,
     pub active: bool,
     pub end_turn: bool,
     pub page_step: i8,
@@ -78,9 +88,12 @@ mod android {
 
     use super::{Controller, FocusEnabled, Panel, focus_step};
     use crate::{
+        Adventure,
         farm_ui::{Choice, FarmMenu, FarmPage},
+        night::Night,
         session::Session,
         town::{Dialog, DialogueButton},
+        wheel::Wheel,
     };
 
     const KEYS: [u32; 15] = [
@@ -278,12 +291,11 @@ mod android {
         mut keyboard: EventWriter<KeyboardInput>,
         mut cursor: Single<&mut Node, With<ControllerCursor>>,
         ui_scale: Res<UiScale>,
-        session: Res<Session>,
-        menu: Res<FarmMenu>,
-        dialog: Res<Dialog>,
+        layers: (Res<Session>, Res<FarmMenu>, Res<Dialog>, Res<Wheel>, Res<Night>, Res<Adventure>, Res<crate::decorate::Layout>),
         targets: FocusButtons,
         mut last: Local<LastInput>,
     ) {
+        let (session, menu, dialog, wheel, night, adventure, decor) = layers;
         let (entity, window) = *window;
         let mut send_touch = |position, phase| {
             touch.write(TouchInput {
@@ -337,6 +349,12 @@ mod android {
             || triggers.1;
         let layer = if !session.playing() {
             Some(Panel::Session)
+        } else if night.active() {
+            Some(Panel::Rest)
+        } else if wheel.open() {
+            Some(Panel::Wheel)
+        } else if decor.open() {
+            Some(Panel::Decor)
         } else if menu.clip().is_some() {
             Some(Panel::Cinematic)
         } else if menu.battle().is_some() {
@@ -348,6 +366,9 @@ mod android {
         } else {
             None
         };
+        let hand = layer == Some(Panel::Duel)
+            && menu.battle().is_some_and(crate::duel::Battle::hand_controls);
+        let direct = hand || matches!(layer, Some(Panel::Wheel | Panel::Rest | Panel::Decor));
         let panel = layer.map(|layer| (layer, menu.page()));
         let changed_panel = panel != last.panel;
         if changed_panel {
@@ -356,7 +377,7 @@ mod android {
             last.direction = Vec2::ZERO;
         }
         last.panel = panel;
-        let nav = if layer.is_some() && pad == Vec2::ZERO {
+        let nav = if layer.is_some() && layer != Some(Panel::Wheel) && pad == Vec2::ZERO {
             walk * Vec2::new(1., -1.)
         } else {
             pad
@@ -387,18 +408,31 @@ mod android {
         } else {
             0.
         };
-        controller.act =
-            world && (hit(6) || (hit(4) && controller.pointer.is_none() && look == Vec2::ZERO));
-        controller.quick = world && hit(6);
+        let pointer = world && adventure.map && adventure.area.outdoors();
+        if !pointer {
+            controller.pointer = None;
+        }
+        let accept = hit(4) && !(hit(5) || hit(10));
+        controller.act = world && accept
+            && (!pointer || (controller.pointer.is_none() && look == Vec2::ZERO));
+        controller.accept = direct && accept;
+        controller.step = step;
+        controller.radial = if walk.length_squared() >= 0.26 {
+            walk * Vec2::new(1., -1.)
+        } else {
+            look
+        };
+        controller.wheel = (world || layer == Some(Panel::Wheel)) && (hit(6) || hit(14));
         controller.map = world && hit(7);
-        controller.back = world && hit(5);
+        controller.back = (world || matches!(layer, Some(Panel::Wheel | Panel::Decor))) && hit(5);
+        controller.rotate = layer == Some(Panel::Decor) && (hit(6) || hit(9));
+        controller.store = layer == Some(Panel::Decor) && hit(7);
         controller.cycle = if world { step.x as i8 } else { 0 };
         controller.task = world && step.y < 0.;
         controller.inventory = world && (hit(11) || step.y > 0.);
         controller.seeds = world && triggers.0 && !last.triggers.0;
         controller.fertilizer = world && triggers.1 && !last.triggers.1;
-        controller.field_tool = world && hit(14);
-        controller.end_turn = layer == Some(Panel::Duel) && hit(7);
+        controller.end_turn = hand && hit(7);
         controller.provisions = layer == Some(Panel::Duel) && hit(6);
         controller.page_step = if layer == Some(Panel::Farm) {
             i8::from(hit(9)) - i8::from(hit(8))
@@ -406,9 +440,12 @@ mod android {
             0
         };
         last.triggers = triggers;
-        if hit(10) || (hit(5) && !world) {
+        if (hit(10) || hit(5) && !world) && !matches!(layer, Some(Panel::Wheel | Panel::Rest | Panel::Decor)) {
             keyboard.write(escape(entity, ButtonState::Pressed));
             last.release_escape = true;
+        }
+        if hit(10) && matches!(layer, Some(Panel::Wheel | Panel::Decor)) {
+            controller.back = true;
         }
         if let Some(position) = controller.release.take() {
             send_touch(
@@ -420,7 +457,7 @@ mod android {
                 },
             );
         }
-        let selection = layer.filter(|_| controller.active).and_then(|layer| {
+        let selection = layer.filter(|_| controller.active && !direct).and_then(|layer| {
             let candidates: Vec<_> = targets
                 .buttons
                 .iter()
@@ -461,7 +498,7 @@ mod android {
                 .find(|(id, _, _, _)| Some(*id) == controller.focused)
                 .map(|(_, point, bounds, _)| (point, bounds + Vec2::splat(8.)))
         });
-        if look != Vec2::ZERO && world {
+        if look != Vec2::ZERO && pointer {
             let start = controller.pointer.unwrap_or(size / 2.);
             controller.pointer =
                 Some((start + look * 610. * time.delta_secs().min(0.05)).clamp(Vec2::ZERO, size));
@@ -478,8 +515,7 @@ mod android {
                 .filter(|_| world)
                 .map(|p| (p, Vec2::splat(19.)))
         });
-        if hit(4)
-            && !(hit(5) || hit(10))
+        if accept && !direct
             && let Some((position, _)) = mark
         {
             send_touch(position, TouchPhase::Started);
