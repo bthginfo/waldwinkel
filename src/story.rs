@@ -190,6 +190,8 @@ pub enum Guide {
     Farm,
     FirstMorning,
     Workshop,
+    BuildPlan,
+    EveningMarket,
     Pier,
     Watch(crate::waywatch::Watch),
     WatchFinale,
@@ -219,11 +221,13 @@ impl Guide {
                 Self::Festival,
             ],
             GuideTab::Orders => &[
+                Self::BuildPlan,
                 Self::FirstMorning,
                 Self::Workshop,
                 Self::Pier,
                 Self::Farm,
                 Self::Town(Npc::Mara),
+                Self::EveningMarket,
                 Self::Town(Npc::Fiete),
                 Self::Town(Npc::Bo),
                 Self::Regional(Frontier::Copper),
@@ -264,6 +268,10 @@ impl Guide {
             Self::SeasonMeeting => "Dorftisch in Eichenhafen",
             Self::Farm => garden.task().0,
             Self::Workshop => "Die alte Hofwerkbank",
+            Self::EveningMarket => crate::evening_market::TITLE,
+            Self::BuildPlan => garden
+                .plan
+                .map_or("Angehefteter Bauplan", |plan| plan.title()),
             Self::FirstMorning => "Dein erster Morgen",
             Self::Pier => "Der alte Fischersteg",
             Self::Watch(site) => site.name(),
@@ -283,6 +291,8 @@ impl Guide {
             Self::Juna if garden.story.met_juna => {
                 "Erfüllt · Juna hat dir von den Klangsteinen erzählt.".into()
             }
+            Self::BuildPlan => garden.plan.map_or_else(String::new, |plan| format!("Angeheftet · {}", plan.summary(garden))),
+            Self::EveningMarket => crate::evening_market::detail(garden).lines().next().unwrap_or("").into(),
             Self::Workshop if garden.workshop.restored => {
                 "Erfüllt · Drei Möbelbaupläne gelernt.".into()
             }
@@ -398,6 +408,14 @@ impl Guide {
                 _ => Some(Target::Door),
             },
             Self::Workshop => (!garden.workshop.restored).then_some(Target::Bench),
+            Self::BuildPlan => garden.plan.and_then(|plan| plan.target(garden)),
+            Self::EveningMarket
+                if garden.evening_market.stage == crate::evening_market::Stage::Open =>
+            {
+                Some(Target::EveningMarket)
+            }
+            Self::EveningMarket if crate::evening_market::invited(garden) => person(Npc::Mara),
+            Self::EveningMarket => None,
             Self::Pier => Some(match garden.harbor.phase {
                 crate::harbor::Phase::Damaged if !garden.harbor.started => Target::Person(Npc::Bo),
                 crate::harbor::Phase::Damaged if garden.harbor.salvage_available() => {

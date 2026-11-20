@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     Controls, Notice,
     adventure::commit,
+    evening_market::{self, Stage as MarketStage},
     farm_ui::{FarmMenu, FarmPage},
     garden::{Crop, Garden, SavePath},
     harbor,
@@ -243,7 +244,12 @@ impl Npc {
             Self::Juna if !garden.story.met_juna => Some(Available),
             _ => None,
         };
-        city.max(story)
+        let market = if self == Self::Mara {
+            evening_market::mark(garden)
+        } else {
+            None
+        };
+        city.max(story).max(market)
     }
 }
 
@@ -431,6 +437,10 @@ pub struct Dialog {
 }
 
 impl Dialog {
+    pub(crate) fn person(&self) -> Option<Npc> {
+        self.npc
+    }
+
     pub fn open(&self) -> bool {
         self.npc.is_some()
     }
@@ -471,6 +481,7 @@ pub enum DialogueButton {
     Quest,
     Story,
     Harbor,
+    EveningMarket,
     Plans,
     WatchMap,
 }
@@ -532,6 +543,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                                 (DialogueButton::Deal, "Kaufen", 129.),
                                 (DialogueButton::Quest, "Annehmen", 187.),
                                 (DialogueButton::Story, "Nachfragen", 161.),
+                                (DialogueButton::EveningMarket, "Abendmarkt", 193.),
                                 (DialogueButton::Harbor, "Alter Fischersteg", 180.),
                                 (DialogueButton::Plans, "Baupläne", 103.),
                                 (DialogueButton::WatchMap, "Inselkarte", 118.),
@@ -632,6 +644,17 @@ pub fn input(
                 npc.quest().map(|quest| quest.advance(&mut garden))
             }
         }
+        DialogueButton::EveningMarket if npc == Npc::Mara && !dialog.trading => {
+            if evening_market::trading(&garden) {
+                dialog.close();
+                *gesture = Gesture::default();
+                *controls = Controls::default();
+                farm_menu.show(FarmPage::EveningMarket);
+                None
+            } else {
+                Some(evening_market::advance(&mut garden))
+            }
+        }
         DialogueButton::Story if npc == Npc::Juna && !garden.story.met_juna => {
             garden.story.met_juna = true;
             Some(Ok(
@@ -716,6 +739,7 @@ pub fn update(
             DialogueText::Greeting if matches!(npc, Npc::Bo | Npc::Fiete) => {
                 npc.harbor_greeting(&garden).unwrap_or_else(|| npc.greeting().into())
             }
+            DialogueText::Greeting if npc == Npc::Mara && evening_market::invited(&garden) => evening_market::greeting(&garden).into(),
             DialogueText::Greeting if quest_state == Some(QuestState::Done) => {
                 "Danke für deine Hilfe. Schau gern wieder vorbei!".into()
             }
@@ -733,6 +757,7 @@ pub fn update(
             DialogueText::Request if dialog.trading => {
                 trade.as_ref().map_or_else(String::new, |t| t.0.clone())
             }
+            DialogueText::Request if npc == Npc::Mara && evening_market::invited(&garden) => evening_market::detail(&garden),
             DialogueText::Request if region_quest.is_some() => region_quest
                 .as_ref()
                 .map_or_else(String::new, |value| value.0.clone()),
@@ -782,6 +807,7 @@ pub fn update(
             DialogueButton::WatchMap if npc == Npc::Bo => "Wegwachten",
             DialogueButton::WatchMap => "Inselkarte",
             DialogueButton::Trade => "Handeln",
+            DialogueButton::EveningMarket => evening_market::action(&garden),
             DialogueButton::Deal if npc == Npc::Miro => "Verkaufen",
             DialogueButton::Deal => "Saat kaufen",
             DialogueButton::Quest if region_quest.is_some() => region_quest.as_ref().unwrap().1,
@@ -804,6 +830,13 @@ pub fn update(
             }
             DialogueButton::Story => npc == Npc::Juna && !garden.story.met_juna,
             DialogueButton::Harbor => !dialog.trading && matches!(npc, Npc::Bo | Npc::Fiete),
+            DialogueButton::EveningMarket => {
+                npc == Npc::Mara
+                    && !dialog.trading
+                    && evening_market::invited(&garden)
+                    && (garden.evening_market.stage != MarketStage::Open
+                        || evening_market::trading(&garden))
+            }
             DialogueButton::Plans => {
                 npc == Npc::Bo && garden.clock.market_open() && !dialog.trading
             }
@@ -816,6 +849,9 @@ pub fn update(
         }
         let enabled = match button {
             DialogueButton::Deal => trade.as_ref().is_some_and(|t| t.2),
+            DialogueButton::EveningMarket => {
+                evening_market::can_advance(&garden) || evening_market::trading(&garden)
+            }
             DialogueButton::Trade if npc == Npc::Runa => garden.clock.market_open(),
             _ => true,
         };

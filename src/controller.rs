@@ -22,6 +22,7 @@ pub struct Controller {
     pub inventory: bool,
     pub seeds: bool,
     pub fertilizer: bool,
+    pub field_tool: bool,
     pub active: bool,
     pub end_turn: bool,
     #[cfg(target_os = "android")]
@@ -77,7 +78,7 @@ mod android {
         town::{Dialog, DialogueButton},
     };
 
-    const KEYS: [u32; 14] = [
+    const KEYS: [u32; 15] = [
         ndk::AKEYCODE_DPAD_UP,
         ndk::AKEYCODE_DPAD_DOWN,
         ndk::AKEYCODE_DPAD_LEFT,
@@ -92,6 +93,7 @@ mod android {
         ndk::AKEYCODE_BUTTON_SELECT,
         ndk::AKEYCODE_BUTTON_L2,
         ndk::AKEYCODE_BUTTON_R2,
+        ndk::AKEYCODE_BUTTON_THUMBR,
     ];
     const POINTER_ID: u64 = u64::MAX;
     static AXES: [AtomicU32; 8] = [const { AtomicU32::new(0) }; 8];
@@ -389,6 +391,7 @@ mod android {
         controller.inventory = world && (hit(11) || step.y > 0.);
         controller.seeds = world && triggers.0 && !last.triggers.0;
         controller.fertilizer = world && triggers.1 && !last.triggers.1;
+        controller.field_tool = world && hit(14);
         controller.end_turn = layer == Some(Panel::Duel) && hit(7);
         last.triggers = triggers;
         if hit(10) || (hit(5) && !world) {

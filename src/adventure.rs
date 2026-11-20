@@ -156,6 +156,7 @@ pub enum Target {
     Find(usize),
     SeasonFind(usize),
     SeasonMeeting,
+    EveningMarket,
     Person(Npc),
     Binder,
     DuskGate,
@@ -169,6 +170,9 @@ pub enum Target {
 impl Target {
     fn restriction(self, garden: &Garden) -> Option<&'static str> {
         match self {
+            Self::EveningMarket if !crate::evening_market::trading(garden) => {
+                Some("Maras Abendmarkt öffnet von 18:00 bis 21:30.")
+            }
             Self::PatternStall if !garden.clock.market_open() => {
                 Some("Der Bauplanstand öffnet morgens um 06:00.")
             }
@@ -235,6 +239,7 @@ impl Target {
             Self::Find(i) => FINDS[i].name(),
             Self::SeasonFind(i) => SITES[i].season.find_name(),
             Self::SeasonMeeting => "Dorftisch",
+            Self::EveningMarket => "Abendmarkt",
             Self::Person(person) => person.name(),
             Self::Binder => "Kartenbinder",
             Self::DuskGate | Self::DuskExit => "Dämmergänge",
@@ -275,6 +280,7 @@ impl Target {
             Self::Travel(_) => "Angekommen",
             Self::Find(_) | Self::SeasonFind(_) => "Sammeln",
             Self::SeasonMeeting => "Treffen ansehen",
+            Self::EveningMarket => "Proviant ansehen",
             Self::Person(_) => "Ansprechen",
             Self::Binder => "Öffnen",
             Self::DuskGate => "Aufbrechen",
@@ -306,7 +312,7 @@ impl Target {
             Self::Travel(_) => 0.2,
             Self::Find(i) => FINDS[i].height(),
             Self::SeasonFind(_) => 0.23,
-            Self::SeasonMeeting => 0.94,
+            Self::SeasonMeeting | Self::EveningMarket => 0.94,
             Self::Person(_) => 1.02,
             Self::Binder | Self::DuskFoe => 0.86,
             Self::DuskGate | Self::DuskExit => 1.05,
@@ -584,6 +590,7 @@ impl Adventure {
     pub fn tracked_target(&self, garden: &Garden) -> Option<Target> {
         self.tracked
             .and_then(|guide| guide.target(garden))
+            .or_else(|| Guide::BuildPlan.target(garden))
             .or_else(|| Guide::Campaign.target(garden))
     }
 
@@ -647,6 +654,11 @@ impl Adventure {
                     && !inside(KITCHEN, Vec2::new(1.15, 0.64))
                     && !inside(PATTERN_STALL, Vec2::new(0.85, 0.51))
                     && !inside(MEETING_POINT, TABLE_HALF_SIZE)
+                    && !(garden.evening_market.stage >= crate::evening_market::Stage::Tasting
+                        && inside(
+                            crate::evening_market::PLACE,
+                            crate::evening_market::HALF_SIZE,
+                        ))
                     && !inside(harbor::BOARD, harbor::BOARD_HALF)
                     && !Animal::ALL
                         .into_iter()
@@ -732,7 +744,7 @@ impl Adventure {
             Target::Gate(_) => 0.67,
             Target::Bell(_) => 0.66,
             Target::Resonator(_) => 0.69,
-            Target::SeasonMeeting => 0.95,
+            Target::SeasonMeeting | Target::EveningMarket => 0.95,
             Target::Person(_) => NPC_RADIUS + 0.07,
             Target::HarborBoard => 0.95,
             Target::Bed => 1.10,
@@ -810,6 +822,7 @@ impl Adventure {
             Target::Find(i) => FINDS[i].position(),
             Target::SeasonFind(i) => SITES[i].point,
             Target::SeasonMeeting => MEETING_POINT,
+            Target::EveningMarket => crate::evening_market::PLACE,
             Target::Person(person) => person.position(garden),
             Target::Binder => BINDER,
             Target::DuskGate => DUSK_GATE,
@@ -845,6 +858,10 @@ impl Adventure {
                     .into_iter()
                     .filter(|spot| spot.open(garden.harbor.phase))
                     .map(Target::HarborFishing),
+            )
+            .chain(
+                (garden.evening_market.stage >= crate::evening_market::Stage::Tasting)
+                    .then_some(Target::EveningMarket),
             )
             .chain(garden.workshop.forge.then_some(Target::Forge))
             .chain(garden.workshop.loom.then_some(Target::Loom))
@@ -1103,6 +1120,9 @@ impl Adventure {
                     "Baupläne",
                 ),
                 Target::SeasonMeeting => (seasons::meeting_status(garden), target.label()),
+                Target::EveningMarket => {
+                    ("Maras Proviant · derzeit geöffnet".into(), target.label())
+                }
                 Target::SeasonFind(_) => (
                     "Saisonfund · Sammlung und Dorftreffen".into(),
                     target.label(),
@@ -1476,6 +1496,7 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
         Target::Bell(_) => hit(Vec2::splat(0.67), 0., 1.95),
         Target::Resonator(_) => hit(Vec2::splat(0.53), 0., 1.62),
         Target::SeasonMeeting => hit(TABLE_HALF_SIZE, 0., 1.85),
+        Target::EveningMarket => hit(crate::evening_market::HALF_SIZE, 0., 2.04),
         Target::HarborBoard => hit(harbor::BOARD_HALF, 0., 1.71),
         Target::HarborDriftwood => hit(Vec2::new(0.63, 0.34), 0., 0.38),
         Target::HarborFishing(_) => hit(Vec2::new(0.55, 0.49), 0., 0.70),
@@ -1584,6 +1605,12 @@ pub fn select(
                                     && garden.action(i, adventure.crop) == tutorial =>
                             {
                                 9.
+                            }
+                            PadTarget::Plot(i)
+                                if focus.tool != crate::fieldwork::FieldTool::Auto
+                                    && focus.tool.action(&garden, i, adventure.crop).is_some() =>
+                            {
+                                8.
                             }
                             PadTarget::Place(target)
                                 if tracked == Some(target) && offset.length() < 4. =>
@@ -1986,7 +2013,8 @@ pub fn interact(
         | Target::PatternStall
         | Target::Kitchen
         | Target::HarborBoard
-        | Target::SeasonMeeting => {
+        | Target::SeasonMeeting
+        | Target::EveningMarket => {
             farm_menu.show(match target {
                 Target::SaleChest => FarmPage::Sale,
                 Target::Bench if garden.workshop.restored => FarmPage::Workbench,
@@ -2000,6 +2028,7 @@ pub fn interact(
                 Target::Binder => FarmPage::Binder,
                 Target::DuskGate => FarmPage::Expedition,
                 Target::SeasonMeeting => FarmPage::SeasonMeeting,
+                Target::EveningMarket => FarmPage::EveningMarket,
                 Target::HarborBoard => FarmPage::Harbor { at_site: true },
                 _ => FarmPage::SeedShop,
             });
@@ -2303,6 +2332,7 @@ enum Stamp {
         season: Season,
         seasonal_finds: [bool; SITES.len()],
         pier: Phase,
+        evening_market: (bool, bool),
         salvage: bool,
         opening: bool,
         workshop: (bool, bool, bool, u8),
@@ -2311,6 +2341,7 @@ enum Stamp {
     Home {
         furniture: Vec<u8>,
         rooms: u8,
+        preview_slot: Option<usize>,
     },
     Mine(u32, Vec<u16>),
     Dusk(u32, bool),
@@ -2326,6 +2357,7 @@ pub struct AreaDrawing {
 
 pub fn draw(
     mut commands: Commands,
+    menu: Res<FarmMenu>,
     assets: Res<AssetServer>,
     garden: Res<Garden>,
     adventure: Res<Adventure>,
@@ -2333,7 +2365,13 @@ pub fn draw(
     mut clear: ResMut<ClearColor>,
     mut drawing: Local<AreaDrawing>,
 ) {
-    let stamp = match adventure.area {
+    let preview = menu.room_preview();
+    let display_area = if preview.is_some() {
+        Area::Home
+    } else {
+        adventure.area
+    };
+    let stamp = match display_area {
         Area::Island | Area::District(_) => Stamp::Island {
             felled: garden
                 .felled
@@ -2357,6 +2395,10 @@ pub fn draw(
             season: Season::at(garden.day),
             seasonal_finds: std::array::from_fn(|i| garden.seasons.available(i, garden.day)),
             pier: garden.harbor.phase,
+            evening_market: (
+                garden.evening_market.stage >= crate::evening_market::Stage::Tasting,
+                crate::evening_market::hours(&garden) && crate::evening_market::scheduled(&garden),
+            ),
             salvage: garden.harbor.salvage_available(),
             opening: garden.harbor.celebrating(garden.day),
             workshop: (
@@ -2367,10 +2409,17 @@ pub fn draw(
             ),
             watches: Watch::ALL.map(|site| site.stage(&garden) >= WatchStage::Guarding),
         },
-        Area::Home => Stamp::Home {
-            furniture: garden.furniture.clone(),
-            rooms: garden.workshop.house,
-        },
+        Area::Home => {
+            let mut furniture = garden.furniture.clone();
+            if let Some(view) = preview {
+                furniture[view.slot] = (view.design + 1) as u8;
+            }
+            Stamp::Home {
+                furniture,
+                rooms: garden.workshop.house,
+                preview_slot: preview.map(|view| view.slot),
+            }
+        }
         Area::Expedition(level) => Stamp::Dusk(level, garden.rpg.cleared >= level),
         Area::Mine(depth) => Stamp::Mine(
             depth,
@@ -2415,6 +2464,7 @@ pub fn draw(
                 season,
                 seasonal_finds,
                 pier,
+                evening_market,
                 salvage,
                 opening,
                 workshop: (restored, forge, loom, house),
@@ -2562,6 +2612,15 @@ pub fn draw(
                         );
                     }
                 }
+                if evening_market.0 {
+                    let place = crate::evening_market::PLACE;
+                    let height = world::exterior_ground(place);
+                    spawn("evening_market", place, height, 0.);
+                    if evening_market.1 {
+                        spawn("evening_market_lights", place, height, 0.);
+                        spawn("evening_market_pool", place, height, 0.);
+                    }
+                }
                 spawn(
                     season.table_model(),
                     MEETING_POINT,
@@ -2633,7 +2692,11 @@ pub fn draw(
                 }
                 Color::srgb_u8(132, 204, 201)
             }
-            Stamp::Home { furniture, rooms } => {
+            Stamp::Home {
+                furniture,
+                rooms,
+                preview_slot,
+            } => {
                 spawn("interior", HOME, 0., 0.);
                 spawn(
                     "bedroom_bed",
@@ -2652,7 +2715,9 @@ pub fn draw(
                 }
                 spawn("card_binder", BINDER, 0., 0.);
                 for (i, kind) in furniture.iter().take(garden.workshop.slots()).enumerate() {
-                    spawn("selection", HOME + SLOTS[i], 0.055, 0.);
+                    if preview_slot.is_none_or(|slot| slot == i) {
+                        spawn("selection", HOME + SLOTS[i], 0.12, 0.);
+                    }
                     if let Some(name) = kind.checked_sub(1).and_then(|v| CATALOG.get(v as usize)) {
                         spawn(name.model, HOME + SLOTS[i], 0.08, 0.);
                     }

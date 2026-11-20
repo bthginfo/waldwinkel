@@ -29,6 +29,8 @@ const TOOL_WIDTH: f32 = 113.;
 const TOOL_HEIGHT: f32 = 58.;
 const TOOL_GAP: f32 = 7.;
 const TOOL_STEP: f32 = TOOL_HEIGHT + TOOL_GAP;
+const FIELD_TOOL_TOP: f32 = TOOLS_TOP + 2. * TOOL_STEP;
+const FIELD_TOOL_WIDTH: f32 = 162.;
 const ZOOM_WIDTH: f32 = 56.;
 const MENU_WIDTH: f32 = 94.;
 
@@ -42,6 +44,7 @@ pub enum Utility {
     Inventory,
     Menu,
     Fertilize,
+    FieldTool,
 }
 impl Utility {
     const TOOLBAR: [[(Self, &'static str); 2]; 2] = [
@@ -58,6 +61,7 @@ impl Utility {
             Self::Inventory => controls.inventory = true,
             Self::Menu => controls.menu = true,
             Self::Fertilize => controls.fertilize = true,
+            Self::FieldTool => controls.field_tool = true,
         }
     }
 }
@@ -100,6 +104,7 @@ pub struct HudLayout {
     pub scale: f32,
     context_height: f32,
     fertilizer: bool,
+    field_tools: bool,
     large: bool,
 }
 
@@ -111,6 +116,7 @@ impl Default for HudLayout {
             scale: 1.0,
             context_height: 65.,
             fertilizer: false,
+            field_tools: false,
             large: false,
         }
     }
@@ -183,7 +189,14 @@ impl HudLayout {
                 return Some(Utility::Out);
             }
         }
-        let point = at / self.scale - Vec2::new(MARGIN, TOOLS_TOP);
+        let touch = at / self.scale;
+        if self.field_tools
+            && (MARGIN..=MARGIN + FIELD_TOOL_WIDTH).contains(&touch.x)
+            && (FIELD_TOOL_TOP..=FIELD_TOOL_TOP + TOOL_HEIGHT).contains(&touch.y)
+        {
+            return Some(Utility::FieldTool);
+        }
+        let point = touch - Vec2::new(MARGIN, TOOLS_TOP);
         if point.x < 0. || point.y < 0. {
             return None;
         }
@@ -236,6 +249,8 @@ pub fn resize(
     mut layout: ResMut<HudLayout>,
     mut scale: ResMut<UiScale>,
     mut hud: Single<&mut Node, With<Hud>>,
+    player: Single<&Gardener>,
+    mut field_button: Single<&mut Visibility, With<FieldToolButton>>,
 ) {
     let [left, top, right, bottom] = insets.0.map(|v| v / window.scale_factor());
     let origin = Vec2::new(left, top);
@@ -248,10 +263,18 @@ pub fn resize(
     let fertilizer = !adventure.map
         && focus.selected.is_some_and(|i| garden.fertilizable(i))
         && !garden.clock.night();
+    let field_tools =
+        adventure.area == Area::Island && !adventure.map && player.position.length() < 17.;
+    field_button.set_if_neq(if field_tools {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    });
     if size != layout.size
         || origin != layout.origin
         || layout.context_height != context_height
         || layout.fertilizer != fertilizer
+        || layout.field_tools != field_tools
         || layout.large != garden.large_ui
     {
         let preference = if garden.large_ui { 1.16 } else { 1.0 };
@@ -265,6 +288,7 @@ pub fn resize(
             scale: fit,
             context_height,
             fertilizer,
+            field_tools,
             large: garden.large_ui,
         };
         scale.0 = fit;
@@ -341,6 +365,9 @@ pub struct Thumb;
 
 #[derive(Component)]
 pub struct ActionSurface;
+
+#[derive(Component)]
+pub struct FieldToolButton;
 
 #[derive(Component)]
 pub struct FertilizerButton;
@@ -818,6 +845,31 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>, icons: Res<Icons>) {
                 menu.spawn(text("Menü", &bold, 15., ink()));
             });
             root.spawn((
+                FieldToolButton,
+                Visibility::Hidden,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: px(MARGIN),
+                    top: px(FIELD_TOOL_TOP),
+                    width: px(FIELD_TOOL_WIDTH),
+                    height: px(TOOL_HEIGHT),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    column_gap: px(5.),
+                    ..default()
+                },
+                BorderRadius::all(px(15.)),
+                BackgroundColor(cream()),
+                shadow(),
+            ))
+            .with_children(|button| {
+                button.spawn(icon(&icons.hoe, 24.));
+                button.spawn((
+                    UtilityLabel(Utility::FieldTool),
+                    text("Werkzeug", &bold, 15., ink()),
+                ));
+            });
+            root.spawn((
                 ZoomTools,
                 Node {
                     position_type: PositionType::Absolute,
@@ -960,6 +1012,7 @@ pub fn update_fertilizer(
 #[derive(PartialEq)]
 pub(crate) struct Panel {
     action: Option<Action>,
+    beds: usize,
     pad: bool,
     enabled: bool,
     pressed: bool,
@@ -999,6 +1052,7 @@ pub fn update(
     let mut progress_value = None;
     let mut panel = Panel {
         action: None,
+        beds: 1,
         pad: controller.active,
         enabled,
         pressed: gesture.action_held(),
@@ -1018,7 +1072,7 @@ pub fn update(
     if let Some(index) = focus.selected {
         let plot = garden.plots[index];
         let stage = plot.stage();
-        panel.action = garden.action(index, adventure.crop);
+        panel.action = focus.tool.action(&garden, index, adventure.crop);
         panel.enabled = panel.action.is_some();
         let label = match stage {
             Stage::Grass => "Wiesenplatz",
@@ -1053,6 +1107,21 @@ pub fn update(
                 .detail
                 .push_str(&format!(" · Dünger {}", garden.fertilizer));
         }
+        if focus.tool != crate::fieldwork::FieldTool::Auto
+            && let Some(action) = panel.action
+        {
+            let stroke =
+                crate::fieldwork::stroke(&garden, index, adventure.crop, action, focus.tool);
+            panel.beds = stroke.targets().len();
+            if panel.beds > 1 {
+                panel.detail = format!("{} markierte Beete · {}", panel.beds, focus.tool.name());
+            }
+            if let Some(next) = stroke.next {
+                panel
+                    .detail
+                    .push_str(&format!(" · Danach Beet {}", next + 1));
+            }
+        }
         panel.fallback = if garden.clock.night() {
             panel.detail = "Zeit zum Schlafen. Im Bett beginnt der nächste Tag.".into();
             "Morgen weiter"
@@ -1062,9 +1131,17 @@ pub fn update(
         }) {
             panel.detail = "Auf dem Weg zum Beet …".into();
             "Zum Beet"
-        } else if stage == Stage::Soil && panel.action.is_none() {
+        } else if stage == Stage::Soil
+            && garden.seed_count(adventure.crop) == 0
+            && matches!(
+                focus.tool,
+                crate::fieldwork::FieldTool::Auto | crate::fieldwork::FieldTool::Seeds
+            )
+        {
             panel.enabled = true;
             "Saatgut wählen"
+        } else if panel.action.is_none() && focus.tool != crate::fieldwork::FieldTool::Auto {
+            "Passendes Beet wählen"
         } else {
             "Wächst …"
         };
@@ -1113,6 +1190,7 @@ pub fn update(
             Utility::Map if adventure.area.outdoors() => "Karte",
             Utility::Map => "Übersicht",
             Utility::Inventory => "Tasche",
+            Utility::FieldTool => focus.tool.name(),
             _ => continue,
         };
         if label.0 != next {
@@ -1150,10 +1228,15 @@ pub fn update(
             Field::Detail => panel.detail.clone(),
             Field::Action => {
                 let label = panel.action.map_or(panel.fallback, Action::label);
-                if panel.pad && panel.enabled {
-                    format!("X · {label}")
+                let prefix = if panel.pad && panel.enabled {
+                    "X · "
                 } else {
-                    label.into()
+                    ""
+                };
+                if panel.beds > 1 {
+                    format!("{prefix}{label} · {}", panel.beds)
+                } else {
+                    format!("{prefix}{label}")
                 }
             }
         };

@@ -30,7 +30,7 @@ impl Bench {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub enum Recipe {
     Boards,
     TideGlass,
@@ -74,7 +74,7 @@ impl Recipe {
         }
     }
 
-    fn source(self) -> Option<Watch> {
+    pub(crate) fn source(self) -> Option<Watch> {
         match self {
             Self::Boards => None,
             Self::TideGlass => Some(Watch::Tide),
@@ -89,7 +89,7 @@ impl Recipe {
             .is_none_or(|site| site.stage(g) >= Stage::Surveyed)
     }
 
-    fn ingredients(self) -> &'static [Need] {
+    pub(crate) fn ingredients(self) -> &'static [Need] {
         use crate::processing::Dish;
         use Need::*;
         match self {
@@ -153,16 +153,18 @@ pub enum Need {
     Wood(u32),
     Stone(u32),
     Copper(u32),
+    Coins(u32),
     Crop(Crop, u32),
     Stock(Product, u32),
 }
 
 impl Need {
-    fn values(self, g: &Garden) -> (u32, u32, &'static str) {
+    pub(crate) fn values(self, g: &Garden) -> (u32, u32, &'static str) {
         match self {
             Self::Wood(q) => (g.wood, q, "Holz"),
             Self::Stone(q) => (g.stone, q, "Stein"),
             Self::Copper(q) => (g.copper, q, "Kupfer"),
+            Self::Coins(q) => (g.farm.coins, q, "Münzen"),
             Self::Crop(crop, q) => (g.crop_total(crop), q, crop.name()),
             Self::Stock(item, q) => (g.stock(item), q, item.name()),
         }
@@ -173,6 +175,7 @@ impl Need {
             Self::Wood(q) => g.wood -= q * batches,
             Self::Stone(q) => g.stone -= q * batches,
             Self::Copper(q) => g.copper -= q * batches,
+            Self::Coins(q) => g.farm.coins -= q * batches,
             Self::Crop(crop, q) => {
                 g.take_crop(crop, q * batches);
             }
@@ -186,13 +189,10 @@ impl Need {
 pub fn detail(needs: &[Need], g: &Garden, batches: u32) -> String {
     needs
         .iter()
-        .map(|need| {
+        .filter_map(|need| {
             let (have, amount, name) = need.values(g);
-            format!(
-                "{}/{amount} {name}",
-                have.min(amount * batches),
-                amount = amount * batches
-            )
+            let total = amount * batches;
+            (total > 0).then(|| format!("{}/{total} {name}", have.min(total)))
         })
         .collect::<Vec<_>>()
         .join(" · ")

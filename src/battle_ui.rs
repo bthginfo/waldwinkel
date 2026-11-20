@@ -614,12 +614,17 @@ pub fn update(
                     format!("{draw} im Zugstapel · {trash} abgelegt")
                 }
                 DuelText::Piles => String::new(),
-                DuelText::Rule if battle.pack_open => "Ein Proviant pro Kampf".into(),
-                DuelText::RationDetail(ration) => format!(
-                    "{} · ×{}",
-                    ration.effect(),
-                    garden.stock(Product::Prepared(ration.dish()))
-                ),
+                DuelText::Rule if battle.pack_open => {
+                    format!("Ein Proviant pro Kampf · {}", battle.enemy.provision_hint())
+                }
+                DuelText::RationDetail(ration) => {
+                    let stock = garden.stock(Product::Prepared(ration.dish()));
+                    let basic = format!("{} · ×{stock}", ration.effect());
+                    match ration.matchup(battle.enemy) {
+                        Some(bonus) => format!("{basic}\n{bonus}"),
+                        None => basic,
+                    }
+                }
                 DuelText::Rule => battle
                     .trial
                     .filter(|_| battle.outcome == Outcome::Running)

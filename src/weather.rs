@@ -358,6 +358,7 @@ fn set_visible(visibility: &mut Visibility, visible: bool) {
 }
 
 pub fn lighting(
+    menu: Res<crate::farm_ui::FarmMenu>,
     garden: Res<Garden>,
     adventure: Res<Adventure>,
     time: Res<Time>,
@@ -368,7 +369,7 @@ pub fn lighting(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut glows: Query<&mut Visibility, With<NightGlow>>,
 ) {
-    let outdoor = adventure.area.outdoors() && !adventure.map;
+    let outdoor = adventure.area.outdoors() && !adventure.map && menu.room_preview().is_none();
     let sky = Sky::at(garden.day);
     let season = Season::at(garden.day);
     let weather = if !outdoor {

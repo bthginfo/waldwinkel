@@ -3,10 +3,12 @@ use bevy::prelude::*;
 use crate::{
     Adventure, Controls, GardenFocus, Notice,
     adventure::{Area, commit},
+    building_plan::Plan,
     cinematic::Clip,
     commissions::Order,
     craft::{Bench, Recipe},
-    duel::{Battle, CAMP_INTERVAL, Card, DECK_SIZE, Gear, Style, Talent},
+    duel::{Battle, CAMP_INTERVAL, Card, DECK_SIZE, Enemy, Gear, Ration, Style, Talent},
+    evening_market,
     furniture::{self, Blueprint, CATALOG},
     garden::{Crop, FERTILIZER_PRICE, Garden, SavePath},
     harbor::{self, Phase},
@@ -33,6 +35,7 @@ const PAGE_SIZE: usize = 6;
 pub enum FarmPage {
     Seeds,
     SeedShop,
+    EveningMarket,
     Sale,
     Workbench,
     Projects,
@@ -43,6 +46,7 @@ pub enum FarmPage {
     Tools { at_forge: bool },
     BlueprintShop,
     Furnish,
+    FurniturePreview,
     Kitchen,
     Travel(Bell),
     Inventory,
@@ -73,9 +77,21 @@ pub struct FarmMenu {
     abandon_confirm: bool,
     battle: Option<Battle>,
     deck_draft: Vec<Card>,
+    preview: Option<RoomPreview>,
+}
+
+#[derive(Clone, Copy)]
+pub struct RoomPreview {
+    pub design: usize,
+    pub slot: usize,
+    from: FarmPage,
 }
 
 impl FarmMenu {
+    pub fn room_preview(&self) -> Option<RoomPreview> {
+        self.preview
+            .filter(|_| self.page == Some(FarmPage::FurniturePreview))
+    }
     #[cfg(target_os = "android")]
     pub fn page(&self) -> Option<FarmPage> {
         self.page
@@ -143,6 +159,7 @@ impl FarmMenu {
                 Crop::ALL.into_iter().map(Entry::Seed).collect()
             }
             FarmPage::Sale => Product::stocked(garden).map(Entry::Stock).collect(),
+            FarmPage::EveningMarket => Ration::ALL.into_iter().map(Entry::Ration).collect(),
             FarmPage::Inventory => Material::stocked(garden)
                 .map(Entry::Material)
                 .chain(Product::stocked(garden).map(Entry::Stock))
@@ -209,13 +226,15 @@ impl FarmMenu {
                 .collect(),
             FarmPage::Journal(tab) => Guide::entries(tab)
                 .filter(|entry| !matches!(entry, Guide::Resident(npc) if !npc.available(garden)))
+                .filter(|entry| *entry != Guide::BuildPlan || garden.plan.is_some())
+                .filter(|entry| *entry != Guide::EveningMarket || evening_market::invited(garden))
                 .map(Entry::Guide)
                 .collect(),
             FarmPage::Calendar => Season::ALL.into_iter().map(Entry::Season).collect(),
             FarmPage::SeasonMeeting | FarmPage::Harbor { .. } | FarmPage::Cinematic(_) => {
                 Vec::new()
             }
-            FarmPage::Battle => Vec::new(),
+            FarmPage::Battle | FarmPage::FurniturePreview => Vec::new(),
         }
     }
 
@@ -237,6 +256,7 @@ enum Entry {
     BuildingPlan(BuildingPlan),
     Design(usize),
     Dish(Dish),
+    Ration(Ration),
     Step(&'static str),
     Destination(Bell),
     CombatCard(Card),
@@ -249,6 +269,45 @@ enum Entry {
 }
 
 impl Entry {
+    fn plan(self, page: FarmPage, garden: &Garden, batches: u32) -> Option<Plan> {
+        match (page, self) {
+            (FarmPage::Workbench | FarmPage::BlueprintShop, Self::Design(index)) => {
+                Some(Plan::Furniture(index))
+            }
+            (FarmPage::Projects, Self::Project(project)) => Some(Plan::Project(project)),
+            (FarmPage::Tools { .. }, Self::Tool(tool)) if tool.level(garden) < 2 => {
+                Some(Plan::Tool {
+                    tool,
+                    tier: tool.level(garden) + 1,
+                })
+            }
+            (FarmPage::Materials(_), Self::Part(recipe)) => {
+                let stock = garden.stock(Product::Crafted(recipe));
+                if let Some(
+                    plan @ Plan::Material {
+                        recipe: pinned,
+                        batches: count,
+                        quantity,
+                    },
+                ) = garden.plan
+                    && pinned == recipe
+                    && u32::from(count) == batches
+                    && stock < quantity
+                {
+                    return Some(plan);
+                }
+                let quantity = stock.checked_add(recipe.yield_count() * batches)?;
+                Some(Plan::Material {
+                    recipe,
+                    batches: batches as u8,
+                    quantity,
+                })
+            }
+            (FarmPage::Journal(_), Self::Guide(Guide::BuildPlan)) => garden.plan,
+            _ => None,
+        }
+    }
+
     fn title(self, garden: &Garden) -> String {
         match self {
             Self::Seed(crop) => crop.name().into(),
@@ -262,6 +321,7 @@ impl Entry {
             Self::BuildingPlan(plan) => plan.name().into(),
             Self::Design(i) => CATALOG[i].name.into(),
             Self::Dish(dish) => dish.name().into(),
+            Self::Ration(ration) => ration.dish().name().into(),
             Self::Step(text) => text.into(),
             Self::Destination(bell) => bell.name().into(),
             Self::CombatCard(card) => card.name().into(),
@@ -323,6 +383,12 @@ impl Entry {
             Self::Design(i) if garden.blueprints[i] => CATALOG[i].supplies(garden),
             Self::Design(i) => CATALOG[i].source(garden),
             Self::Dish(dish) => format!("{} · {}", dish.method().title(), dish.supplies(garden)),
+            Self::Ration(ration) if evening_market::stocked(garden, ration) => format!(
+                "{} Münzen · {}",
+                evening_market::price(ration),
+                ration.effect()
+            ),
+            Self::Ration(_) => "Heute verkauft".into(),
             Self::Step(_) => String::new(),
             Self::Destination(_) => "Wegglocke repariert".into(),
             Self::CombatCard(card) if page == FarmPage::CardShop => {
@@ -386,6 +452,9 @@ pub enum Choice {
     AddCopy,
     RemoveCopy,
     SaveDeck,
+    PinPlan,
+    PreviewFurniture,
+    PreviewSlot(i8),
     Styles,
     Talents,
     Gear,
@@ -409,6 +478,7 @@ pub enum Field {
     CardName(usize),
     CardDetail(usize),
     Work,
+    PinPlan,
     Batches,
 }
 
@@ -571,6 +641,10 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                             (Choice::Next, "→", 53.),
                             (Choice::Fertilizer, "2 Dünger kaufen · 4 Münzen", 229.),
                             (Choice::Work, "Herstellen", 164.),
+                            (Choice::PinPlan, "Anheften", 127.),
+                            (Choice::PreviewFurniture, "Im Haus ansehen", 155.),
+                            (Choice::PreviewSlot(-1), "← Platz", 105.),
+                            (Choice::PreviewSlot(1), "Platz →", 105.),
                             (Choice::AddCopy, "+ Karte", 84.),
                             (Choice::RemoveCopy, "− Karte", 84.),
                             (Choice::SaveDeck, "Deck speichern", 129.),
@@ -597,6 +671,8 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                                     let mut label = button.spawn(fonts.button(caption, 14.));
                                     if action == Choice::Work {
                                         label.insert(Field::Work);
+                                    } else if action == Choice::PinPlan {
+                                        label.insert(Field::PinPlan);
                                     } else if action == Choice::Batches {
                                         label.insert(Field::Batches);
                                     }
@@ -641,6 +717,67 @@ pub fn input(
     };
     let now = time.elapsed_secs();
     let result = match choice {
+        Choice::PinPlan => {
+            let Some(plan) = menu
+                .selected
+                .and_then(|entry| entry.plan(page, &garden, menu.batches.max(1)))
+            else {
+                return;
+            };
+            if garden.plan == Some(plan) {
+                garden.plan = None;
+                if adventure.tracked == Some(Guide::BuildPlan) {
+                    adventure.tracked = None;
+                }
+                Some(Ok("Bauplan gelöst".into()))
+            } else if !plan.finished(&garden) {
+                garden.plan = Some(plan);
+                adventure.tracked = Some(Guide::BuildPlan);
+                Some(Ok(format!(
+                    "{} angeheftet · Journal → Aufträge",
+                    plan.title()
+                )))
+            } else {
+                None
+            }
+        }
+        Choice::PreviewFurniture => {
+            if let Some(Entry::Design(design)) = menu.selected
+                && matches!(
+                    page,
+                    FarmPage::Workbench | FarmPage::BlueprintShop | FarmPage::Furnish
+                )
+            {
+                let slots = garden.workshop.slots();
+                let slot = garden.furniture[..slots]
+                    .iter()
+                    .position(|&item| item == 0)
+                    .unwrap_or(0);
+                menu.preview = Some(RoomPreview {
+                    design,
+                    slot,
+                    from: page,
+                });
+                menu.page = Some(FarmPage::FurniturePreview);
+                menu.message.clear();
+                player.0.stop();
+            }
+            None
+        }
+        Choice::PreviewSlot(step) if page == FarmPage::FurniturePreview => {
+            if let Some(preview) = &mut menu.preview {
+                preview.slot = (preview.slot as isize + step as isize)
+                    .rem_euclid(garden.workshop.slots() as isize)
+                    as usize;
+            }
+            None
+        }
+        Choice::Close if page == FarmPage::FurniturePreview => {
+            if let Some(preview) = menu.preview.take() {
+                menu.page = Some(preview.from);
+            }
+            None
+        }
         Choice::Close => {
             menu.close();
             *gesture = Gesture::default();
@@ -951,6 +1088,13 @@ pub fn input(
             }
         }
         Choice::Work if page == FarmPage::SeasonMeeting => Some(seasons::contribute(&mut garden)),
+        Choice::Work if page == FarmPage::EveningMarket => {
+            let Some(Entry::Ration(ration)) = menu.selected else {
+                return;
+            };
+            Some(evening_market::buy(&mut garden, ration))
+        }
+
         Choice::Work if matches!(page, FarmPage::Gear(_)) => {
             let (FarmPage::Gear(source), Some(Entry::Gear(gear))) = (page, menu.selected) else {
                 return;
@@ -1137,7 +1281,7 @@ pub fn update(
     garden: Res<Garden>,
     time: Res<Time>,
     assets: Res<AssetServer>,
-    mut veil: Single<&mut Node, With<Pane>>,
+    mut veil: Single<(&mut Node, &mut BackgroundColor), With<Pane>>,
     mut fields: Query<(&Field, &mut Text)>,
     mut choices: Query<(&Choice, &Interaction, &mut Node, &mut BackgroundColor), Without<Pane>>,
     mut meter: Query<(&HeatMeter, &mut Node), (Without<Pane>, Without<Choice>)>,
@@ -1146,6 +1290,7 @@ pub fn update(
         (Without<Pane>, Without<Choice>, Without<HeatMeter>),
     >,
 ) {
+    let (veil, shade) = &mut *veil;
     let Some(page) = menu.page.filter(|&page| {
         session.playing() && !matches!(page, FarmPage::Battle | FarmPage::Cinematic(_))
     }) else {
@@ -1153,6 +1298,19 @@ pub fn update(
         return;
     };
     veil.display = Display::Flex;
+    let preview = menu.room_preview();
+    veil.align_items = if preview.is_some() {
+        AlignItems::End
+    } else {
+        AlignItems::Center
+    };
+    veil.padding.bottom = Val::Px(if preview.is_some() { 13. } else { 0. });
+    shade.0 = Color::srgba(
+        0.08,
+        0.19,
+        0.18,
+        if preview.is_some() { 0.04 } else { 0.47 },
+    );
     menu.visible_time = time.elapsed_secs();
 
     let entries = menu.entries(page, &garden);
@@ -1161,6 +1319,7 @@ pub fn update(
     let balance = garden.farm.coins;
     let batches = menu.batches.max(1);
     let selected = menu.selected;
+    let plan = selected.and_then(|entry| entry.plan(page, &garden, batches));
     let progress = menu.preparation.as_ref();
     for (picture, mut image, mut node) in &mut pictures {
         let entry = entry_at(picture.0);
@@ -1219,6 +1378,7 @@ pub fn update(
             Field::Title => match page {
                 FarmPage::Seeds => "Saatguttasche",
                 FarmPage::SeedShop => "Saatgut und Dünger",
+                FarmPage::EveningMarket => "Abendmarkt am Brunnen",
                 FarmPage::Sale => "Verkaufstruhe",
                 FarmPage::Workbench => "Hofwerkbank · Möbel",
                 FarmPage::Materials(bench) => bench.name(),
@@ -1231,6 +1391,7 @@ pub fn update(
                 FarmPage::Tools { at_forge: true } => "Schmiedetisch",
                 FarmPage::BlueprintShop => "Bauplanstand",
                 FarmPage::Furnish => "Deine Möbel",
+                FarmPage::FurniturePreview => preview.map_or("Möbelvorschau", |view| CATALOG[view.design].name),
                 FarmPage::Kitchen => "Hofküche",
                 FarmPage::Travel(_) => "Wegglocken",
                 FarmPage::Inventory => "Deine Tasche",
@@ -1385,6 +1546,18 @@ pub fn update(
                         seasons::meeting_status(&garden)
                     )
                 }
+                FarmPage::FurniturePreview => preview.map_or_else(String::new, |view| {
+                    let slot = view.slot;
+                    let room = match slot {
+                        0..6 => "Wohnstube",
+                        6..10 => "Gartenstube",
+                        _ => "Lesekammer",
+                    };
+                    let occupancy = garden.furniture[slot].checked_sub(1).and_then(|i| CATALOG.get(i as usize))
+                        .map_or_else(|| "Freier Platz".into(), |item| format!("Aktuell steht hier {}", item.name));
+                    format!("{room} · Platz {} · {occupancy}", slot + 1)
+                }),
+                FarmPage::EveningMarket => format!("{} Münzen · Maras Proviant · 18:00–21:30", balance),
                 FarmPage::Battle => String::new(),
             },
             Field::Message if progress.is_some() => {
@@ -1435,6 +1608,12 @@ pub fn update(
                     season.find_name()
                 )
             }
+            Field::Message if matches!(page, FarmPage::Watch(site) if site.trial(&garden).is_some()) => {
+                let FarmPage::Watch(site) = page else { unreachable!() };
+                site.trial(&garden).map_or_else(String::new, |trial| trial.enemy().provision_hint())
+            }
+            Field::Message if preview.is_some() => "Vorschau im Haus · Wähle einen Stellplatz.".into(),
+            Field::Message if plan.is_some() => plan.unwrap().detail(&garden),
             Field::Message if selected.is_some() => match selected.unwrap() {
                 Entry::Tool(tool) => tool.effect().into(),
                 Entry::BuildingPlan(BuildingPlan::Barn(_)) => "Den Stall baust du auf der markierten Hoffläche.".into(),
@@ -1456,6 +1635,13 @@ pub fn update(
                         card.name(),
                         menu.copies(card)
                     )
+                }
+                Entry::Dish(dish) => Ration::ALL.into_iter().find(|ration| ration.dish() == dish)
+                    .map_or(String::new(), |ration| ration.best_against().into()),
+                Entry::Ration(ration) => ration.best_against().into(),
+                Entry::Level(1) => Enemy::at(1).provision_hint(),
+                Entry::Level(level) if level < crate::duel::LAST_LEVEL => {
+                    format!("Nächster Kampf · {}", Enemy::at(level + 1).provision_hint())
                 }
                 Entry::Talent(talent) => match garden.rpg.train_cost(talent) {
                     Some(cost) => format!("Nächster Rang · {cost} Talentpunkte"),
@@ -1489,6 +1675,7 @@ pub fn update(
                 }
             }),
             Field::Batches => format!("Menge ×{batches}"),
+            Field::PinPlan => if plan.is_some() && plan == garden.plan { "Lösen" } else { "Anheften" }.into(),
             Field::Work => match (page, selected) {
                 (FarmPage::Commissions, Some(Entry::Commission(order))) => order.action(&garden),
                 (FarmPage::Commissions, _) => "Auftrag wählen",
@@ -1496,6 +1683,7 @@ pub fn update(
                 (FarmPage::WatchFinale, _) if garden.watches.lights() == Watch::ALL.len() => "Karte übergeben",
                 (FarmPage::WatchFinale, _) => "Auf Karte zeigen",
                 (FarmPage::BlueprintShop, _) => "Bauplan kaufen",
+                (FarmPage::EveningMarket, _) => "Proviant kaufen",
                 (FarmPage::Projects, Some(Entry::Project(Project::Restore))) => "Werkbank reparieren",
                 (FarmPage::Projects, _) => "Bauen",
                 (FarmPage::Tools { .. }, _) => "Verbessern",
@@ -1602,6 +1790,18 @@ pub fn update(
                 matches!(selected, Some(Entry::CombatCard(card)) if menu.copies(card) > 0),
             ),
             Choice::SaveDeck => (page == FarmPage::Binder, menu.deck_draft.len() == DECK_SIZE),
+            Choice::PinPlan => (
+                plan.is_some(),
+                plan.is_some_and(|plan| garden.plan == Some(plan) || !plan.finished(&garden)),
+            ),
+            Choice::PreviewFurniture => (
+                matches!(
+                    page,
+                    FarmPage::Workbench | FarmPage::BlueprintShop | FarmPage::Furnish
+                ) && matches!(selected, Some(Entry::Design(_))),
+                true,
+            ),
+            Choice::PreviewSlot(_) => (page == FarmPage::FurniturePreview, true),
             Choice::Work => {
                 let available = match (page, selected) {
                     (FarmPage::Materials(bench), Some(Entry::Part(recipe))) => {
@@ -1647,6 +1847,9 @@ pub fn update(
                     }
                     (FarmPage::Calendar, _) => true,
                     (FarmPage::SeasonMeeting, _) => seasons::can_contribute(&garden),
+                    (FarmPage::EveningMarket, Some(Entry::Ration(ration))) => {
+                        evening_market::can_buy(&garden, ration)
+                    }
                     (FarmPage::Harbor { .. }, _) if !garden.harbor.started => true,
                     (FarmPage::Harbor { at_site: true }, _) => harbor::can_build(&garden),
                     (FarmPage::Harbor { at_site: false }, _) => true,
@@ -1673,6 +1876,7 @@ pub fn update(
                             | FarmPage::Journal(_)
                             | FarmPage::Calendar
                             | FarmPage::SeasonMeeting
+                            | FarmPage::EveningMarket
                             | FarmPage::Harbor { .. }
                     ) && !matches!(page,FarmPage::Watch(site) if site.stage(&garden)==WatchStage::Complete && site.trial(&garden).is_none()),
                     available,

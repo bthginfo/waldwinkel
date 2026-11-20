@@ -107,6 +107,9 @@ pub struct MillSails;
 #[derive(Component)]
 pub struct Selection;
 
+#[derive(Event)]
+pub struct Watered(pub usize);
+
 #[derive(Component)]
 pub struct PlotModel {
     index: usize,
@@ -270,7 +273,11 @@ pub fn setup(
                 Transform::from_translation(position3(point, exterior_ground(point) + 0.04))
                     .with_rotation(Quat::from_rotation_y(-0.48 + i as f32 * 0.13)),
             ))
-            .observe(resident::bind_limbs);
+            .observe(resident::bind_limbs)
+            .with_child((
+                SceneRoot(models.shadow.clone()),
+                Transform::from_xyz(0., -0.010, 0.03).with_scale(Vec3::new(0.63, 1., 0.67)),
+            ));
     }
     for (index, position) in PLOTS.into_iter().enumerate() {
         let parent = commands
@@ -416,10 +423,18 @@ pub fn ground_point(ray: Ray3d, area: Area, garden: &Garden) -> Option<Vec2> {
 
 pub fn show_exterior(
     adventure: Res<Adventure>,
-    mut entities: Query<&mut Visibility, With<Exterior>>,
+    menu: Res<crate::farm_ui::FarmMenu>,
+    mut entities: Query<&mut Visibility, (With<Exterior>, Without<Gardener>)>,
+    mut hero: Single<&mut Visibility, With<Gardener>>,
     mut previous: Local<Option<bool>>,
 ) {
-    let visible = adventure.area.outdoors();
+    let preview = menu.room_preview().is_some();
+    hero.set_if_neq(if preview {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
+    });
+    let visible = adventure.area.outdoors() && !preview;
     if *previous == Some(visible) {
         return;
     }
@@ -443,6 +458,7 @@ pub fn update_camera(
     player: Single<&Gardener>,
     adventure: Res<Adventure>,
     garden: Res<Garden>,
+    menu: Res<crate::farm_ui::FarmMenu>,
     time: Res<Time>,
     mut last: Local<Option<Area>>,
 ) {
@@ -450,7 +466,14 @@ pub fn update_camera(
     let Projection::Orthographic(ortho) = &mut **projection else {
         return;
     };
-    let (base, center) = match (adventure.area, adventure.map) {
+    let preview = menu.room_preview();
+    let area = if preview.is_some() {
+        Area::Home
+    } else {
+        adventure.area
+    };
+    let map = preview.is_none() && adventure.map;
+    let (base, center) = match (area, map) {
         (Area::Island | Area::District(_), true) => (258., Vec3::new(0., 3., 54.)),
         (Area::Island | Area::District(_), false) => (12.3, position3(player.position, 0.89)),
         (Area::Home, _) => {
@@ -461,7 +484,14 @@ pub fn update_camera(
             };
             (
                 height,
-                position3(adventure.area.origin() + Vec2::X * east, 0.95),
+                position3(
+                    preview.map_or(area.origin() + Vec2::X * east, |view| {
+                        let point =
+                            adventure.position(crate::adventure::Target::Slot(view.slot), &garden);
+                        area.origin().lerp(point, 0.70)
+                    }),
+                    if preview.is_some() { 0.55 } else { 0.95 },
+                ),
             )
         }
         (Area::Mine(_) | Area::Expedition(_), true) => {
@@ -469,20 +499,20 @@ pub fn update_camera(
         }
         (Area::Mine(_) | Area::Expedition(_), false) => (9.4, position3(player.position, 0.40)),
     };
-    let height = if adventure.map {
+    let height = if map || preview.is_some() {
         base
     } else {
         base * (-adventure.zoom).exp()
     };
-    let width = if adventure.map && adventure.area.outdoors() {
+    let width = if map && area.outdoors() {
         448.0
     } else {
         height * 1.30
     };
-    let base_offset = camera_offset(adventure.area);
+    let base_offset = camera_offset(area);
     let mut offset = base_offset;
-    if adventure.area.outdoors()
-        && !adventure.map
+    if area.outdoors()
+        && !map
         && crate::travel::District::at(player.position) == Some(crate::travel::District::Town)
     {
         offset.y *= 0.87 - adventure.zoom.max(0.) * 0.05;
@@ -492,12 +522,12 @@ pub fn update_camera(
     let rotation = Transform::from_translation(desired)
         .looking_at(center, Vec3::Y)
         .rotation;
-    let smooth = 1. - (-time.delta_secs() * if adventure.map { 11. } else { 15. }).exp();
+    let smooth = 1. - (-time.delta_secs() * if map { 11. } else { 15. }).exp();
     let current = match ortho.scaling_mode {
         ScalingMode::AutoMin { min_height, .. } => min_height,
         _ => height,
     };
-    let applied = if *last != Some(adventure.area) {
+    let applied = if *last != Some(area) {
         height
     } else {
         current + (height - current) * smooth
@@ -510,22 +540,18 @@ pub fn update_camera(
         },
         min_height: applied,
     };
-    ortho.far = if adventure.map && adventure.area.outdoors() {
-        775.
-    } else {
-        385.
-    };
-    transform.translation = if *last != Some(adventure.area) {
+    ortho.far = if map && area.outdoors() { 775. } else { 385. };
+    transform.translation = if *last != Some(area) {
         desired
     } else {
         transform.translation.lerp(desired, smooth)
     };
-    transform.rotation = if *last != Some(adventure.area) {
+    transform.rotation = if *last != Some(area) {
         rotation
     } else {
         transform.rotation.slerp(rotation, smooth)
     };
-    *last = Some(adventure.area);
+    *last = Some(area);
 }
 
 pub fn update_plots(
@@ -815,9 +841,12 @@ pub fn animate_gardener(
     } else if let Some((tool, _)) = swing {
         tool
     } else if pouring
-        || focus
-            .selected
-            .is_some_and(|index| garden.action(index, adventure.crop) == Some(Action::Water))
+        || (adventure.area == Area::Island
+            && adventure.focus.is_none()
+            && (focus.tool == crate::fieldwork::FieldTool::Water
+                || focus.selected.is_some_and(|index| {
+                    focus.tool.action(&garden, index, adventure.crop) == Some(Action::Water)
+                })))
     {
         Tool::WateringCan
     } else {
@@ -923,17 +952,14 @@ pub struct WaterDrop {
 
 pub fn watering_effect(
     mut commands: Commands,
-    notice: Res<Notice>,
+    mut watered: EventReader<Watered>,
     time: Res<Time>,
     models: Res<Models>,
     player: Single<&Transform, With<Gardener>>,
     mut drops: Query<(Entity, &WaterDrop, &mut Transform, &mut Visibility), Without<Gardener>>,
 ) {
     let now = time.elapsed_secs();
-    if notice.is_changed()
-        && notice.action == Some(Action::Water)
-        && let Some(plot) = notice.index
-    {
+    for &Watered(plot) in watered.read() {
         let from = player.translation + player.rotation * Vec3::new(0.24, 0.61, 0.39);
         for i in 0..12 {
             let angle = i as f32 * 2.39996;

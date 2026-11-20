@@ -53,27 +53,22 @@ impl Furniture {
     }
 
     pub fn supplies(&self, garden: &Garden) -> String {
-        let stock = [
-            garden.wood,
-            garden.stone,
-            garden.copper,
-            garden.stock(Product::Wool),
-        ];
-        self.materials
-            .into_iter()
-            .zip(stock)
-            .zip(["Holz", "Stein", "Kupfer", "Wolle"])
-            .filter(|((needed, _), _)| *needed != 0)
-            .map(|((needed, stock), material)| {
-                format!("{}/{} {material}", stock.min(needed), needed)
-            })
-            .collect::<Vec<_>>()
-            .join(" · ")
+        crate::craft::detail(&self.ingredients(), garden, 1)
+    }
+
+    pub(crate) fn ingredients(&self) -> [crate::craft::Need; 4] {
+        use crate::craft::Need;
+        let [wood, stone, copper, wool] = self.materials;
+        [
+            Need::Wood(wood),
+            Need::Stone(stone),
+            Need::Copper(copper),
+            Need::Stock(Product::Wool, wool),
+        ]
     }
 
     pub fn can_build(&self, g: &Garden) -> bool {
-        let [wood, stone, copper, wool] = self.materials;
-        g.wood >= wood && g.stone >= stone && g.copper >= copper && g.stock(Product::Wool) >= wool
+        crate::craft::ready(&self.ingredients(), g, 1)
     }
 
     pub fn can_buy(&self, garden: &Garden) -> bool {

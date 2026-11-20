@@ -585,6 +585,23 @@ impl Enemy {
         }
     }
 
+    pub fn provision(self) -> Ration {
+        match self {
+            Self::Mosskin | Self::MossKeeper => Ration::Compote,
+            Self::KilnGuard | Self::KilnKeeper | Self::BellKeeper => Ration::Stew,
+            Self::MistOwl | Self::MistKeeper => Ration::Jam,
+            Self::RootKeeper => Ration::Soup,
+        }
+    }
+
+    pub fn provision_hint(self) -> String {
+        format!(
+            "{} · Vorteil mit {}",
+            self.name(),
+            self.provision().dish().name()
+        )
+    }
+
     pub fn model(self) -> &'static str {
         match self {
             Self::Mosskin => "duel_mosskin",
@@ -709,6 +726,24 @@ impl Ration {
             Self::Compote => "+4 Leben und ziehe 2 Karten",
         }
     }
+
+    pub fn matchup(self, enemy: Enemy) -> Option<&'static str> {
+        (self == enemy.provision()).then_some(match self {
+            Self::Soup => "+5 Leben, +3 Schild",
+            Self::Stew => "Treffer bricht bis zu 8 Rüstung",
+            Self::Jam => "+6 Schild extra",
+            Self::Compote => "+1 Kraft extra",
+        })
+    }
+
+    pub fn best_against(self) -> &'static str {
+        match self {
+            Self::Soup => "Wurzelglocke · mehr Leben und Schild",
+            Self::Stew => "Tonwächter, Ofen- und erste Glocke · Rüstung brechen",
+            Self::Jam => "Nebeleule und Nebelglocke · mehr Schild",
+            Self::Compote => "Mooshüter und Moosglocke · mehr Kraft",
+        }
+    }
 }
 
 pub struct Battle {
@@ -740,6 +775,7 @@ pub struct Battle {
     used: Vec<Card>,
     spores: [u16; 2],
     charged: Option<u16>,
+    armor_break: bool,
     rng: u64,
 }
 
@@ -789,6 +825,7 @@ impl Battle {
             used: Vec::new(),
             spores: [0; 2],
             charged: None,
+            armor_break: false,
             rng: u64::from(level) * 0x85ebca77 + 0xc2b2ae35,
         };
         shuffle(&mut battle.drawing, &mut battle.rng);
@@ -802,17 +839,24 @@ impl Battle {
         }
         self.ration_used = true;
         self.pack_open = false;
-        let (heal, guard, power, draw) = match ration {
-            Ration::Soup => (10, 0, 0, 0),
-            Ration::Stew => (0, 6, 1, 0),
-            Ration::Jam => (0, 6, 0, 1),
-            Ration::Compote => (4, 0, 0, 2),
+        let matchup = ration.matchup(self.enemy);
+        let (heal, guard, power, draw) = match (ration, matchup.is_some()) {
+            (Ration::Soup, matched) => (10 + 5 * u16::from(matched), 3 * u16::from(matched), 0, 0),
+            (Ration::Stew, matched) => {
+                self.armor_break = matched;
+                (0, 6, 1, 0)
+            }
+            (Ration::Jam, matched) => (0, 6 + 6 * u16::from(matched), 0, 1),
+            (Ration::Compote, matched) => (4, 0, u8::from(matched), 2),
         };
         self.hp = self.hp.saturating_add(heal).min(self.max_hp);
         self.guard = self.guard.saturating_add(guard);
         self.energy = self.energy.saturating_add(power);
         self.draw(draw);
         self.message = format!("{} · {}", ration.dish().name(), ration.effect());
+        if let Some(bonus) = matchup {
+            self.message.push_str(&format!(" · Vorteil · {bonus}"));
+        }
         if self.style == Style::Hearth {
             self.energy = self.energy.saturating_add(1);
             self.guard = self.guard.saturating_add(4);
@@ -898,6 +942,10 @@ impl Battle {
             .saturating_add(u16::from(spec.healing))
             .min(self.max_hp);
         if spec.damage > 0 {
+            if self.armor_break && self.enemy_guard > 0 {
+                self.enemy_guard = self.enemy_guard.saturating_sub(8);
+                self.armor_break = false;
+            }
             let power = u16::from(spec.damage) + u16::from(self.strength);
             let absorbed = if spec.piercing {
                 0
@@ -1055,6 +1103,28 @@ fn each_style_rewards_its_own_tactic_once_per_trigger() {
     assert!(hearth.eat(Ration::Soup));
     assert_eq!((hearth.energy, hearth.guard), (4, 4));
     assert!(!hearth.eat(Ration::Jam));
+}
+
+#[cfg(test)]
+#[test]
+fn matching_provisions_help_against_their_intended_opponents() {
+    let progress = Progress::default();
+    let mut kiln = Battle::encounter(7, Enemy::KilnGuard, &progress);
+    kiln.hand = vec![Card::TwigStrike; 3];
+    assert!(kiln.eat(Ration::Stew));
+    assert!(kiln.play(0));
+    assert!(kiln.armor_break);
+    kiln.enemy_guard = 8;
+    assert!(kiln.play(0));
+    assert_eq!(kiln.enemy_guard, 0);
+    assert!(!kiln.armor_break);
+    assert!(!kiln.eat(Ration::Stew));
+
+    let mut mist = Battle::encounter(7, Enemy::MistOwl, &progress);
+    let mut moss = Battle::encounter(7, Enemy::Mosskin, &progress);
+    assert!(mist.eat(Ration::Jam));
+    assert!(moss.eat(Ration::Jam));
+    assert_eq!((mist.guard, moss.guard), (12, 6));
 }
 
 fn shuffle(items: &mut [Card], rng: &mut u64) {

@@ -24,6 +24,7 @@ import harbor
 import geography
 import workshop_art
 import watch_art
+import market_art
 from harvestable import Harvestables, LEAF
 from season_art import SeasonalArt, gathering_assets
 OUT = ROOT / "assets" / "models"
@@ -1710,27 +1711,55 @@ def city_house(m,x,z,w,d,plaster,roof,lift,detail):
         m.box(wx,z+d*.5+.238,1.226,.61,.225,.13,"936a4b",.017)
         for j in range(4):
             flowers(m,wx+(j-1.5)*.138,z+d*.5+.25,1.30,.57,["fff0cb","ddaa95","f3cf86"][j%3])
-    for dz in [-d*.5,d*.5]:
-        m.face([(x-w*.5,z+dz,2.55+lift),(x+w*.5,z+dz,2.55+lift),(x,z+dz,3.64+lift)],plaster)
-        m.pole((x-w*.54,z+dz+.04,2.47+lift),(x,z+dz+.04,3.67+lift),.094,"ad8056",4)
-        m.pole((x+w*.54,z+dz+.04,2.47+lift),(x,z+dz+.04,3.67+lift),.094,"ad8056",4)
+    eave = 2.54 + lift
+    ridge = eave + {"hip": .68, "chimney": 1.03, "loft": 1.37, "bell": .86}.get(detail, 1.15)
+    front, back = z+d*.5+.27, z-d*.5-.24
+    inset = .61 if detail == "hip" else 0.
+    if not inset:
+        for dz in [-d*.5,d*.5]:
+            m.face([(x-w*.5,z+dz,eave),(x+w*.5,z+dz,eave),(x,z+dz,ridge)],plaster)
+            for side in [-1,1]:
+                m.pole((x+side*w*.55,z+dz+.044,eave),(x,z+dz+.044,ridge+.03),.094,"ad8056",4)
+    else:
+        m.face([(x-w*.58,front,eave),(x+w*.58,front,eave),(x,front-inset,ridge)],roof)
+        m.face([(x+w*.58,back,eave),(x-w*.58,back,eave),(x,back+inset,ridge)],roof)
     for side in [-1,1]:
-        seasonal.roof(m, (x,3.64+lift), (x+side*w*.59,2.42+lift),
-                      z-d*.5-.155, z+d*.5+.21, (d+.43)/23+.036)
-        m.face([(x,z-d*.5-.24,3.64+lift),(x+side*w*.59,z-d*.5-.24,2.42+lift),
-                (x+side*w*.59,z+d*.5+.29,2.42+lift),(x,z+d*.5+.29,3.64+lift)],roof)
+        edge=x+side*w*.58
+        seasonal.roof(m, (x,ridge), (edge,eave), back+inset+.07, front-inset-.05, .18)
+        m.face([(x,back+inset,ridge),(edge,back,eave),(edge,front,eave),(x,front-inset,ridge)],roof)
+        m.pole((edge,back,eave), (edge,front,eave), .076, "9b7156", 6)
         for i in range(12):
-            zz=z+(i-5.5)*(d+.42)/12
-            tint=blend(roof,"e6ad7f",.10+(i%4)*.063)
-            m.pole((x,zz,3.66+lift),(x+side*w*.594,zz,2.43+lift),(d+.43)/23,tint,7)
-    m.pole((x,z-d*.5-.29,3.77+lift),(x,z+d*.5+.31,3.77+lift),.148,blend(roof,"c79568",.55),9)
-    if detail=="dormer":
+            s = (i+.5)/12
+            for j in range(4):
+                u, v = j/4, (j+1)/4+.014
+                def tile(t):
+                    zz = (back+inset*(1-t))*(1-s)+(front-inset*(1-t))*s
+                    return (x+(edge-x)*t,zz,ridge+(eave-ridge)*t+.03)
+                tint=blend(roof,"e6ad7f",.08+((i+j*3)%5)*.056)
+                m.pole(tile(u),tile(v),(front-back-2*inset*(1-u))/24,tint,7)
+        if inset:
+            for rz,ez in [(back+inset,back),(front-inset,front)]:
+                m.pole((x,rz,ridge+.06),(edge,ez,eave+.04),.096,blend(roof,"d69d71",.33),7)
+    m.pole((x,back+inset-.05,ridge+.11),(x,front-inset+.05,ridge+.11),.135,blend(roof,"c79568",.55),9)
+    if detail in ("dormer","loft"):
         window(m,x,z+d*.5+.05,2.97+lift,.41,.40)
         for dx in [-.30,.30]:
             m.box(x+dx,z+d*.5+.13,2.97+lift,.12,.08,.41,"8a9a7a",.018)
+        if detail == "loft":
+            m.box(x,z+d*.5+.12,2.67+lift,.82,.28,.11,"946a4e",.023)
+            m.pole((x-.47,z+d*.5+.20,3.26+lift),(x,z+d*.5+.20,3.57+lift),.072,"9c7757",6)
+            m.pole((x+.47,z+d*.5+.20,3.26+lift),(x,z+d*.5+.20,3.57+lift),.072,"9c7757",6)
     elif detail=="chimney":
-        m.box(x-w*.26,z-.32,3.48+lift,.37,.42,.76,"a89689",.028)
-        m.box(x-w*.26,z-.32,3.9+lift,.46,.50,.128,"8d8075",.022)
+        for dz in (-.72, -.19):
+            m.box(x-w*.26,z+dz,ridge-.1,.34,.37,.98,"a89689",.028)
+            m.box(x-w*.26,z+dz,ridge+.42,.42,.45,.105,"8d8075",.022)
+            m.pole((x-w*.26,z+dz,ridge+.47),(x-w*.26,z+dz,ridge+.64),.103,"ad745d",9)
+    elif detail=="hip":
+        for sign in [-1,1]:
+            for i in range(7):
+                m.box(x+sign*(w*.5-.11),z+d*.5+.086,.62+i*.24,.23,.072,.134,"cbbb9f",.018)
+        for dx in (-.87,.87):
+            m.box(x+dx,z+d*.5+.105,2.14+lift,.68,.18,.08,"b4a382",.026)
     for dx in [-.61,.61]:
         lantern(m,x+dx,z+d*.5+.22,1.43)
 
@@ -1745,17 +1774,22 @@ def eichenhafen():
             if (x/10.72)**2+(z/6.65)**2>1.01:continue
             court.box(x,z,.035,.538,.375,.077,
                       ["d9c4a8","c9b8a5","d2c1ab","dfc9b0","bfae9e"][(j+2*i)%5],.036,RNG.uniform(-.042,.041))
-    for house in [(-7.47,-3.20,3.36,2.8,"c0cfad","ac795d",.14,"dormer"),
+    for house in [(-7.47,-3.20,3.36,2.8,"c0cfad","ac795d",.14,"hip"),
         (-3.44,-4.26,3.65,2.65,"dfbb95","ba775b",-.15,"chimney"),
         (.61,-4.65,3.77,2.65,"f0d9af","b67552",.18,"bell"),
-        (4.61,-4.18,3.40,2.55,"c6c7a5","788974",.08,"dormer"),
-        (8.19,-2.98,3.1,2.63,"d9b9a4","a67364",-.12,"chimney")]:
+        (4.61,-4.18,3.40,2.55,"c6c7a5","788974",.08,"loft"),
+        (8.19,-2.98,3.1,2.63,"d9b9a4","a67364",-.12,"hip")]:
         city_house(town,*house)
-    town.box(.67,-4.55,3.71,1.22,1.24,1.35,"ddc49d",.040)
-    town.box(.67,-3.90,3.97,.67,.15,.62,"8a6c55",.038)
-    town.pole((.67,-3.76,3.80),(.67,-3.76,4.17),.195,"cc9a5d",9,tip=.109)
-    town.pole((.67,-4.55,4.35),(.67,-4.55,5.05),.92,"cb8e68",4,tip=.035)
-    town.pole((.67,-4.55,5.04),(.67,-4.55,5.29),.058,"9a7954",6)
+    town.box(.67,-4.55,3.59,1.22,1.24,.78,"ddc49d",.043)
+    for y in (3.93,4.89):
+        town.box(.67,-4.55,y,1.35,1.35,.16,"c3a884",.041)
+    for dx in (-.51,.51):
+        for dz in (-.51,.51):
+            town.box(.67+dx,-4.55+dz,4.40,.22,.22,.88,"d2b88f",.038)
+    town.pole((.67,-4.40,4.20),(.67,-4.40,4.67),.236,"c3975a",12,tip=.124)
+    town.ellipsoid(.67,-4.40,4.171,.071,.07,.079,"8a6c4c",9,4)
+    town.pole((.67,-4.55,4.96),(.67,-4.55,5.99),1.02,"cb8e68",4,tip=.035)
+    town.pole((.67,-4.55,5.98),(.67,-4.55,6.23),.058,"9a7954",6)
     for x,z,colors in [(-5.97,-2.20,("979d70","f2ddb6")),(6.45,-2.13,("ca8b65","ead7b2"))]:
         for dx in [-1.09,1.09]:
             court.box(x+dx,z,.97,.11,.12,1.92,"a9825f",.018)
@@ -2348,7 +2382,7 @@ def effects():
 
 def light_color(color, normal, pos, mode, bvh):
     if mode=="raw":
-        return (*map(linear,color),1)
+        return (*map(linear,color[:3]), color[3] if len(color)==4 else 1)
     if mode=="light":
         return (*map(linear, blend(color,"fff1c3",.12)),1)
     orient=abs(normal.dot(SUN)) if mode=="leaf" else max(0,normal.dot(SUN))
@@ -2366,7 +2400,7 @@ def light_color(color, normal, pos, mode, bvh):
     harbor_square=bvh and 36.<pos.x<63. and -15.<pos.y<4.
     shade=diffuse-(.095+.18*orient)*shadow-.16*ambient
     if harbor_square:
-        shade+=.035*orient-(.054*shadow+.038*ambient)
+        shade+=.045*orient-(.084*shadow+.05*ambient)
     warmth=(.062,.024,-.022) if harbor_square else (.049,.022,-.013)
     result=tuple(linear(c*shade+warmth[i]*orient*(1-shadow)+.040*shadow*(i==2))
                  for i,c in enumerate(color))
@@ -2736,6 +2770,7 @@ def generate():
     extra.extend(gathering_assets(Model,lantern))
     extra.extend(harbor.models(Model,lantern,barrel))
     extra.extend(workshop_art.models(Model,lantern,window))
+    extra.extend(market_art.models(Model))
     prev_rng=RNG.getstate()
     extra.extend(watch_art.models(SimpleNamespace(Model=Model,grass=grass,flowers=flowers)))
     RNG.setstate(prev_rng)
@@ -2762,6 +2797,11 @@ def generate():
     color.layer_name="COLOR_0"
     material.node_tree.links.new(color.outputs["Color"],nodes["Principled BSDF"].inputs["Base Color"])
     nodes["Principled BSDF"].inputs["Roughness"].default_value=.93
+    lantern_light=material.copy()
+    lantern_light.name="Laternenlicht mit weichem Rand"
+    light_nodes=lantern_light.node_tree.nodes
+    lantern_light.node_tree.links.new(light_nodes[color.name].outputs["Alpha"],
+                                      light_nodes["Principled BSDF"].inputs["Alpha"])
 
     collections={}
     objects={}
@@ -2774,7 +2814,8 @@ def generate():
             coll=bpy.data.collections.new(name)
             master.children.link(coll)
             collections[m.asset]=coll
-        obj=build_object(m,shadow if m.asset in exterior_assets else None,material,collections[m.asset],offsets.get(m.asset,zero))
+        surface=lantern_light if m.asset=="evening_market_pool" else material
+        obj=build_object(m,shadow if m.asset in exterior_assets else None,surface,collections[m.asset],offsets.get(m.asset,zero))
         objects.setdefault(m.asset,[]).append(obj)
 
     for asset, selection in objects.items():
@@ -2785,7 +2826,7 @@ def generate():
         path=OUT/(asset+".glb")
         bpy.ops.export_scene.gltf(filepath=str(path),use_selection=True,export_format="GLB",
                                   export_yup=True,export_normals=True,export_vertex_color="ACTIVE")
-        glb_unlit(path, {"shadow":.30,"night_windows":.94}.get(asset))
+        glb_unlit(path, {"shadow":.30,"night_windows":.94,"evening_market_pool":1.}.get(asset))
 
     # Arrange the asset source pieces for inspection while leaving exported model origins intact.
     for asset, selection in objects.items():
@@ -2828,7 +2869,8 @@ def generate():
             preview.objects.link(replica)
             replica.location=point(x,z,0)
             replica.hide_set(False)
-    for asset,x,z,h in [("workbench_old",-.45,1.34,0),("gardener",-.62,3.47,0),("tail",-.62,3.29,.58),("arm",-.864,3.47,.81),("arm",-.376,3.47,.81),
+    for asset,x,z,h in [("evening_market",51.55,7.35,landscape.height(51.55,7.35)),
+                         ("workbench_old",-.45,1.34,0),("gardener",-.62,3.47,0),("tail",-.62,3.29,.58),("arm",-.864,3.47,.81),("arm",-.376,3.47,.81),
                          ("leg",-.732,3.47,.356),("leg",-.508,3.47,.356),
                          ("boot",-.732,3.484,.132),("boot",-.508,3.484,.132),("hoe",-.371,3.512,.548),
                          ("cloud_1",-8.28,-6.64,3.72),("cloud_2",11.95,-4.03,2.62),("cloud_3",13.10,-2.99,2.21),

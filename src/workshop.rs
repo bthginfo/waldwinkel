@@ -56,7 +56,7 @@ impl Progress {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ToolKind {
     Axe,
     Pickaxe,
@@ -80,8 +80,8 @@ impl ToolKind {
         match self {
             Self::Axe => "Mehr Holz pro Baum",
             Self::Pickaxe => "Mehr Stein und Erz",
-            Self::Can => "Größere Reichweite beim Gießen",
-            Self::Hoe => "Größere Reichweite beim Hacken",
+            Self::Can => "Gießt in der Reihe · Kupfer 2 Beete · Silber 3 Beete",
+            Self::Hoe => "Lockert in der Reihe · Kupfer 2 Beete · Silber 3 Beete",
         }
     }
 
@@ -98,8 +98,12 @@ impl ToolKind {
         ["Einfach", "Kupfer", "Silber"][self.level(garden) as usize]
     }
 
-    fn cost(self, garden: &Garden) -> Cost {
-        if self.level(garden) == 0 {
+    pub(crate) fn ingredients(self, tier: u8) -> [crate::craft::Need; 5] {
+        Self::cost(tier).ingredients()
+    }
+
+    fn cost(tier: u8) -> Cost {
+        if tier == 1 {
             Cost {
                 wood: 3,
                 copper: 3,
@@ -120,7 +124,7 @@ impl ToolKind {
         match self.level(garden) {
             2 => format!("Silberstufe · {}", self.effect()),
             1 if !at_forge => "Silberstufe am Schmiedetisch".into(),
-            _ => self.cost(garden).detail(garden),
+            level => Self::cost(level + 1).detail(garden),
         }
     }
 
@@ -128,14 +132,14 @@ impl ToolKind {
         garden.workshop.restored
             && self.level(garden) < 2
             && (self.level(garden) == 0 || (at_forge && garden.workshop.forge))
-            && self.cost(garden).ready(garden)
+            && Self::cost(self.level(garden) + 1).ready(garden)
     }
 
     pub fn upgrade(self, garden: &mut Garden, at_forge: bool) -> Result<String, String> {
         if !self.can_upgrade(garden, at_forge) {
             return Err(self.requirements(garden, at_forge));
         }
-        self.cost(garden).take(garden);
+        Self::cost(self.level(garden) + 1).take(garden);
         garden.workshop.tools[self as usize] = self.level(garden) + 1;
         Ok(format!(
             "{} verbessert · {} · {}",
@@ -146,7 +150,7 @@ impl ToolKind {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Project {
     Restore,
     Forge,
@@ -208,6 +212,19 @@ impl Project {
                 silver: 2,
                 ..Default::default()
             },
+        }
+    }
+
+    pub(crate) fn ingredients(self) -> [crate::craft::Need; 5] {
+        self.cost().ingredients()
+    }
+
+    pub(crate) fn built(self, garden: &Garden) -> bool {
+        match self {
+            Self::Restore => garden.workshop.restored,
+            Self::Forge => garden.workshop.forge,
+            Self::Loom => garden.workshop.loom,
+            Self::Room(index) => usize::from(garden.workshop.house) > index,
         }
     }
 
@@ -333,6 +350,16 @@ struct Cost {
 }
 
 impl Cost {
+    fn ingredients(&self) -> [crate::craft::Need; 5] {
+        use crate::craft::Need::*;
+        [
+            Wood(self.wood),
+            Stone(self.stone),
+            Copper(self.copper),
+            Stock(Product::Silver, self.silver),
+            Coins(self.coins),
+        ]
+    }
     fn materials(&self, g: &Garden) -> [(u32, u32, &'static str); 5] {
         [
             (g.wood, self.wood, "Holz"),

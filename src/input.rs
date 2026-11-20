@@ -247,6 +247,7 @@ pub fn collect(
     controls.inventory |= controller.inventory;
     controls.choice |= controller.seeds;
     controls.fertilize |= controller.fertilizer;
+    controls.field_tool |= controller.field_tool;
     controls.map |= controller.map;
     controls.zoom += controller.zoom;
     controls.cycle = keys.just_pressed(KeyCode::Tab);
@@ -258,6 +259,7 @@ pub fn collect(
         (KeyCode::KeyQ, Utility::Task),
         (KeyCode::KeyI, Utility::Inventory),
         (KeyCode::KeyF, Utility::Fertilize),
+        (KeyCode::KeyR, Utility::FieldTool),
     ] {
         if keys.just_pressed(key) {
             action.apply(&mut controls);

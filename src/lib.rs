@@ -1,5 +1,6 @@
 mod adventure;
 mod battle_ui;
+mod building_plan;
 mod campaign;
 mod cinematic;
 mod commissions;
@@ -7,7 +8,9 @@ mod controller;
 mod craft;
 mod day;
 mod duel;
+mod evening_market;
 mod farm_ui;
+mod fieldwork;
 mod forest;
 mod furniture;
 mod garden;
@@ -64,6 +67,7 @@ struct Controls {
     map: bool,
     choice: bool,
     fertilize: bool,
+    field_tool: bool,
     task: bool,
     inventory: bool,
     menu: bool,
@@ -73,6 +77,7 @@ struct Controls {
 struct GardenFocus {
     selected: Option<usize>,
     pending: Option<(Action, garden::Crop)>,
+    tool: fieldwork::FieldTool,
 }
 
 #[derive(Resource, Default)]
@@ -162,10 +167,12 @@ pub fn main() {
         .init_resource::<battle_ui::DeckIcons>()
         .add_event::<harvest_fx::Break>()
         .add_event::<sound::Cue>()
+        .add_event::<world::Watered>()
         .add_systems(
             Startup,
             (
                 world::setup,
+                fieldwork::setup,
                 forest::setup,
                 season_view::setup,
                 ui::setup,
@@ -237,6 +244,7 @@ pub fn main() {
         .add_systems(
             Update,
             (
+                fieldwork::show.after(world::update_selection),
                 harvest_fx::animate.before(sound::play),
                 forest::draw,
                 session::update,
@@ -280,10 +288,27 @@ fn select_plot(
     controls: Res<Controls>,
     adventure: Res<Adventure>,
     mut focus: ResMut<GardenFocus>,
-    player: Single<&Gardener>,
+    mut player: Single<&mut Gardener>,
+    mut notice: ResMut<Notice>,
+    time: Res<Time>,
 ) {
     if adventure.area != Area::Island {
         return;
+    }
+    if controls.field_tool && !adventure.map && player.position.length() < 17. {
+        focus.tool = focus.tool.next();
+        if focus.pending.take().is_some() {
+            player.stop();
+        }
+        *notice = Notice {
+            message: if focus.tool == fieldwork::FieldTool::Auto {
+                "Werkzeugwahl automatisch".into()
+            } else {
+                format!("{} bleibt ausgewählt", focus.tool.name())
+            },
+            until: time.elapsed_secs() + Notice::DURATION,
+            ..default()
+        };
     }
     if controls.move_axis != Vec2::ZERO
         && focus
@@ -313,6 +338,7 @@ fn act(
     mut garden: ResMut<Garden>,
     path: Res<SavePath>,
     mut farm_menu: ResMut<farm_ui::FarmMenu>,
+    mut watered: EventWriter<world::Watered>,
 ) {
     if controls.move_axis != Vec2::ZERO
         || adventure.area != Area::Island
@@ -343,6 +369,10 @@ fn act(
     if controls.act
         && !garden.clock.night()
         && focus.pending.is_none()
+        && matches!(
+            focus.tool,
+            fieldwork::FieldTool::Auto | fieldwork::FieldTool::Seeds
+        )
         && garden.plots[index].stage() == garden::Stage::Soil
         && garden.seed_count(adventure.crop) == 0
     {
@@ -360,7 +390,7 @@ fn act(
         }
         (garden.fertilizable(index) && garden.fertilizer > 0).then_some(Action::Fertilize)
     } else if controls.act {
-        garden.action(index, adventure.crop)
+        focus.tool.action(&garden, index, adventure.crop)
     } else {
         None
     };
@@ -394,12 +424,36 @@ fn act(
         return;
     }
     focus.pending = None;
-    if let Some(message) = garden.work(index, crop, action) {
+    let stroke = fieldwork::stroke(&garden, index, crop, action, focus.tool);
+    if let Some(mut message) = garden.work(index, crop, action) {
         let position = player.position;
         player.stop();
         let direction = PLOTS[index] - position;
         if direction.length_squared() > 0.01 {
             transform.rotation = Quat::from_rotation_y(direction.x.atan2(direction.y));
+        }
+        let mut worked = 1;
+        if action == Action::Water {
+            watered.write(world::Watered(index));
+        }
+        for &other in &stroke.targets()[1..] {
+            if garden.work(other, crop, action).is_some() {
+                worked += 1;
+                if action == Action::Water {
+                    watered.write(world::Watered(other));
+                }
+            }
+        }
+        if worked > 1 {
+            message = if action == Action::Water {
+                format!("{worked} Beete gleichzeitig gegossen.")
+            } else {
+                format!("{worked} Beete vorbereitet.")
+            };
+        }
+        if let Some(next) = stroke.next {
+            focus.selected = Some(next);
+            message.push_str(&format!(" · Nächstes Beet {}", next + 1));
         }
         adventure::commit(
             &garden,
@@ -407,7 +461,7 @@ fn act(
             &mut notice,
             now,
             message,
-            Some(index),
+            focus.selected,
             Some(action),
         );
     }

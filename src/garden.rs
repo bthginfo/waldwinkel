@@ -213,6 +213,8 @@ pub struct Garden {
     pub sound_muted: bool,
     pub music_muted: bool,
     pub workshop: crate::workshop::Progress,
+    pub plan: Option<crate::building_plan::Plan>,
+    pub evening_market: crate::evening_market::Progress,
 }
 
 impl Default for Garden {
@@ -260,6 +262,8 @@ impl Default for Garden {
             sound_muted: false,
             music_muted: false,
             workshop: Default::default(),
+            plan: None,
+            evening_market: Default::default(),
         }
     }
 }
@@ -621,6 +625,7 @@ impl Garden {
         garden.plots.resize(PLOT_COUNT, Plot::Grass);
         garden.furniture.resize(FURNITURE_COUNT, 0);
         garden.workshop.house = garden.workshop.house.min(2);
+        garden.plan = garden.plan.filter(|plan| plan.valid());
         garden.crafted.resize(CATALOG.len(), false);
         garden.blueprints.resize(CATALOG.len(), false);
         for (index, &built) in garden.crafted.iter().enumerate() {

@@ -1,4 +1,4 @@
-# Waldwinkel 1.5.1
+# Waldwinkel 1.6.0
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
@@ -8,6 +8,16 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 
 - Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://github.com/bthginfo/waldwinkel/releases/latest/download/Waldwinkel-Android.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
+
+## Neu in 1.6.0
+
+- **Reihenarbeit.** Tippe am Hof auf **Werkzeug** oder drücke **R** auf der Tastatur beziehungsweise **R3** am Controller, um Hacke, Saatgut, Gießkanne oder Erntekorb auszuwählen. Die Markierungen zeigen den nächsten Schwung und das Folgebeet. Kupferwerkzeuge bearbeiten bis zu zwei passende Beete, Silberwerkzeuge bis zu drei.
+- **Baupläne und Stellprobe.** Hefte Möbel, Bauprojekte, Werkzeugstufen oder Werkstoffe an. Unter **Journal → Aufträge** findest du fehlende Zutaten und ihre Fundorte. Die Karte zeigt ein passendes Ziel. Mit **Im Haus ansehen** kannst du vor dem Bau durch die Stellplätze wechseln und ein Möbel in deinem aktuellen Grundriss ausprobieren.
+- **Maras Abendmarkt.** Nach Maras Küchenauftrag hilfst du ihr mit Brettern, Stein und einer ersten Kostprobe. Lina und Miro machen sich vor der Eröffnung mit ihr auf den Weg zum Stand. Nach der Quest kannst du täglich von 18:00 bis 21:30 Uhr vier Gerichte mit jeweils einem Stück Tagesvorrat kaufen.
+- **Proviant im Duell.** Jede Mahlzeit hat eine Grundwirkung und ist gegen bestimmte Hüter besonders hilfreich. Marmelade verstärkt den Schild gegen Nebelgegner. Tomateneintopf hilft beim nächsten Treffer gegen die Rüstung der Tonwächter. Vor einer Wacht und im Proviantmenü steht, welches Gericht zum Gegner passt.
+- **Eichenhafen und Bewohner.** Neue Giebel, Walmdächer, Schornsteine und der offene Glockenturm unterscheiden die Häuser. Am Abend leuchten die Laternen auf dem Pflaster. An ihren Stationen arbeiten die Bewohner mit Kochlöffel, Gießkanne, Päckchen, Notizbuch oder Hammer.
+
+[Abendmarkt](docs/160-abendmarkt.jpg) · [Reihenarbeit](docs/160-beete.jpg) · [Möbelvorschau](docs/160-moebel.jpg)
 
 ## Neu in 1.5.1
 
@@ -146,8 +156,8 @@ Im Startmenü kannst du auf bis zu drei getrennten Plätzen ein **Neues Spiel** 
 ### Steuerung
 
 - **Touch.** Tippe auf Boden, Gegenstände oder Figuren. Drücke die rechte Aktionstaste, um den gewählten Gegenstand zu benutzen oder eine Figur anzusprechen. Tippe auf ein Namensschild auf der Karte, um zu dieser Figur zu laufen.
-- **Xbox-Controller auf Android.** Links/rechts am Steuerkreuz wählt Ziele, oben öffnet das Journal und unten die Tasche. **View** öffnet ebenfalls die Tasche. Mit **LT** wählst du Saatgut oder Möbel, mit **RT** düngst du. **LB/RB** zoomen. **Menü** pausiert im Gelände. In Menüs nimm den linken Stick oder das Steuerkreuz und bestätige mit **A**. Der rechte Stick bleibt als Zeiger für freie Ziele und die Karte verfügbar.
-- **Tastatur und Maus.** WASD und Pfeiltasten bewegen den Tanuki. Tab wechselt das Beet, Leertaste führt die Aktion aus. Das Mausrad zoomt. M öffnet die Karte, E die Saatguttasche, Q das Journal und I die Tasche. Im Kampf spielen die Ziffern 1–8 eine Karte aus. Leertaste oder Enter beenden den Zug. F10 blendet das HUD aus, F12 speichert ein Spielbild.
+- **Xbox-Controller auf Android.** Links/rechts am Steuerkreuz wählt Ziele, oben öffnet das Journal und unten die Tasche. **View** öffnet ebenfalls die Tasche. Mit **LT** wählst du Saatgut oder Möbel, mit **RT** düngst du. **LB/RB** zoomen. **Menü** pausiert im Gelände. In Menüs nimm den linken Stick oder das Steuerkreuz und bestätige mit **A**. Der rechte Stick steuert den Zeiger. Drücke ihn am Hof hinein, um das Feldwerkzeug zu wechseln.
+- **Tastatur und Maus.** WASD und Pfeiltasten bewegen den Tanuki. Tab wechselt das Beet, Leertaste führt die Aktion aus. Das Mausrad zoomt. R wechselt das Feldwerkzeug. M öffnet die Karte, E die Saatguttasche, Q das Journal und I die Tasche. Im Kampf spielen die Ziffern 1–8 eine Karte aus. Leertaste oder Enter beenden den Zug. F10 blendet das HUD aus, F12 speichert ein Spielbild.
 
 ## Projekt ausführen und bauen
 
