@@ -1,4 +1,4 @@
-# Waldwinkel 1.5
+# Waldwinkel 1.5.1
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
@@ -8,6 +8,16 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 
 - Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://github.com/bthginfo/waldwinkel/releases/latest/download/Waldwinkel-Android.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
+
+## Neu in 1.5.1
+
+- **Steuerung.** Der Tanuki läuft feinfühliger bei kleinem Stickweg, bremst schneller und reagiert direkter auf Richtungswechsel. Die Kamera folgt gleichmäßiger. Ecken am Boden markieren das gewählte Ziel. Bei dicht stehenden Objekten entscheidet die sichtbare Tiefe.
+- **Aufträge und Bewohner.** Ein gelbes **!** zeigt einen neuen Auftrag. Ein grünes **?** zeigt, dass du einen Auftrag abgeben kannst. Die Zeichen stehen über den Figuren und neben ihrem Namen auf der Karte. Tippe auf einen Namen, um dorthin zu laufen. Die Karte zeigt die aktuellen Standorte aller Bewohner erreichbarer Gebiete.
+- **Tagesabläufe.** Lina kümmert sich um die Pflanzkübel, Miro geht zum Hafentor und Juna sieht am Brunnen nach den Wegzeichen. Auch die Bewohner der Außenregionen wechseln den Ort. Unter **Journal → Dorf** steht, wo sie gerade sind.
+- **Eichenhafen.** Markttücher, Ladenzeichen, bepflanzte Wegkanten und stärker abgestufte Schatten prägen den Platz. Vögel, Schmetterlinge und Käfer tauchen bei passendem Wetter auf. In warmen Nächten sind Glühwürmchen zu sehen.
+- **Ton.** Klavier und Harfe reagieren auf Ort, Tageszeit und Gespräche. Beim Fällen hörst du Axtschlag, Splittern und Aufprall. Beete, Fertigung und Kampftalente haben eigene Rückmeldungen. Im Pausenmenü wechselt **Ton** zwischen **Ein**, **Ohne Musik** und **Aus**. [Aufnahmen und Audiodesign](docs/audio.md)
+
+[Eichenhafen im Spiel](docs/151-eichenhafen.jpg) · [Bewohner und Aufträge auf der Karte](docs/151-karte.jpg) · [Baumfällen mit Spielton](https://github.com/bthginfo/waldwinkel/releases/download/v1.5.1/Waldwinkel-Baumfaellen.mp4)
 
 ## Neu in 1.5
 
@@ -25,7 +35,7 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 - **Wachtprüfungen.** Die Farnwacht bietet schon früh ein Kartenduell. Drei Wachten haben je vier ansteigende Prüfungen mit eigenen Regeln und Belohnungen. In einem Kampf kannst du einmal ein vorbereitetes Gericht einsetzen.
 - **Hafenaufträge.** Am Auftragsbrett kannst du unter anderem Ernten, Fischen und Erzabbau als Auftrag annehmen. Aushänge wechseln alle drei Tage. Ein angenommener Auftrag bleibt bis zum Einlösen oder Aufgeben aktiv.
 - **Fertigung.** Werkbank, Schmiedetisch und der neue Webrahmen stellen Fichtenbretter, Muschelglas, Kupfernieten, Segeltuch und Laternenöl her. Wähle ein, drei oder fünf Arbeitsgänge. Neue Rezepte lernst du an den Wegzeichen.
-- **Xbox auf dem Tablet.** Linker Stick bewegt die Figur. Links und rechts am Steuerkreuz wählen nahe Ziele. **A** bestätigt, **X** benutzt ein gewähltes Ziel, **B** geht zurück und **Y** öffnet die Karte oder beendet im Duell den Zug.
+- **Xbox auf dem Tablet.** Linker Stick bewegt die Figur. Links und rechts am Steuerkreuz wählen nahe Ziele. **A** bestätigt. **X** benutzt das gewählte Ziel oder greift direkt auf das passende Ziel in der Nähe zu. **B** geht zurück. **Y** öffnet die Karte oder beendet im Duell den Zug.
 
 [Stand und Qualitätsprüfung](docs/stand-1.4.md) · [Farnwacht](docs/14-farnwacht.jpg) · [Weitere Wegwachten](docs/14-wegwachten.jpg) · [Fertigung](docs/14-materialien.jpg) · [Proviant im Duell](docs/14-proviant.jpg) · [Szenenausschnitt mit Juna](docs/14-finale.jpg) · [Xbox-Fokus im Tabletformat](docs/14-xbox.jpg) · [Bildreferenz](art/references/wegwachten.jpg)
 
@@ -135,7 +145,7 @@ Im Startmenü kannst du auf bis zu drei getrennten Plätzen ein **Neues Spiel** 
 
 ### Steuerung
 
-- **Touch.** Tippe auf Boden, Gegenstände oder Figuren. Drücke die rechte Aktionstaste, um den gewählten Gegenstand zu benutzen oder eine Figur anzusprechen.
+- **Touch.** Tippe auf Boden, Gegenstände oder Figuren. Drücke die rechte Aktionstaste, um den gewählten Gegenstand zu benutzen oder eine Figur anzusprechen. Tippe auf ein Namensschild auf der Karte, um zu dieser Figur zu laufen.
 - **Xbox-Controller auf Android.** Links/rechts am Steuerkreuz wählt Ziele, oben öffnet das Journal und unten die Tasche. **View** öffnet ebenfalls die Tasche. Mit **LT** wählst du Saatgut oder Möbel, mit **RT** düngst du. **LB/RB** zoomen. **Menü** pausiert im Gelände. In Menüs nimm den linken Stick oder das Steuerkreuz und bestätige mit **A**. Der rechte Stick bleibt als Zeiger für freie Ziele und die Karte verfügbar.
 - **Tastatur und Maus.** WASD und Pfeiltasten bewegen den Tanuki. Tab wechselt das Beet, Leertaste führt die Aktion aus. Das Mausrad zoomt. M öffnet die Karte, E die Saatguttasche, Q das Journal und I die Tasche. Im Kampf spielen die Ziffern 1–8 eine Karte aus. Leertaste oder Enter beenden den Zug. F10 blendet das HUD aus, F12 speichert ein Spielbild.
 

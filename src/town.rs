@@ -11,76 +11,10 @@ use crate::{
     input::Gesture,
     regions::{self, Frontier},
     session::Session,
-    travel::{District, FINDS},
+    travel::FINDS,
     ui::{self, UiFonts},
     weather::Season,
 };
-
-const BO_ROUTE: &[Vec2] = &[
-    Vec2::new(50.50, 1.50),
-    Vec2::new(56.00, 7.75),
-    Vec2::new(57.00, 8.00),
-    Vec2::new(57.25, 9.00),
-    Vec2::new(57.50, 15.50),
-    Vec2::new(57.25, 24.00),
-    Vec2::new(56.75, 25.00),
-];
-const PIER_ROUTE: &[Vec2] = &[
-    Vec2::new(56.75, 25.00),
-    Vec2::new(58.00, 26.60),
-    Vec2::new(58.00, 30.90),
-    Vec2::new(57.70, 33.25),
-    Vec2::new(57.50, 35.78),
-];
-const SHORE_ROUTE: &[Vec2] = &[
-    Vec2::new(52.75, 7.25),
-    Vec2::new(50.00, 10.25),
-    Vec2::new(54.75, 25.75),
-];
-const EVENING_ROUTE: &[Vec2] = &[
-    Vec2::new(52.75, 7.25),
-    Vec2::new(56.75, 7.75),
-    Vec2::new(57.25, 8.25),
-    Vec2::new(58.50, 25.25),
-];
-
-fn along(route: &[Vec2], fraction: f32) -> (Vec2, Vec2) {
-    let mut left = fraction * route.windows(2).map(|p| p[0].distance(p[1])).sum::<f32>();
-    for pair in route.windows(2) {
-        let delta = pair[1] - pair[0];
-        let length = delta.length();
-        if left < length {
-            return (pair[0] + delta * (left / length), delta.normalize());
-        }
-        left -= length;
-    }
-    (*route.last().unwrap(), Vec2::ZERO)
-}
-
-#[derive(Component)]
-pub struct Resident(pub Npc);
-
-pub fn move_residents(
-    garden: Res<Garden>,
-    time: Res<Time>,
-    mut residents: Query<(&Resident, &mut Transform)>,
-) {
-    for (resident, mut pose) in &mut residents {
-        let (point, direction) = resident.0.pose(&garden);
-        let mut y = crate::world::surface_height(point, &garden) + 0.04;
-        if direction != Vec2::ZERO {
-            y += (time.elapsed_secs() * 16.).sin().abs() * 0.034;
-            let turn = Quat::from_rotation_y(direction.x.atan2(direction.y));
-            pose.rotation = pose
-                .rotation
-                .slerp(turn, 1. - (-time.delta_secs() * 11.).exp());
-        }
-        let next = Vec3::new(point.x, y, point.y);
-        if pose.translation != next {
-            pose.translation = next;
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Npc {
@@ -93,6 +27,21 @@ pub enum Npc {
     Runa,
     Nele,
     Edda,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum QuestMark {
+    Available,
+    TurnIn,
+}
+
+impl QuestMark {
+    pub fn symbol(self) -> &'static str {
+        match self {
+            Self::Available => "!",
+            Self::TurnIn => "?",
+        }
+    }
 }
 
 impl Npc {
@@ -156,83 +105,16 @@ impl Npc {
         }
     }
 
-    pub fn position(self, garden: &Garden) -> Vec2 {
-        self.pose(garden).0
+    pub fn available(self, garden: &Garden) -> bool {
+        self.frontier().is_none_or(|region| region.unlocked(garden))
     }
 
-    fn pose(self, garden: &Garden) -> (Vec2, Vec2) {
-        let minute = garden.clock.minute();
-        let fixed = |point| (point, Vec2::ZERO);
-        let walk = |route, from, duration, reverse| {
-            let progress = f32::from(minute - from) / duration;
-            let (point, face) = along(route, if reverse { 1. - progress } else { progress });
-            (point, if reverse { -face } else { face })
-        };
-        let opening = garden.harbor.celebrating(garden.day) && !garden.clock.night();
-        let pier_open = garden.harbor.phase == harbor::Phase::Open;
-        match (self, minute) {
-            (Self::Bo, _) if opening => fixed(Vec2::new(57.50, 35.78)),
-            (Self::Fiete, _) if opening => fixed(Vec2::new(58.69, 34.12)),
-            (Self::Bo, 0..780 | 1194..) => fixed(BO_ROUTE[0]),
-            (Self::Bo, 780..804) => walk(BO_ROUTE, 780, 24., false),
-            (Self::Bo, 804..820) if pier_open => walk(PIER_ROUTE, 804, 16., false),
-            (Self::Bo, 820..1154) if pier_open => fixed(*PIER_ROUTE.last().unwrap()),
-            (Self::Bo, 1154..1170) if pier_open => walk(PIER_ROUTE, 1154, 16., true),
-            (Self::Bo, 804..1170) => fixed(*BO_ROUTE.last().unwrap()),
-            (Self::Bo, _) => walk(BO_ROUTE, 1170, 24., true),
-            (Self::Fiete, 0..600) => fixed(*SHORE_ROUTE.last().unwrap()),
-            (Self::Fiete, 600..619) => walk(SHORE_ROUTE, 600, 19., true),
-            (Self::Fiete, 619..1020) => fixed(SHORE_ROUTE[0]),
-            (Self::Fiete, 1020..1040) => walk(EVENING_ROUTE, 1020, 20., false),
-            (Self::Fiete, _) => fixed(*EVENING_ROUTE.last().unwrap()),
-            _ => fixed(self.home_position()),
-        }
+    pub fn position(self, garden: &Garden) -> Vec2 {
+        crate::resident::pose(self, garden).point
     }
 
     pub fn whereabouts(self, garden: &Garden) -> &'static str {
-        if matches!(self, Self::Bo | Self::Fiete)
-            && garden.harbor.celebrating(garden.day)
-            && !garden.clock.night()
-        {
-            return "Bei der Wiedereröffnung am Fischersteg";
-        }
-        match (self, garden.clock.minute()) {
-            (Self::Bo, 0..780) => "Am Rathaus · bis 13:00",
-            (Self::Bo, 780..804) => "Unterwegs zum Fischersteg",
-            (Self::Bo, 804..1170) if garden.harbor.phase == harbor::Phase::Open => {
-                "Auf dem Fischersteg · nachmittags an der Seeseite"
-            }
-            (Self::Bo, 804..1170) => "Am Fischersteg · bis 19:30",
-            (Self::Bo, 1170..1194) => "Unterwegs zum Rathaus",
-            (Self::Bo, _) => "Am Rathaus",
-            (Self::Fiete, 0..600) => "Am Hafenufer · bis 10:00",
-            (Self::Fiete, 600..619) => "Unterwegs zum Marktplatz",
-            (Self::Fiete, 619..1020) => "Am Marktplatz · bis 17:00",
-            (Self::Fiete, 1020..1040) => "Unterwegs zum Fischersteg",
-            (Self::Fiete, _) => "Am Fischersteg",
-            (Self::Lina | Self::Miro, _) if garden.clock.market_open() => {
-                "Marktplatz · Handel bis 20:00"
-            }
-            (Self::Lina | Self::Miro, _) => "Marktplatz · Handel ab 06:00",
-            _ => self.role(),
-        }
-    }
-
-    fn home_position(self) -> Vec2 {
-        self.frontier()
-            .map_or(District::Town, Frontier::district)
-            .origin()
-            + match self {
-                Self::Lina => Vec2::new(-5.50, -1.55),
-                Self::Miro => Vec2::new(5.81, -1.50),
-                Self::Mara => Vec2::new(-6.84, 1.92),
-                Self::Fiete => Vec2::new(3.80, 3.36),
-                Self::Bo => Vec2::new(1.41, -2.39),
-                Self::Juna => Vec2::new(7.26, 2.56),
-                Self::Runa => Vec2::new(-12.30, 10.65),
-                Self::Nele => Vec2::new(-12.90, -12.10),
-                Self::Edda => Vec2::new(-5.20, 6.95),
-            }
+        crate::resident::pose(self, garden).activity
     }
 
     fn harbor_greeting(self, garden: &Garden) -> Option<String> {
@@ -332,6 +214,36 @@ impl Npc {
             Self::Bo => Some(Quest::Fountain),
             _ => None,
         }
+    }
+
+    pub fn quest_mark(self, garden: &Garden) -> Option<QuestMark> {
+        use QuestMark::{Available, TurnIn};
+        if let Some(region) = self.frontier() {
+            return region
+                .unlocked(garden)
+                .then(|| regions::story_mark(region, garden))
+                .flatten();
+        }
+        let city = self
+            .quest()
+            .and_then(|quest| match garden.town.quests[quest as usize] {
+                QuestState::Offered => Some(Available),
+                QuestState::Accepted if quest.ready(garden) => Some(TurnIn),
+                _ => None,
+            });
+        let story = match self {
+            Self::Bo if garden.onboarding == crate::onboarding::Onboarding::Harbor => Some(TurnIn),
+            Self::Bo if !garden.harbor.started => Some(Available),
+            Self::Juna
+                if !garden.watches.gathered
+                    && garden.watches.lights() == crate::waywatch::Watch::ALL.len() =>
+            {
+                Some(TurnIn)
+            }
+            Self::Juna if !garden.story.met_juna => Some(Available),
+            _ => None,
+        };
+        city.max(story)
     }
 }
 
@@ -959,10 +871,14 @@ mod tests {
         let mut garden = Garden::default();
         let coins = garden.farm.coins;
         let quest = Quest::Chime;
+        assert_eq!(Npc::Fiete.quest_mark(&garden), Some(QuestMark::Available));
         assert!(quest.advance(&mut garden).is_ok());
+        assert_eq!(Npc::Fiete.quest_mark(&garden), None);
         assert!(quest.advance(&mut garden).is_err());
         garden.add_stock(Product::Shell, 4);
+        assert_eq!(Npc::Fiete.quest_mark(&garden), Some(QuestMark::TurnIn));
         assert!(quest.advance(&mut garden).is_ok());
+        assert_eq!(Npc::Fiete.quest_mark(&garden), None);
         assert_eq!(garden.stock(Product::Shell), 1);
         assert_eq!(garden.farm.coins, coins + 16);
         assert_eq!(garden.town.completed(), 1);

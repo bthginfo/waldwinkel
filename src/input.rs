@@ -97,11 +97,21 @@ impl Gesture {
                 } else if tap.action_button {
                     controls.act |= layout.on_action(at);
                 } else if !layout.on_stick(at) && !layout.on_action(at) && !layout.on_other_ui(at) {
-                    controls.pick_at = Some(at);
+                    controls.pick_at = Some(tap.start);
+                    controls.finger_pick = matches!(pointer, Pointer::Finger(id) if id != u64::MAX);
                 }
             }
         }
     }
+}
+
+pub(crate) fn stick_curve(axis: Vec2, dead_zone: f32) -> Vec2 {
+    if !axis.is_finite() {
+        return Vec2::ZERO;
+    }
+    let length = axis.length();
+    let amount = ((length - dead_zone) / (1. - dead_zone)).clamp(0., 1.);
+    axis.normalize_or_zero() * (amount * (0.73 + 0.27 * amount))
 }
 
 pub fn collect(
@@ -209,9 +219,8 @@ pub fn collect(
         gesture.moved(Pointer::Mouse, at);
     }
     let axis = gesture.stick.as_ref().map_or(Vec2::ZERO, |stick| {
-        let direction = (stick.position - stick.anchor) / (44.0 * layout.scale);
-        let magnitude = ((direction.length() - 0.10) / 0.90).clamp(0., 1.);
-        Vec2::new(direction.x, -direction.y).normalize_or_zero() * magnitude.powf(1.24)
+        let direction = (stick.position - stick.anchor) / (41. * layout.scale);
+        stick_curve(direction * Vec2::new(1., -1.), 0.12)
     });
     gesture.stick_axis = axis;
     let right = keys.any_pressed([KeyCode::KeyD, KeyCode::ArrowRight]);
@@ -222,9 +231,16 @@ pub fn collect(
         i32::from(right) as f32 - i32::from(left) as f32,
         i32::from(forward) as f32 - i32::from(back) as f32,
     );
-    controls.move_axis = (axis + keyboard + controller.walk).clamp_length_max(1.0);
+    controls.move_axis = if axis != Vec2::ZERO {
+        axis
+    } else if controller.walk != Vec2::ZERO {
+        controller.walk
+    } else {
+        keyboard.clamp_length_max(1.)
+    };
     controls.act |= controller.act;
     controls.pad_action = controller.act;
+    controls.pad_quick = controller.quick;
     controls.pad_cycle = controller.cycle;
     controls.cancel = controller.back;
     controls.task |= controller.task;

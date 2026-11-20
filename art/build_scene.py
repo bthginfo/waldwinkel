@@ -65,6 +65,7 @@ class Model:
         self.name = name
         self.asset = asset
         self.casts = casts
+        self.pivot = None
         self.vertices = []
         self.faces = []
         self.colors = []
@@ -1745,9 +1746,9 @@ def eichenhafen():
             court.box(x,z,.035,.538,.375,.077,
                       ["d9c4a8","c9b8a5","d2c1ab","dfc9b0","bfae9e"][(j+2*i)%5],.036,RNG.uniform(-.042,.041))
     for house in [(-7.47,-3.20,3.36,2.8,"c0cfad","ac795d",.14,"dormer"),
-        (-3.44,-4.26,3.65,2.65,"ebc9a8","b98569",-.15,"chimney"),
-        (.61,-4.65,3.77,2.65,"f0d9af","be805e",.18,"bell"),
-        (4.61,-4.18,3.40,2.55,"e6cea3","87987f",.08,"dormer"),
+        (-3.44,-4.26,3.65,2.65,"dfbb95","ba775b",-.15,"chimney"),
+        (.61,-4.65,3.77,2.65,"f0d9af","b67552",.18,"bell"),
+        (4.61,-4.18,3.40,2.55,"c6c7a5","788974",.08,"dormer"),
         (8.19,-2.98,3.1,2.63,"d9b9a4","a67364",-.12,"chimney")]:
         city_house(town,*house)
     town.box(.67,-4.55,3.71,1.22,1.24,1.35,"ddc49d",.040)
@@ -1826,7 +1827,82 @@ def eichenhafen():
     for dz in [-.48,.48]:
         town.box(boat_x,boat_z+dz,-.405,1.12,.23,.074,"cea67b",.022)
     town.pole((boat_x-.51,boat_z-.57,-.40),(10.19,23.51,.21),.026,"c7b38d",6)
-    return [town,court]
+    return [town,court,*harbor_square()]
+
+
+def harbor_square():
+    """Detail the square along its edges, leaving doorways and the walking routes clear."""
+    walls=Model("Eichenhafen · Handwerksschilder und Markttücher","district_town")
+    plants=Model("Eichenhafen · Stockrosen und Küstensträucher","district_town",casts=False)
+    rng_state=RNG.getstate()
+    rng=random.Random(603)
+    for x,z,paint,roof in [
+        (-7.47,-1.80,"a3ae91","6d8a77"),
+        (-3.44,-2.935,"d8bb98","bc785c"),
+        (4.61,-2.905,"b6b795","758779"),
+        (8.19,-1.665,"e1bc92","be7e5b"),
+    ]:
+        for i in range(22):
+            xx=x+rng.uniform(-1.39,1.39)
+            yy=rng.choice([.64,.82,2.19,2.31])+rng.uniform(-.04,.04)
+            if abs(xx-x) < .46 and yy<1.4:
+                continue
+            tint=blend(paint,"ae8668",rng.uniform(.07,.30))
+            walls.box(xx,z+.008,yy,rng.uniform(.13,.40),.022,.079,tint,.012)
+        walls.pole((x-.63,z+.14,2.28),(x-.63,z+.77,2.28),.052,"a77d5f",7)
+        for dz in [.47,.72]:
+            walls.pole((x-.63,z+dz,2.28),(x-.63,z+dz,2.11),.013,"706657",6)
+        walls.box(x-.63,z+.56,1.97,.061,.42,.25,"8c6c51",.028)
+        walls.box(x-.667,z+.56,1.97,.023,.329,.175,roof,.014)
+        walls.box(x-.680,z+.56,1.97,.017,.166,.050,"e5c693",.010)
+    for x,z,c in [(-3.44,-2.88,"b87d62"),(4.61,-2.84,"7e957f")]:
+        for j in range(6):
+            xx=x+(j-2.5)*.162
+            tint=blend(c,"ead6ad",.56 if j%2 else .12)
+            walls.face([(xx-.079,z,1.97),(xx+.081,z,1.97),(xx+.081,z+.56,1.75),(xx-.079,z+.56,1.75)],tint)
+            walls.face([(xx-.079,z+.56,1.754),(xx+.081,z+.56,1.754),
+                        (xx+.071,z+.584,1.65),(xx-.064,z+.584,1.637)],tint)
+        for side in [-1,1]:
+            walls.pole((x+side*.50,z+.051,1.69),(x+side*.50,z+.56,1.76),.028,"a78161",6)
+    for a,b in [((-8.11,4.01,2.67),(-2.25,4.78,2.53)),((2.7,5.16,2.49),(8.36,3.68,2.69))]:
+        rope=[]
+        for i in range(13):
+            t=i/12
+            rope.append(tuple(u+(v-u)*t for u,v in zip(a,b)))
+            x,z,y=rope[-1]
+            rope[-1]=(x,z,y-.38*math.sin(math.pi*t))
+        for j,(p,q) in enumerate(zip(rope,rope[1:])):
+            walls.pole(p,q,.016,"a88365",5)
+            if j%2==0:
+                x,z,y=p
+                walls.face([p,(x+.21,z+.03,y-.028),(x+.09,z+.03,y-.25)],
+                           ["c57d5c","e2b370","8da695","b58c88"][(j//2)%4])
+        for x,z,h in [a,b]:
+            walls.pole((x,z,.04),(x,z,h+.09),.056,"8c6954",7)
+            walls.ellipsoid(x,z,h+.13,.076,.076,.074,"cca37d",7,4)
+            walls.obstacle_circle(x,z,.073)
+    for x,z,w,r in [(-8.45,3.03,1.24,.40),(-6.05,5.08,.83,.37),
+                    (-3.63,5.81,1.01,.42),(4.65,5.28,.78,.42),(8.4,3.82,.94,.44)]:
+        ground=landscape.height(x+49.,z+4.)
+        for i in range(5):
+            xx=x+(i-2)*w/5
+            zz=z+rng.uniform(-.095,.095)
+            walls.ellipsoid(xx,zz,ground+.10,w*.16,.165,.14,
+                            rng.choice(["bca88d","a9957e","c6b39a"]),7,4,rough=.11)
+        for _ in range(11):
+            xx=x+rng.uniform(-w*.48,w*.48)
+            zz=z+rng.uniform(-r*.36,r*.34)
+            sc=rng.uniform(.46,.88)
+            flowers(plants,xx,zz,ground+.059,sc,
+                    rng.choice(["d19789","d9ad7c","9b7c92","d6c7a3","e3bd7d"]))
+            grass(plants,xx,zz,ground+.04,sc*.74,"989f62")
+    for x,z in [(-8.86,2.59),(8.91,2.94)]:
+        walls.pole((x,z,.48),(x-.15,z+.01,1.64),.106,"8e725c",7,tip=.066)
+        for dx,dz,h,r in [(-.52,.07,1.73,.56),(.43,-.18,1.79,.53),(-.15,-.05,2.09,.63)]:
+            seasonal.crown(walls,x+dx,z+dz,h,r,r*.81,r*.73,
+                           rng.choice(["8a9e6e","9fa36e","7f956c"]),10,4,rough=.17)
+    RNG.setstate(rng_state)
+    return [walls,plants]
 
 
 def mainland_details():
@@ -2078,11 +2154,20 @@ def npc_models():
         if asset=="npc_runa":
             legacy_rng=RNG.getstate()
         m=Model(asset,asset)
+        models.append(m)
+        arms={}
         for side in [-1,1]:
-            m.ellipsoid(side*.114,.012,.275,.089,.106,.226,fur,8,4)
-            m.box(side*.119,.067,.083,.160,.214,.123,dark,.034)
-            m.ellipsoid(side*.239,-.004,.674,.084,.081,.228,cloth,8,4)
-            m.ellipsoid(side*.246,.029,.502,.073,.067,.082,fur,8,4)
+            suffix="l" if side<0 else "r"
+            leg=Model(f"{asset}_leg_{suffix}",asset)
+            leg.pivot=point(side*.114,.012,.45)
+            leg.ellipsoid(side*.114,.012,.275,.089,.106,.226,fur,8,4)
+            leg.box(side*.119,.067,.083,.160,.214,.123,dark,.034)
+            arm=Model(f"{asset}_arm_{suffix}",asset)
+            arm.pivot=point(side*.239,-.004,.817)
+            arm.ellipsoid(side*.239,-.004,.674,.084,.081,.228,cloth,8,4)
+            arm.ellipsoid(side*.246,.029,.502,.073,.067,.082,fur,8,4)
+            arms[side]=arm
+            models.extend([leg,arm])
         m.ellipsoid(0,0,.662,.244,.162,.322,cloth,11,5)
         m.box(0,.152,.66,.292,.043,.306,light,.033)
         for side in [-1,1]:
@@ -2110,8 +2195,8 @@ def npc_models():
             for dx,h in [(-.09,.874),(0,.843),(.09,.871)]:
                 m.ellipsoid(dx,.169,h,.038,.022,.027,"e8d7ac",8,4)
         if asset=="npc_lina":
-            m.box(.241,.078,.48,.145,.132,.17,"ab8a5b",.029)
-            m.ellipsoid(.222,.137,.511,.061,.024,.048,"9ea874",7,4)
+            arms[1].box(.241,.078,.48,.145,.132,.17,"ab8a5b",.029)
+            arms[1].ellipsoid(.222,.137,.511,.061,.024,.048,"9ea874",7,4)
         if asset=="npc_miro" or asset=="npc_mara":
             scarf="b65e4a" if asset=="npc_miro" else "b8a991"
             m.ellipsoid(0,.029,.935,.172,.134,.069,scarf,10,4)
@@ -2128,10 +2213,55 @@ def npc_models():
                 ring=[(side*.105+.081*math.cos(a),.230,1.183+.070*math.sin(a)) for i in range(9) for a in [i*TAU/9]]
                 for i in range(9):m.pole(ring[i],ring[(i+1)%9],.012,"775e4e",5)
             m.pole((-.029,.238,1.188),(.029,.238,1.188),.010,"775e4e",5)
-        models.append(m)
     if legacy_rng is not None:
         RNG.setstate(legacy_rng)
     return models
+
+
+def wildlife_models():
+    bird=Model("wild_bird","wild_bird")
+    bird.ellipsoid(0,-.04,.06,.125,.207,.116,"9b795f",9,5)
+    bird.ellipsoid(0,.123,.136,.096,.095,.094,"776555",9,4)
+    bird.ellipsoid(0,.08,.026,.105,.118,.071,"e8cc9d",8,4)
+    bird.ellipsoid(0,.17,.08,.069,.062,.054,"ad785d",8,4)
+    bird.pole((0,.198,.128),(0,.273,.111),.033,"bb9568",5,tip=.004)
+    bird.face([(-.063,-.137,.067),(.063,-.137,.067),(.039,-.311,.067),(-.042,-.311,.067)],
+              "6c6455")
+    for side in [-1,1]:
+        bird.ellipsoid(side*.071,.182,.154,.014,.015,.014,"343832",7,4,mode="raw")
+    butterfly=Model("wild_butterfly","wild_butterfly")
+    butterfly.pole((0,-.081,0),(0,.084,0),.017,"6b544e",6,tip=.011)
+    for side in [-1,1]:
+        butterfly.pole((0,.072,.004),(side*.032,.113,.021),.0045,"6b544e",5)
+    wings=[]
+    for side in [-1,1]:
+        suffix="l" if side<0 else "r"
+        wing=Model(f"wild_bird_wing_{suffix}",bird.asset)
+        wing.pivot=point(side*.082,.02,.086)
+        wing.face([(side*.082,.073,.096),(side*.25,.08,.106),(side*.43,-.026,.086),
+                   (side*.294,-.139,.067),(side*.113,-.152,.070)],"947b63")
+        wing.face([(side*.25,.08,.106),(side*.43,-.026,.086),(side*.35,-.095,.067),
+                   (side*.238,-.053,.082)],"756656")
+        wings.append(wing)
+        wing=Model(f"wild_butterfly_wing_{suffix}",butterfly.asset)
+        wing.face([(0,.029,0),(side*.113,.093,.01),(side*.176,.072,.014),
+                   (side*.159,-.018,.012),(side*.09,-.023,.006)],"edb26a",mode="raw")
+        wing.face([(0,.016,0),(side*.128,-.01,.01),(side*.137,-.058,.009),
+                   (side*.067,-.092,.006)],"d68464",mode="raw")
+        wing.ellipsoid(side*.126,.036,.014,.022,.02,.003,"fff0c1",7,4,mode="raw")
+        wings.append(wing)
+    beetle=Model("wild_beetle","wild_beetle")
+    beetle.ellipsoid(0,-.02,.056,.058,.083,.050,"87956a",9,5)
+    beetle.ellipsoid(0,.056,.040,.04,.038,.029,"604e42",8,4)
+    beetle.pole((0,.043,.093),(0,-.087,.076),.005,"5e714f",5)
+    for side in [-1,1]:
+        for z in [-.054,-.006,.034]:
+            beetle.pole((side*.035,z,.043),(side*.079,z-.019,.013),.008,"605446",5)
+        beetle.pole((side*.022,.074,.055),(side*.04,.108,.07),.005,"65513d",5)
+    firefly=Model("wild_firefly","wild_firefly")
+    firefly.ellipsoid(0,0,0,.028,.04,.028,"ffdc87",7,4,mode="raw")
+    firefly.ellipsoid(0,.036,0,.013,.016,.013,"d1bc73",7,4,mode="raw")
+    return [bird,butterfly,beetle,firefly,*wings]
 
 
 def regional_assets():
@@ -2233,8 +2363,11 @@ def light_color(color, normal, pos, mode, bvh):
         elif mode!="leaf":
             ambient=sum(bvh.ray_cast(origin,direction,.48)[0] is not None
                         for direction in AMBIENT_RAYS if direction.dot(normal)>.1)/5
+    harbor_square=bvh and 36.<pos.x<63. and -15.<pos.y<4.
     shade=diffuse-(.095+.18*orient)*shadow-.16*ambient
-    warmth=(.049,.022,-.013)
+    if harbor_square:
+        shade+=.035*orient-(.054*shadow+.038*ambient)
+    warmth=(.062,.024,-.022) if harbor_square else (.049,.022,-.013)
     result=tuple(linear(c*shade+warmth[i]*orient*(1-shadow)+.040*shadow*(i==2))
                  for i,c in enumerate(color))
     return (*result,1)
@@ -2256,6 +2389,11 @@ def build_object(model, bvh, material, collection, offset=Vector((0,0,0))):
             v=mesh.vertices[mesh.loops[loop_index].vertex_index].co*.88+sampling+offset
             tint, style = (color[corner], "raw") if mode=="gradient" else (color, mode)
             attr.data[loop_index].color=light_color(tint,normal,v,style,bvh)
+    if model.pivot is not None:
+        pivot=Vector(model.pivot)
+        for vertex in mesh.vertices:
+            vertex.co-=pivot
+        obj.location=pivot
     return obj
 
 
@@ -2592,7 +2730,8 @@ def generate():
     landscape.bake_heightmap(ROOT)
     resources=resource_models()
     extra=[*garden(),*character(),*effects(),*furniture_models(),*resources,*new_game_models(),*farm_assets(),
-           *deep_mine_assets(resources),*find_assets(),*npc_models(),*workshop_assets(),*regional_assets(),*dungeon_assets()]
+           *deep_mine_assets(resources),*find_assets(),*npc_models(),*wildlife_models(),
+           *workshop_assets(),*regional_assets(),*dungeon_assets()]
     extra.extend([route_details.windmill_sails(Model),*route_details.story_models(Model,lantern)])
     extra.extend(gathering_assets(Model,lantern))
     extra.extend(harbor.models(Model,lantern,barrel))

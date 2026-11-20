@@ -17,9 +17,10 @@ use crate::{
     adventure::{Adventure, Area},
     duel::Gear,
     garden::{Action, Crop, Garden, Stage},
+    resident::{self, Resident},
     season_view::SeasonLayer,
     terrain,
-    town::{Npc, Resident},
+    town::Npc,
     travel::District,
     weather::{self, Season, Sky},
 };
@@ -40,9 +41,10 @@ pub const PLOTS: [Vec2; 12] = [
     Vec2::new(9.90, 5.52),
 ];
 const REACH: f32 = 1.30;
-const SPEED: f32 = 4.35;
-const ACCELERATION: f32 = 29.0;
-const BRAKING: f32 = 43.0;
+const SPEED: f32 = 4.80;
+const ACCELERATION: f32 = 36.;
+const BRAKING: f32 = 64.;
+const STEERING: f32 = 56.;
 const MAX_STEP: f32 = 1.0 / 120.0;
 const ANKLE: f32 = 0.224;
 const CAMERA_TARGET: Vec3 = Vec3::new(0.28, 1.24, 0.03);
@@ -260,13 +262,15 @@ pub fn setup(
     }
     for (i, person) in Npc::ALL.into_iter().enumerate() {
         let point = person.position(&garden);
-        commands.spawn((
-            Exterior,
-            Resident(person),
-            SceneRoot(assets.load(format!("models/{}.glb#Scene0", person.model()))),
-            Transform::from_translation(position3(point, exterior_ground(point) + 0.04))
-                .with_rotation(Quat::from_rotation_y(-0.48 + i as f32 * 0.13)),
-        ));
+        commands
+            .spawn((
+                Exterior,
+                Resident(person),
+                SceneRoot(assets.load(format!("models/{}.glb#Scene0", person.model()))),
+                Transform::from_translation(position3(point, exterior_ground(point) + 0.04))
+                    .with_rotation(Quat::from_rotation_y(-0.48 + i as f32 * 0.13)),
+            ))
+            .observe(resident::bind_limbs);
     }
     for (index, position) in PLOTS.into_iter().enumerate() {
         let parent = commands
@@ -475,8 +479,20 @@ pub fn update_camera(
     } else {
         height * 1.30
     };
-    let desired = center + camera_offset(adventure.area);
-    let smooth = (time.delta_secs() * 8.).min(1.);
+    let base_offset = camera_offset(adventure.area);
+    let mut offset = base_offset;
+    if adventure.area.outdoors()
+        && !adventure.map
+        && crate::travel::District::at(player.position) == Some(crate::travel::District::Town)
+    {
+        offset.y *= 0.87 - adventure.zoom.max(0.) * 0.05;
+        offset = offset.normalize() * base_offset.length();
+    }
+    let desired = center + offset;
+    let rotation = Transform::from_translation(desired)
+        .looking_at(center, Vec3::Y)
+        .rotation;
+    let smooth = 1. - (-time.delta_secs() * if adventure.map { 11. } else { 15. }).exp();
     let current = match ortho.scaling_mode {
         ScalingMode::AutoMin { min_height, .. } => min_height,
         _ => height,
@@ -503,6 +519,11 @@ pub fn update_camera(
         desired
     } else {
         transform.translation.lerp(desired, smooth)
+    };
+    transform.rotation = if *last != Some(adventure.area) {
+        rotation
+    } else {
+        transform.rotation.slerp(rotation, smooth)
     };
     *last = Some(adventure.area);
 }
@@ -573,15 +594,42 @@ pub(crate) fn replace_model(commands: &mut Commands, mount: Entity, scene: Optio
 
 pub fn update_selection(
     focus: Res<GardenFocus>,
+    adventure: Res<Adventure>,
+    garden: Res<Garden>,
     mut selection: Single<(&mut Visibility, &mut Transform), With<Selection>>,
 ) {
     let (visibility, transform) = &mut *selection;
-    if let Some(index) = focus.selected {
-        transform.translation = position3(PLOTS[index], 0.032);
-        **visibility = Visibility::Inherited;
+    let selection = focus.selected.map(|index| (PLOTS[index], 1.)).or_else(|| {
+        adventure
+            .focus
+            .map(|entry| (adventure.position(entry, &garden), entry.selection_scale()))
+    });
+    if let Some((point, scale)) = selection.filter(|_| !adventure.map) {
+        let ground = if adventure.area.outdoors() {
+            surface_height(point, &garden).max(0.)
+        } else {
+            0.
+        };
+        transform.translation = position3(point, ground + 0.052);
+        transform.scale = Vec3::new(scale, 1., scale);
+        visibility.set_if_neq(Visibility::Inherited);
     } else {
-        **visibility = Visibility::Hidden;
+        visibility.set_if_neq(Visibility::Hidden);
     }
+}
+
+fn drive_velocity(current: Vec2, desired: Vec2, dt: f32) -> Vec2 {
+    let reversing = desired.dot(current) < 0.;
+    let adjusting = desired.length_squared() < current.length_squared()
+        || current.normalize_or_zero().dot(desired.normalize_or_zero()) < 0.65;
+    let rate = if desired == Vec2::ZERO || reversing {
+        BRAKING
+    } else if adjusting && current != Vec2::ZERO {
+        STEERING
+    } else {
+        ACCELERATION
+    };
+    current + (desired - current).clamp_length_max(rate * dt)
 }
 
 pub fn advance_player(
@@ -593,7 +641,8 @@ pub fn advance_player(
     mut player: Single<(&mut Gardener, &mut Transform)>,
 ) {
     let (player, transform) = &mut *player;
-    let delta = time.delta_secs();
+    // Bound movement after a long rendering stall or a resume from the system menu.
+    let delta = time.delta_secs().min(0.075);
     if delta == 0.0 {
         return;
     }
@@ -644,15 +693,7 @@ pub fn advance_player(
                 .min(distance / step_time);
             player.velocity = diff.normalize_or_zero() * speed;
         } else {
-            let rate = if desired.length_squared() < player.velocity.length_squared()
-                || desired.dot(player.velocity) < 0.0
-            {
-                BRAKING
-            } else {
-                ACCELERATION
-            };
-            player.velocity =
-                player.velocity + (desired - player.velocity).clamp_length_max(rate * step_time);
+            player.velocity = drive_velocity(player.velocity, desired, step_time);
         }
         let advance = player.velocity * step_time;
         let moved = slide(player.position, advance, &passable);
@@ -679,11 +720,10 @@ pub fn advance_player(
     }
     let moved = player.position;
     let distance = old.distance(moved);
-    player.phase = (player.phase + distance / 0.92).fract();
-    player.gait = player.gait.lerp(
-        (distance / (SPEED * delta)).clamp(0.0, 1.0),
-        1.0 - (-delta * 13.0).exp(),
-    );
+    let speed = (distance / (SPEED * delta)).clamp(0., 1.);
+    let stride = 0.49 + 0.43 * speed;
+    player.phase = (player.phase + distance / stride).fract();
+    player.gait = player.gait.lerp(speed, 1.0 - (-delta * 13.0).exp());
     if distance > 0.0004 {
         let direction = moved - old;
         let angle = direction.x.atan2(direction.y);
@@ -925,11 +965,11 @@ pub fn watering_effect(
     }
 }
 
-fn step_phase(phase: f32, side: f32) -> f32 {
+pub(crate) fn step_phase(phase: f32, side: f32) -> f32 {
     (phase + if side < 0.0 { 0.5 } else { 0.0 }).fract()
 }
 
-fn foot_pose(phase: f32) -> (f32, f32) {
+pub(crate) fn foot_pose(phase: f32) -> (f32, f32) {
     if phase < 0.57 {
         (1.0 - 2.0 * phase / 0.57, 0.0)
     } else {
@@ -1117,6 +1157,11 @@ impl Gardener {
     pub fn approaching(&self) -> bool {
         !self.route.is_empty()
     }
+
+    pub(crate) fn destination_moved(&self, point: Vec2) -> bool {
+        self.route_goal
+            .is_some_and(|goal| goal.point.distance_squared(point) > 1.35_f32.powi(2))
+    }
 }
 
 fn approach(
@@ -1249,6 +1294,19 @@ fn search_route(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn turning_starts_on_the_first_step_and_releasing_stops_within_a_tenth_second() {
+        let step = 1. / 120.;
+        let walking = Vec2::X * SPEED;
+        let turning = drive_velocity(walking, Vec2::Y * SPEED, step);
+        assert!(turning.x < walking.x && turning.y > 0.);
+        let mut braking = walking;
+        for _ in 0..12 {
+            braking = drive_velocity(braking, Vec2::ZERO, step);
+        }
+        assert_eq!(braking, Vec2::ZERO);
+    }
 
     #[test]
     fn the_three_passes_and_their_terrain_barriers_allow_only_the_marked_routes() {

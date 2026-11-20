@@ -207,7 +207,10 @@ impl FarmMenu {
                 .chain((1..=garden.rpg.camp() / CAMP_INTERVAL).map(|index| index * CAMP_INTERVAL))
                 .map(Entry::Level)
                 .collect(),
-            FarmPage::Journal(tab) => Guide::entries(tab).map(Entry::Guide).collect(),
+            FarmPage::Journal(tab) => Guide::entries(tab)
+                .filter(|entry| !matches!(entry, Guide::Resident(npc) if !npc.available(garden)))
+                .map(Entry::Guide)
+                .collect(),
             FarmPage::Calendar => Season::ALL.into_iter().map(Entry::Season).collect(),
             FarmPage::SeasonMeeting | FarmPage::Harbor { .. } | FarmPage::Cinematic(_) => {
                 Vec::new()
@@ -617,6 +620,7 @@ pub fn input(
     path: Res<SavePath>,
     mut notice: ResMut<Notice>,
     time: Res<Time>,
+    mut sounds: EventWriter<crate::sound::Cue>,
 ) {
     let Some(page) = menu
         .page
@@ -1052,6 +1056,7 @@ pub fn input(
             if page == FarmPage::Workbench && menu.selected == Some(Entry::Fittings) {
                 let result = harbor::make_fittings(&mut garden);
                 if let Ok(message) = &result {
+                    sounds.write(crate::sound::Cue::Craft);
                     commit(
                         &garden,
                         &path,
@@ -1103,6 +1108,20 @@ pub fn input(
     };
     match result {
         Some(Ok(message)) => {
+            use crate::sound::Cue;
+            match page {
+                FarmPage::Talents | FarmPage::Styles | FarmPage::CardShop => {
+                    sounds.write(Cue::Skill);
+                }
+                FarmPage::Workbench
+                | FarmPage::Kitchen
+                | FarmPage::Materials(_)
+                | FarmPage::Projects
+                | FarmPage::Tools { .. } => {
+                    sounds.write(Cue::Craft);
+                }
+                _ => {}
+            }
             commit(&garden, &path, &mut notice, now, message, None, None);
             menu.message.clone_from(&notice.message);
         }
@@ -1223,7 +1242,7 @@ pub fn update(
                 FarmPage::Expedition => "Dämmergänge",
                 FarmPage::Journal(GuideTab::Story) => "Das Licht der Wegglocken",
                 FarmPage::Journal(GuideTab::Orders) => "Aufträge",
-                FarmPage::Journal(GuideTab::Town) => "Eichenhafen",
+                FarmPage::Journal(GuideTab::Town) => "Bewohner der Insel",
                 FarmPage::Journal(GuideTab::Watches) => "Die fünf Wegwachten",
                 FarmPage::Harbor { .. } => "Der alte Fischersteg",
                 FarmPage::Cinematic(_) => "",

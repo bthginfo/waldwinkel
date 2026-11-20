@@ -455,6 +455,17 @@ pub fn story(area: Frontier, g: &Garden) -> (String, &'static str, bool) {
     )
 }
 
+pub(crate) fn story_mark(area: Frontier, garden: &Garden) -> Option<crate::town::QuestMark> {
+    use crate::town::QuestMark::{Available, TurnIn};
+    let state = garden.regions.stories[area as usize];
+    let order = ORDERS[area as usize].get(usize::from(state / 2))?;
+    if state % 2 == 0 {
+        Some(Available)
+    } else {
+        has_supplies(order.materials, garden).then_some(TurnIn)
+    }
+}
+
 pub fn finish_story(area: Frontier, g: &mut Garden) -> Result<String, String> {
     let state = g.regions.stories[area as usize];
     let Some(quest) = ORDERS[area as usize].get(usize::from(state / 2)) else {

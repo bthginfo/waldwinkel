@@ -120,6 +120,23 @@ impl Default for HudLayout {
 pub struct SafeInsets(pub [f32; 4]);
 
 impl HudLayout {
+    pub(crate) fn hud_position(self, viewport: Vec2) -> Vec2 {
+        (viewport - self.origin) / self.scale
+    }
+
+    pub(crate) fn on_screen(self, point: Vec2) -> bool {
+        (point - self.origin).cmpge(Vec2::ZERO).all()
+            && (point - self.origin).cmple(self.size).all()
+    }
+
+    pub(crate) fn on_map_badge(self, center: Vec2, half: Vec2) -> bool {
+        self.on_screen(center - half - Vec2::splat(6.))
+            && self.on_screen(center + half + Vec2::splat(6.))
+            && [center, center - half, center + half]
+                .into_iter()
+                .all(|at| !self.on_other_ui(at) && !self.on_action(at) && !self.on_stick(at))
+    }
+
     pub fn stick_center(self) -> Vec2 {
         self.origin
             + Vec2::new(
@@ -213,6 +230,7 @@ impl HudLayout {
 pub fn resize(
     focus: Res<GardenFocus>,
     garden: Res<Garden>,
+    adventure: Res<Adventure>,
     window: Single<&Window, With<PrimaryWindow>>,
     insets: Res<SafeInsets>,
     mut layout: ResMut<HudLayout>,
@@ -227,8 +245,9 @@ pub fn resize(
     )
     .max(Vec2::ONE);
     let context_height = 65.;
-    let fertilizer =
-        focus.selected.is_some_and(|i| garden.fertilizable(i)) && !garden.clock.night();
+    let fertilizer = !adventure.map
+        && focus.selected.is_some_and(|i| garden.fertilizable(i))
+        && !garden.clock.night();
     if size != layout.size
         || origin != layout.origin
         || layout.context_height != context_height
@@ -267,16 +286,17 @@ pub fn map_labels(
     adventure: Res<Adventure>,
     garden: Res<Garden>,
     layout: Res<HudLayout>,
-    camera: Single<(&Camera, &GlobalTransform), With<IslandCamera>>,
+    camera: Single<(&Camera, &Transform), With<IslandCamera>>,
     mut labels: Query<(&Landmark, &mut Node, &mut Visibility)>,
     mut pin: Single<(&mut Node, &mut Visibility), (With<TrackedPin>, Without<Landmark>)>,
 ) {
-    let (camera, view) = *camera;
+    let (camera, pose) = *camera;
+    let view = GlobalTransform::from(*pose);
     for (label, mut node, mut visible) in &mut labels {
         let position = if adventure.map && adventure.area.outdoors() {
             landmark_center(
                 camera,
-                view,
+                &view,
                 adventure.position(label.0, &garden),
                 layout.scale,
                 landmark_offset(label.0),
@@ -294,8 +314,12 @@ pub fn map_labels(
         }
     }
     let (node, visible) = &mut *pin;
-    let point =
-        tracked_pin(&adventure, &garden, camera, view, layout.scale).map(|(_, point)| point);
+    let point = tracked_pin(&adventure, &garden, camera, &view, layout.scale)
+        .filter(|(target, _)| {
+            !matches!(target, Target::Person(npc)
+                if adventure.map || npc.quest_mark(&garden).is_some())
+        })
+        .map(|(_, point)| point);
     if let Some(p) = point {
         let p = p - layout.origin;
         **visible = Visibility::Inherited;
@@ -573,6 +597,8 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>, icons: Res<Icons>) {
                 GlobalZIndex(3),
             ))
             .with_child(text("Markiertes Ziel", &bold, 13., ink()));
+
+            crate::resident_view::spawn(root, &fonts);
 
             root.spawn(Node {
                 position_type: PositionType::Absolute,
@@ -958,7 +984,7 @@ pub fn update(
     time: Res<Time>,
     mut fields: Query<(&Field, &mut Text)>,
     mut labels: Query<(&UtilityLabel, &mut Text), Without<Field>>,
-    mut action_surface: Single<&mut BackgroundColor, With<ActionSurface>>,
+    mut action_surface: Single<(&mut BackgroundColor, &mut Visibility), With<ActionSurface>>,
     mut action_icon: Single<&mut ImageNode, With<ActionIcon>>,
     mut progress: Single<&mut Node, (With<Progress>, Without<ProgressTrack>, Without<Thumb>)>,
     mut progress_track: Single<&mut Node, (With<ProgressTrack>, Without<Progress>, Without<Thumb>)>,
@@ -1053,11 +1079,27 @@ pub fn update(
             panel.title = step.title().into();
             panel.detail = step.hint(&garden, panel.pad);
         } else if panel.pad {
-            panel.detail = "← → Ziel wählen · A benutzen · ↑ Journal · Y Karte".into();
+            panel.detail = "← → Ziel wählen · X direkt · ↑ Journal · Y Karte".into();
         }
     }
     if (notice.index.is_none() || notice.index == focus.selected) && now < notice.until {
         panel.detail.clone_from(&notice.message);
+    }
+    let (action_color, action_visible) = &mut *action_surface;
+    let island_map = adventure.map && adventure.area.outdoors();
+    action_visible.set_if_neq(if island_map {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
+    });
+    if island_map {
+        panel.title = "! Neuer Auftrag · ? Abgabebereit".into();
+        panel.detail = if panel.pad {
+            "Rechter Stick · Zeiger   A · Ziel wählen".into()
+        } else {
+            "Tippe einen Namen an, um zur Figur zu laufen.".into()
+        };
+        progress_value = None;
     }
     for (utility, mut label) in &mut labels {
         let next = match utility.0 {
@@ -1116,7 +1158,7 @@ pub fn update(
             }
         };
     }
-    action_surface.0 = if panel.enabled && panel.pressed {
+    action_color.0 = if panel.enabled && panel.pressed {
         Color::srgb_u8(217, 180, 110)
     } else if panel.enabled {
         Color::srgb_u8(244, 219, 160)

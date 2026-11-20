@@ -578,7 +578,11 @@ pub fn input(
         }
         (Screen::Pause, MenuButton::UiSize | MenuButton::Sound) => {
             if matches!(action, MenuButton::Sound) {
-                g.sound_muted = !g.sound_muted;
+                (g.sound_muted, g.music_muted) = match (g.sound_muted, g.music_muted) {
+                    (true, _) => (false, false),
+                    (false, false) => (false, true),
+                    (false, true) => (true, false),
+                };
             } else {
                 g.large_ui = !g.large_ui;
             }
@@ -782,6 +786,8 @@ pub fn update(
             .into(),
             MenuText::Sound => if garden.sound_muted {
                 "Ton · Aus"
+            } else if garden.music_muted {
+                "Ton · Ohne Musik"
             } else {
                 "Ton · Ein"
             }

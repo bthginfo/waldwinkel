@@ -245,6 +245,10 @@ impl Guide {
                 Self::Resident(Npc::Lina),
                 Self::Resident(Npc::Miro),
                 Self::Resident(Npc::Mara),
+                Self::Resident(Npc::Juna),
+                Self::Resident(Npc::Runa),
+                Self::Resident(Npc::Nele),
+                Self::Resident(Npc::Edda),
             ],
         };
         entries.iter().copied()
@@ -286,7 +290,7 @@ impl Guide {
                 "{} · Wähle die alte Werkbank vor der Hütte.",
                 crate::workshop::Project::Restore.detail(garden)
             ),
-            Self::Juna => "Sprich mit Juna am Hafen von Eichenhafen.".into(),
+            Self::Juna => format!("Sprich mit Juna in Eichenhafen · {}", Npc::Juna.whereabouts(garden)),
             Self::Echo(frontier) if garden.story.tuned(frontier) => {
                 "Gestimmt · Das Echo ist wieder zu hören.".into()
             }
@@ -404,7 +408,8 @@ impl Guide {
             }),
             Self::Watch(site) => site.route(garden),
             Self::WatchFinale => crate::waywatch::finale_route(garden),
-            Self::Resident(npc) => person(npc),
+            Self::Resident(npc) if npc.available(garden) => person(npc),
+            Self::Resident(_) => None,
             Self::SeasonMeeting => Some(Target::SeasonMeeting),
             Self::Town(npc) => (!town::order_done(npc, garden)).then_some(Target::Person(npc)),
             Self::Regional(frontier) if !frontier.unlocked(garden) => gateway(frontier),

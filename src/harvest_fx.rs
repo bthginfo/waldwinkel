@@ -1,10 +1,14 @@
 use std::f32::consts::{FRAC_PI_2, TAU};
 
-use bevy::{audio::Volume, prelude::*};
+use bevy::prelude::*;
 
-use crate::{Adventure, Garden, adventure::Area, session::Session, weather::Season, world};
+use crate::{
+    Adventure, Garden, adventure::Area, session::Session, sound::Cue, weather::Season, world,
+};
 
 const CONTACT: f32 = 0.19;
+const SPLINTER: f32 = 0.43;
+const IMPACT: f32 = CONTACT + 0.79;
 const FEATURE_TIME: f32 = 1.37;
 const CHIP_TIME: f32 = 0.79;
 
@@ -30,7 +34,9 @@ pub struct HarvestEffect {
     axis: Vec3,
     heading: f32,
     tree: bool,
-    cracks: bool,
+    contact: bool,
+    splintered: bool,
+    landed: bool,
     scale: f32,
 }
 
@@ -57,6 +63,7 @@ pub fn animate(
     session: Res<Session>,
     time: Res<Time>,
     mut hits: EventReader<Break>,
+    mut cues: EventWriter<Cue>,
     mut effects: Query<(Entity, &mut HarvestEffect, &mut Transform), Without<Chip>>,
     mut fragments: Query<(Entity, &Chip, &mut Transform), Without<HarvestEffect>>,
 ) {
@@ -83,7 +90,9 @@ pub fn animate(
                 axis: Vec3::Y.cross(Vec3::new(face.x, 0., face.y)),
                 heading: hit.heading,
                 tree: hit.tree,
-                cracks: false,
+                contact: false,
+                splintered: false,
+                landed: false,
                 scale: hit.scale,
             },
         ));
@@ -100,24 +109,22 @@ pub fn animate(
         if age < CONTACT {
             continue;
         }
-        if !effect.cracks {
-            effect.cracks = true;
+        if !effect.contact {
+            effect.contact = true;
             throw_chips(&mut commands, &assets, &effect, now);
-            if !garden.sound_muted {
-                let name = if effect.tree {
-                    "axe_cut"
-                } else {
-                    "stone_break"
-                };
-                commands.spawn((
-                    AudioPlayer::new(assets.load(format!("audio/{name}.wav"))),
-                    PlaybackSettings::DESPAWN.with_volume(Volume::Linear(0.43)),
-                ));
-            }
+            cues.write(if effect.tree { Cue::Axe } else { Cue::Stone });
         }
         let elapsed = age - CONTACT;
         let base = Quat::from_rotation_y(effect.heading);
         if effect.tree {
+            if age >= SPLINTER && !effect.splintered {
+                effect.splintered = true;
+                cues.write(Cue::Crack);
+            }
+            if age >= IMPACT && !effect.landed {
+                effect.landed = true;
+                cues.write(Cue::Fall);
+            }
             let t = (elapsed / 0.79).clamp(0., 1.);
             let bounce = ((elapsed - 0.79) * 19.).sin() * 0.045 * (1. - elapsed).max(0.);
             pose.rotation =

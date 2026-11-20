@@ -15,6 +15,7 @@ pub struct Controller {
     pub zoom: f32,
     pub map: bool,
     pub act: bool,
+    pub quick: bool,
     pub back: bool,
     pub cycle: i8,
     pub task: bool,
@@ -315,7 +316,7 @@ mod android {
         let down = |i: u32| f32::from(u8::from(held & (1_u32 << i) != 0));
         let [x, y, look_x, look_y, hat_x, hat_y, lt, rt] =
             std::array::from_fn(|i| f32::from_bits(AXES[i].load(Relaxed)));
-        let walk = dead_zone(Vec2::new(x, -y));
+        let walk = crate::input::stick_curve(Vec2::new(x, -y), 0.19);
         let look = dead_zone(Vec2::new(look_x, look_y));
         let pad = (Vec2::new(down(3) - down(2), down(1) - down(0)) + Vec2::new(hat_x, hat_y))
             .clamp(Vec2::splat(-1.), Vec2::ONE);
@@ -380,6 +381,7 @@ mod android {
         };
         controller.act =
             world && (hit(6) || (hit(4) && controller.pointer.is_none() && look == Vec2::ZERO));
+        controller.quick = world && hit(6);
         controller.map = world && hit(7);
         controller.back = world && hit(5);
         controller.cycle = if world { step.x as i8 } else { 0 };

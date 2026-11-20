@@ -211,6 +211,7 @@ pub struct Garden {
     pub onboarding: Onboarding,
     pub large_ui: bool,
     pub sound_muted: bool,
+    pub music_muted: bool,
     pub workshop: crate::workshop::Progress,
 }
 
@@ -257,6 +258,7 @@ impl Default for Garden {
             onboarding: Onboarding::Welcome,
             large_ui: false,
             sound_muted: false,
+            music_muted: false,
             workshop: Default::default(),
         }
     }

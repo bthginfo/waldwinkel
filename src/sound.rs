@@ -7,24 +7,41 @@ use crate::{
     garden::Action,
     session::Session,
     terrain,
+    town::Dialog,
     travel::District,
     weather::{Season, Sky},
     world::Gardener,
 };
 
 #[derive(Component)]
-pub enum Ambience {
+pub enum Bed {
     Coast,
     Rain,
-    Farm,
-    Forest,
-    Harbor,
+    Birds,
+    Piano,
+    Harp,
+}
+
+#[derive(Clone, Copy, Event)]
+pub enum Cue {
+    Axe,
+    Stone,
+    Crack,
+    Fall,
+    Craft,
+    Skill,
 }
 
 #[derive(Resource)]
 pub struct Sounds {
     steps: [Handle<AudioSource>; 3],
-    harvest: Handle<AudioSource>,
+    garden: [Handle<AudioSource>; 5],
+    axe: [Handle<AudioSource>; 2],
+    stone: [Handle<AudioSource>; 2],
+    crack: Handle<AudioSource>,
+    fall: Handle<AudioSource>,
+    craft: Handle<AudioSource>,
+    skill: Handle<AudioSource>,
     impact: Handle<AudioSource>,
     support: Handle<AudioSource>,
 }
@@ -33,18 +50,20 @@ pub struct Sounds {
 pub struct Pace {
     previous: Option<(Area, Vec2)>,
     distance: f32,
-    variation: usize,
-    harvested_at: f32,
+    take: usize,
+    acted_at: f32,
+    field_cue: Option<(Action, f32)>,
+    duck_until: f32,
     battle: Option<(u16, u16, u16, u16, u8, usize)>,
 }
 
 pub fn setup(mut commands: Commands, assets: Res<AssetServer>) {
     for (layer, track) in [
-        (Ambience::Coast, "coast.wav"),
-        (Ambience::Rain, "rain_wood.wav"),
-        (Ambience::Farm, "farm_theme.wav"),
-        (Ambience::Forest, "fernwind.wav"),
-        (Ambience::Harbor, "harbor_theme.wav"),
+        (Bed::Coast, "coast.wav"),
+        (Bed::Rain, "rain_wood.wav"),
+        (Bed::Birds, "wild_birds.ogg"),
+        (Bed::Piano, "farm_piano.ogg"),
+        (Bed::Harp, "farm_harp.ogg"),
     ] {
         commands.spawn((
             layer,
@@ -52,13 +71,38 @@ pub fn setup(mut commands: Commands, assets: Res<AssetServer>) {
             PlaybackSettings::LOOP.with_volume(Volume::SILENT),
         ));
     }
+    let wave = |name| assets.load(format!("audio/{name}.wav"));
     commands.insert_resource(Sounds {
-        steps: ["step_grass", "step_wood", "step_snow"]
-            .map(|name| assets.load(format!("audio/{name}.wav"))),
-        harvest: assets.load("audio/harvest_sound.wav"),
-        impact: assets.load("audio/card_hit.wav"),
-        support: assets.load("audio/card_shield.wav"),
+        steps: ["step_grass", "step_wood", "step_snow"].map(wave),
+        garden: [
+            "soil_till",
+            "soil_sow",
+            "garden_water",
+            "soil_fertilize",
+            "harvest_sound",
+        ]
+        .map(wave),
+        axe: ["axe_cut", "axe_cut_alt"].map(wave),
+        stone: ["stone_break", "stone_break_alt"].map(wave),
+        crack: wave("tree_crack"),
+        fall: wave("tree_fall"),
+        craft: wave("craft_done"),
+        skill: wave("skill_learn"),
+        impact: wave("card_hit"),
+        support: wave("card_shield"),
     });
+}
+
+fn one_shot(commands: &mut Commands, clip: &Handle<AudioSource>, gain: f32, take: usize) {
+    const PITCH: [f32; 5] = [1., 0.965, 1.04, 0.98, 1.025];
+    const LEVEL: [f32; 5] = [1., 0.93, 0.98, 1.06, 0.95];
+    let i = take % PITCH.len();
+    commands.spawn((
+        AudioPlayer::new(clip.clone()),
+        PlaybackSettings::DESPAWN
+            .with_volume(Volume::Linear(gain * LEVEL[i]))
+            .with_speed(PITCH[i]),
+    ));
 }
 
 pub fn play(
@@ -70,68 +114,64 @@ pub fn play(
     time: Res<Time>,
     sounds: Res<Sounds>,
     menu: Res<FarmMenu>,
+    dialog: Res<Dialog>,
     notice: Res<Notice>,
-    mut ambience: Query<(&Ambience, &mut AudioSink)>,
+    mut beds: Query<(&Bed, &mut AudioSink)>,
+    mut cues: EventReader<Cue>,
     mut pace: Local<Pace>,
 ) {
     let area = adventure.area;
     let point = player.position;
+    let now = time.elapsed_secs();
     let audible = session.playing() && !garden.sound_muted;
+    let sky = Sky::at(garden.day);
     let district = District::at(point);
-    let calm = audible && menu.battle().is_none();
-    let soundtrack = if calm && Sky::at(garden.day) == Sky::Rain {
-        0.58
-    } else {
-        1.
-    };
-    let coast = if audible && area.outdoors() {
-        [Vec2::X, Vec2::NEG_X, Vec2::Y, Vec2::NEG_Y]
-            .into_iter()
-            .map(|direction| ((-terrain::ground(point + direction * 7.)) - 0.24).clamp(0., 1.))
-            .fold(0.0_f32, f32::max)
-            * 0.23
-    } else {
-        0.
-    };
-    let rain = if audible && Sky::at(garden.day) == Sky::Rain {
-        match area {
-            Area::Home => 0.12,
-            Area::Island | Area::District(_) => 0.27,
-            _ => 0.,
-        }
-    } else {
-        0.
-    };
-    let blend = 1. - (-time.delta_secs() * 3.9).exp();
-    for (layer, mut sink) in &mut ambience {
-        let target = match layer {
-            Ambience::Coast => coast,
-            Ambience::Rain => rain,
-            Ambience::Farm
-                if calm && (area == Area::Home || area.outdoors() && point.length() < 19.) =>
-            {
-                0.20 * soundtrack
-            }
-            Ambience::Forest
-                if audible && area.outdoors() && district == Some(District::Forest) =>
-            {
-                0.23 * soundtrack
-            }
-            Ambience::Harbor
-                if calm
-                    && area.outdoors()
-                    && district == Some(District::Town)
-                    && garden.harbor.phase == crate::harbor::Phase::Open =>
-            {
-                0.22 * soundtrack
-            }
-            _ => 0.,
+    let outside = area.outdoors();
+
+    if let Some(action) = notice.action.filter(|_| notice.until != pace.acted_at) {
+        pace.acted_at = notice.until;
+        let delay = if matches!(action, Action::Till | Action::Water) {
+            0.14
+        } else {
+            0.02
         };
-        let previous = sink.volume().to_linear();
-        if (previous - target).abs() > 0.002 {
-            sink.set_volume(Volume::Linear(previous.lerp(target, blend)));
-        }
+        pace.field_cue = Some((action, now + delay));
     }
+    if !audible {
+        pace.field_cue = None;
+    }
+    if let Some((action, _)) = pace.field_cue.filter(|&(_, at)| now >= at) {
+        let gain = if action == Action::Harvest {
+            0.34
+        } else {
+            0.50
+        };
+        let slot = match action {
+            Action::Till => 0,
+            Action::Sow => 1,
+            Action::Water => 2,
+            Action::Fertilize => 3,
+            Action::Harvest => 4,
+        };
+        one_shot(&mut commands, &sounds.garden[slot], gain, pace.take);
+        pace.take += 1;
+        pace.field_cue = None;
+    }
+    for cue in cues.read().filter(|_| audible) {
+        let take = pace.take;
+        let (clip, level) = match cue {
+            Cue::Axe => (&sounds.axe[take % 2], 0.64),
+            Cue::Stone => (&sounds.stone[take % 2], 0.61),
+            Cue::Crack => (&sounds.crack, 0.43),
+            Cue::Fall => (&sounds.fall, 0.59),
+            Cue::Craft => (&sounds.craft, 0.36),
+            Cue::Skill => (&sounds.skill, 0.43),
+        };
+        one_shot(&mut commands, clip, level, take);
+        pace.duck_until = now + 0.38;
+        pace.take += 1;
+    }
+
     let combat = menu.battle().map(|battle| {
         (
             battle.enemy_hp,
@@ -142,34 +182,104 @@ pub fn play(
             battle.hand.len(),
         )
     });
-    let cue = if notice.action == Some(Action::Harvest) && notice.until != pace.harvested_at {
-        pace.harvested_at = notice.until;
-        Some(&sounds.harvest)
-    } else if let (
-        Some((enemy, armor, life, guard, energy, hand)),
-        Some((old_enemy, old_armor, old_life, old_guard, old_energy, old_hand)),
-    ) = (combat, pace.battle)
+    if audible
+        && let (
+            Some((enemy, armor, life, guard, energy, hand)),
+            Some((old_enemy, old_armor, old_life, old_guard, old_energy, old_hand)),
+        ) = (combat, pace.battle)
     {
-        if enemy < old_enemy || armor < old_armor || life < old_life {
-            Some(&sounds.impact)
+        let cue = if enemy < old_enemy || armor < old_armor || life < old_life {
+            Some((&sounds.impact, 0.53))
         } else if guard > old_guard || life > old_life || energy < old_energy || hand != old_hand {
-            Some(&sounds.support)
+            Some((&sounds.support, 0.36))
         } else {
             None
+        };
+        if let Some((clip, level)) = cue {
+            one_shot(&mut commands, clip, level, pace.take);
+            pace.take += 1;
+        }
+    }
+    pace.battle = combat;
+
+    let coast = if outside {
+        [Vec2::X, Vec2::NEG_X, Vec2::Y, Vec2::NEG_Y]
+            .into_iter()
+            .map(|direction| ((-terrain::ground(point + direction * 7.)) - 0.24).clamp(0., 1.))
+            .fold(0.0_f32, f32::max)
+            * 0.31
+    } else {
+        0.
+    };
+    let rain = if sky == Sky::Rain {
+        match area {
+            Area::Home => 0.14,
+            Area::Island | Area::District(_) => 0.27,
+            _ => 0.,
         }
     } else {
-        None
+        0.
     };
-    pace.battle = combat;
-    if let Some(clip) = cue.filter(|_| audible) {
-        commands.spawn((
-            AudioPlayer::new(clip.clone()),
-            PlaybackSettings::DESPAWN.with_volume(Volume::Linear(0.42)),
-        ));
+    let dusk = garden.clock.dusk();
+    let music = if garden.music_muted || (!outside && area != Area::Home) {
+        0.
+    } else {
+        0.56 * (1. - dusk * 0.59) * if sky == Sky::Rain { 0.80 } else { 1. }
+    };
+    let duck = if combat.is_some() {
+        0.24
+    } else if dialog.open() {
+        0.49
+    } else if now < pace.duck_until {
+        0.70
+    } else {
+        1.
+    };
+    let harp = match district {
+        Some(District::Town) => 0.82,
+        Some(District::Beach | District::Wind) => 0.44,
+        _ => 0.25,
+    };
+    let birds = if outside && !matches!(sky, Sky::Rain | Sky::Snow) {
+        let density =
+            if district == Some(District::Forest) || point.length_squared() < 18.0_f32.powi(2) {
+                0.36
+            } else {
+                0.21
+            };
+        density
+            * (1. - dusk)
+            * if Season::at(garden.day) == Season::Winter {
+                0.47
+            } else {
+                1.
+            }
+    } else {
+        0.
+    };
+    for (layer, mut sink) in &mut beds {
+        let target = match layer {
+            Bed::Coast => coast,
+            Bed::Rain => rain,
+            Bed::Birds => birds,
+            Bed::Piano => music * duck,
+            Bed::Harp => music * harp * duck * (1. - dusk),
+        };
+        let volume = sink.volume().to_linear();
+        let next = if !audible || target == 0. && volume < 0.001 {
+            0.
+        } else {
+            let response = if target < volume { 5.2 } else { 1.85 };
+            volume.lerp(target, 1. - (-time.delta_secs() * response).exp())
+        };
+        if volume != next {
+            sink.set_volume(Volume::Linear(next));
+        }
     }
+
     let previous = pace.previous.replace((area, point));
     let distance = previous
-        .filter(|(last_area, _)| *last_area == area)
+        .filter(|(past, _)| *past == area)
         .map_or(0., |(_, last)| last.distance(point));
     if !audible || distance > 1.65 {
         pace.distance = 0.;
@@ -181,23 +291,15 @@ pub fn play(
     }
     pace.distance %= 0.49;
     let wooden = area == Area::Home
-        || (area.outdoors()
-            && (garden.harbor.phase.deck_height(point).is_some()
-                || crate::world::on_dock(point)
-                || terrain::ground(point) > 0.17));
+        || (outside
+            && (garden.harbor.phase.deck_height(point).is_some() || crate::world::on_dock(point)));
     let sample = if wooden {
         1
-    } else if area.outdoors() && Season::at(garden.day) == Season::Winter {
+    } else if outside && Season::at(garden.day) == Season::Winter {
         2
     } else {
         0
     };
-    let speed = [0.96, 1.07, 1.0, 0.91][pace.variation];
-    pace.variation = (pace.variation + 1) % 4;
-    commands.spawn((
-        AudioPlayer::new(sounds.steps[sample].clone()),
-        PlaybackSettings::DESPAWN
-            .with_volume(Volume::Linear(0.38))
-            .with_speed(speed),
-    ));
+    one_shot(&mut commands, &sounds.steps[sample], 0.39, pace.take);
+    pace.take += 1;
 }

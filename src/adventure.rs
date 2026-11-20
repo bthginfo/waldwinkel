@@ -315,6 +315,18 @@ impl Target {
             _ => 0.23,
         }
     }
+
+    pub(crate) fn selection_scale(self) -> f32 {
+        match self {
+            Self::Door | Self::Portal => 1.6,
+            Self::Watch(_) | Self::FarmAnimal(_) => 1.8,
+            Self::Tree(index) | Self::Rock(index) => {
+                forest::node(index).map_or(1., |node| (node.radius() * 1.9).clamp(0.6, 2.))
+            }
+            Self::Person(_) | Self::Find(_) | Self::SeasonFind(_) | Self::WatchTrace(_) => 0.70,
+            _ => 1.,
+        }
+    }
 }
 
 pub const LANDMARKS: [(&str, Target); 9] = [
@@ -590,6 +602,14 @@ impl Adventure {
     }
 
     pub fn walkable(&self, point: Vec2, garden: &Garden) -> bool {
+        self.walkable_without_residents(point, garden)
+            && !(self.area.outdoors()
+                && Npc::ALL.into_iter().any(|npc| {
+                    point.distance_squared(npc.position(garden)) < NPC_RADIUS * NPC_RADIUS
+                }))
+    }
+
+    pub(crate) fn walkable_without_residents(&self, point: Vec2, garden: &Garden) -> bool {
         let within = |center: Vec2, radius: f32| point.distance_squared(center) < radius * radius;
         let inside = |center: Vec2, half: Vec2| {
             let offset = (point - center).abs();
@@ -628,9 +648,6 @@ impl Adventure {
                     && !inside(PATTERN_STALL, Vec2::new(0.85, 0.51))
                     && !inside(MEETING_POINT, TABLE_HALF_SIZE)
                     && !inside(harbor::BOARD, harbor::BOARD_HALF)
-                    && !Npc::ALL
-                        .into_iter()
-                        .any(|npc| within(npc.position(garden), NPC_RADIUS))
                     && !Animal::ALL
                         .into_iter()
                         .any(|kind| inside(kind.site(), Vec2::new(1.57, 1.22)))
@@ -871,10 +888,7 @@ impl Adventure {
             .chain(
                 Npc::ALL
                     .into_iter()
-                    .filter(|npc| {
-                        npc.frontier()
-                            .is_none_or(|frontier| frontier.unlocked(garden))
-                    })
+                    .filter(|npc| npc.available(garden))
                     .map(Target::Person),
             )
             .chain(
@@ -1434,8 +1448,15 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
         .min_by(f32::total_cmp),
         Target::Tree(i) => {
             let (scale, top) = forest::node(i).map_or((1., 4.36), |node| (node.scale, node.top()));
-            hit(Vec2::splat(1.11 * scale), 1.00 * scale, top)
-                .or_else(|| hit(Vec2::splat(0.38 * scale), 0., 1.04 * scale))
+            [
+                hit(Vec2::splat(0.42 * scale), 0., top * 0.39),
+                hit(Vec2::splat(0.96 * scale), top * 0.25, top * 0.53),
+                hit(Vec2::splat(0.72 * scale), top * 0.52, top * 0.75),
+                hit(Vec2::splat(0.43 * scale), top * 0.72, top),
+            ]
+            .into_iter()
+            .flatten()
+            .min_by(f32::total_cmp)
         }
         Target::Rock(i) => {
             let (scale, top) = forest::node(i).map_or((1., 0.97), |node| (node.scale, node.top()));
@@ -1458,7 +1479,7 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
         Target::HarborBoard => hit(harbor::BOARD_HALF, 0., 1.71),
         Target::HarborDriftwood => hit(Vec2::new(0.63, 0.34), 0., 0.38),
         Target::HarborFishing(_) => hit(Vec2::new(0.55, 0.49), 0., 0.70),
-        Target::Person(_) => hit(Vec2::splat(0.42), 0., 1.62),
+        Target::Person(_) => hit(Vec2::new(0.34, 0.35), 0., 1.65),
         Target::SeasonFind(_) => hit(Vec2::splat(0.36), 0., 0.32),
         Target::Kitchen | Target::PatternStall => hit(Vec2::new(0.96, 0.61), 0., 1.82),
         Target::FarmAnimal(_) => ray_box(
@@ -1494,12 +1515,14 @@ enum PadTarget {
 pub fn select(
     mut controls: ResMut<Controls>,
     layout: Res<crate::ui::HudLayout>,
+    quest_pins: Res<crate::resident_view::ResidentPins>,
     mut adventure: ResMut<Adventure>,
     garden: Res<Garden>,
     mut focus: ResMut<GardenFocus>,
     camera: Single<(&Camera, &GlobalTransform), With<IslandCamera>>,
-    mut player: Single<&mut Gardener>,
+    mut player: Single<(&mut Gardener, &Transform)>,
 ) {
+    let (player, pose) = &mut *player;
     if controls.cancel {
         adventure.map = false;
         adventure.focus = None;
@@ -1509,8 +1532,18 @@ pub fn select(
         player.stop();
         return;
     }
+    if controls.move_axis != Vec2::ZERO {
+        let out_of_reach = |point: Vec2| point.distance_squared(player.position) > 7.5_f32.powi(2);
+        if adventure
+            .focus
+            .is_some_and(|target| out_of_reach(adventure.position(target, &garden)))
+        {
+            adventure.focus = None;
+        }
+    }
+    let (camera, view) = *camera;
     let auto = controls.pad_action && focus.selected.is_none() && adventure.focus.is_none();
-    if controls.pad_cycle != 0 || auto {
+    if !adventure.map && (controls.pad_cycle != 0 || auto) {
         let point = player.position;
         let mut targets: Vec<_> = adventure
             .targets(&garden, point)
@@ -1522,71 +1555,79 @@ pub fn select(
                     .filter(|_| adventure.area == Area::Island)
                     .map(PadTarget::Plot),
             )
-            .map(|entry| {
+            .filter_map(|entry| {
                 let at = match entry {
                     PadTarget::Plot(i) => world::PLOTS[i],
                     PadTarget::Place(target) => adventure.position(target, &garden),
                 };
-                (point.distance_squared(at), entry)
+                (point.distance_squared(at) < 6.4_f32.powi(2)).then_some((at, entry))
             })
-            .filter(|(distance, _)| *distance < 6.4 * 6.4)
             .collect();
-        targets.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let current = focus
-            .selected
-            .map(PadTarget::Plot)
-            .or(adventure.focus.map(PadTarget::Place));
-        let chosen = targets
-            .iter()
-            .position(|(_, entry)| Some(*entry) == current)
-            .filter(|_| !auto)
-            .map_or_else(
-                || {
-                    if controls.pad_cycle < 0 {
-                        targets.len().saturating_sub(1)
-                    } else {
-                        0
-                    }
-                },
-                |i| {
-                    (i as isize + controls.pad_cycle as isize).rem_euclid(targets.len() as isize)
-                        as usize
-                },
-            );
-        let chosen = if auto {
-            let tutorial_plot = match garden.onboarding {
+        let closest = || -> Option<PadTarget> {
+            let tutorial = match garden.onboarding {
                 Onboarding::Till => Some(crate::garden::Action::Till),
                 Onboarding::Sow => Some(crate::garden::Action::Sow),
                 Onboarding::Water => Some(crate::garden::Action::Water),
                 _ => None,
             };
+            let heading = (pose.rotation * Vec3::Z).xz();
+            let tracked = adventure.tracked_target(&garden);
             targets
                 .iter()
-                .position(|(_, entry)| {
-                    matches!(entry, PadTarget::Plot(i) if tutorial_plot.is_some()
-                    && garden.action(*i, adventure.crop) == tutorial_plot)
+                .min_by(|(a, first), (b, second)| {
+                    let score = |at: Vec2, entry: PadTarget| {
+                        let offset = at - point;
+                        let facing_cost = (1. - offset.normalize_or_zero().dot(heading)) * 1.45;
+                        let priority = match entry {
+                            PadTarget::Plot(i)
+                                if tutorial.is_some()
+                                    && garden.action(i, adventure.crop) == tutorial =>
+                            {
+                                9.
+                            }
+                            PadTarget::Place(target)
+                                if tracked == Some(target) && offset.length() < 4. =>
+                            {
+                                5.
+                            }
+                            _ => 0.,
+                        };
+                        offset.length() + facing_cost - priority
+                    };
+                    score(*a, *first).total_cmp(&score(*b, *second))
                 })
-                .or_else(|| {
-                    adventure.tracked_target(&garden).and_then(|goal| {
-                        targets
-                            .iter()
-                            .position(|(_, entry)| *entry == PadTarget::Place(goal))
-                    })
-                })
-                .unwrap_or(chosen)
-        } else {
-            chosen
+                .map(|&(_, entry)| entry)
         };
-        if let Some(&(_, target)) = targets.get(chosen) {
-            adventure.map = false;
+        let chosen = if auto {
+            closest()
+        } else {
+            // The world-space projection keeps this order as the player moves.
+            let right = view.compute_transform().right().xz();
+            targets.sort_by(|(a, _), (b, _)| a.dot(right).total_cmp(&b.dot(right)));
+            let current = focus
+                .selected
+                .map(PadTarget::Plot)
+                .or(adventure.focus.map(PadTarget::Place));
+            let current = targets
+                .iter()
+                .position(|&(_, target)| Some(target) == current);
+            let index = match current {
+                Some(index) => (index as isize + controls.pad_cycle as isize)
+                    .rem_euclid(targets.len() as isize) as usize,
+                None if controls.pad_cycle < 0 => targets.len().saturating_sub(1),
+                None => 0,
+            };
+            targets.get(index).map(|&(_, target)| target)
+        };
+        if let Some(target) = chosen {
             adventure.queued = None;
             adventure.waiting = None;
             focus.pending = None;
             player.stop();
             match target {
-                PadTarget::Plot(i) => {
+                PadTarget::Plot(index) => {
                     adventure.focus = None;
-                    focus.selected = Some(i);
+                    focus.selected = Some(index);
                 }
                 PadTarget::Place(place) => {
                     adventure.focus = Some(place);
@@ -1594,10 +1635,9 @@ pub fn select(
                 }
             }
         }
-        controls.act = false;
+        controls.act &= auto && controls.pad_quick && chosen.is_some();
         return;
     }
-    let (camera, view) = *camera;
     let Some(at) = controls.pick_at else {
         if controls.cycle && adventure.area.outdoors() {
             adventure.focus = None;
@@ -1605,54 +1645,21 @@ pub fn select(
         }
         return;
     };
-    adventure.queued = None;
-    adventure.waiting = None;
-    let ray = camera.viewport_to_world(view, at).ok();
-    let mut volume = None;
-    let mut best = (f32::MAX, None);
-    for target in adventure.targets(&garden, player.position) {
-        let point = adventure.position(target, &garden);
-        let node = match target {
-            Target::Tree(id) | Target::Rock(id) => forest::node(id),
-            _ => None,
-        };
-        let y = node.map_or_else(
-            || {
-                if adventure.area.outdoors() {
-                    world::surface_height(point, &garden)
-                } else {
-                    0.
-                }
-            },
-            |node| node.height,
-        );
-        let base = Vec3::new(point.x, y, point.y);
-        if let Some(depth) = ray.and_then(|ray| hit_volume(ray, target, base, &garden)) {
-            if volume.is_none_or(|(closest, _)| depth < closest) {
-                volume = Some((depth, target));
-            }
-        }
-        let world = base + Vec3::Y * target.height();
-        let Ok(projected) = camera.world_to_viewport(view, world) else {
-            continue;
-        };
-        let radius = camera
-            .world_to_viewport(view, world + Vec3::X * 0.82)
-            .map_or(18., |p| p.distance(projected))
-            .max(12.);
-        let dist = projected.distance(at) / radius;
-        if dist <= 1. && dist < best.0 {
-            best = (dist, Some(target));
-        }
-    }
-    let landmark = tracked_pin(&adventure, &garden, camera, view, layout.scale)
-        .filter(|(_, p)| {
-            (*p - at)
-                .abs()
-                .cmple(Vec2::new(53., 14.) * layout.scale)
-                .all()
+    let landmark = quest_pins
+        .pick(at, adventure.map)
+        .map(Target::Person)
+        .or_else(|| {
+            tracked_pin(&adventure, &garden, camera, view, layout.scale)
+                .filter(|(target, center)| {
+                    !matches!(target, Target::Person(npc)
+                        if adventure.map || npc.quest_mark(&garden).is_some())
+                        && (*center - at)
+                            .abs()
+                            .cmple(Vec2::new(53., 14.) * layout.scale)
+                            .all()
+                })
+                .map(|(target, _)| target)
         })
-        .map(|(target, _)| target)
         .or_else(|| {
             if !adventure.map || !adventure.area.outdoors() {
                 return None;
@@ -1681,43 +1688,108 @@ pub fn select(
                 .min_by(|a, b| a.1.total_cmp(&b.1))
                 .map(|(target, _)| target)
         });
-    if landmark.is_none()
-        && !adventure.map
-        && adventure.area == Area::Island
-        && let Some((index, depth)) = ray.and_then(|ray| hit_plot(ray, &garden))
-        && volume.is_none_or(|(other, _)| depth < other)
-    {
-        focus.selected = Some(index);
-        focus.pending = None;
-        adventure.focus = None;
-        player.stop();
+    if adventure.map && adventure.area.outdoors() && landmark.is_none() {
         return;
     }
-    adventure.focus = landmark.or(volume.map(|(_, target)| target)).or(best.1);
-    adventure.sale = 0;
-    player.stop();
-    if let Some(target) = adventure.focus {
-        if landmark.is_some() || matches!(target, Target::Travel(_)) {
-            player.navigate(adventure.reach(target, &garden), &adventure, &garden);
-        }
-    } else if let Some(point) =
-        ray.and_then(|ray| world::ground_point(ray, adventure.area, &garden))
-    {
-        if let Some(gate) = Frontier::ALL.into_iter().find(|&gate| {
-            !gate.unlocked(&garden)
-                && gate.boundary(point)
-                && player.position.distance(gate.position()) < 18.
-        }) {
-            let target = Target::Gate(gate);
-            adventure.focus = Some(target);
-            player.navigate(adventure.reach(target, &garden), &adventure, &garden);
-        } else {
-            player.navigate(Reach::walk(point), &adventure, &garden);
-        }
-    }
-    adventure.map = false;
+    adventure.queued = None;
+    adventure.waiting = None;
     focus.selected = None;
     focus.pending = None;
+    adventure.sale = 0;
+    player.stop();
+    let was_map = adventure.map;
+    adventure.map = false;
+    if let Some(target) = landmark {
+        adventure.focus = Some(target);
+        if was_map {
+            player.navigate(adventure.reach(target, &garden), &adventure, &garden);
+        }
+        return;
+    }
+    let Ok(ray) = camera.viewport_to_world(view, at) else {
+        return;
+    };
+    let ground = world::ground_point(ray, adventure.area, &garden);
+    let ground_depth =
+        ground
+            .filter(|_| adventure.area.outdoors())
+            .map_or(f32::INFINITY, |point| {
+                ray.direction.dot(
+                    Vec3::new(point.x, world::surface_height(point, &garden), point.y) - ray.origin,
+                ) + 0.32
+            });
+    let mut exact = if adventure.area == Area::Island {
+        hit_plot(ray, &garden)
+            .filter(|&(_, depth)| depth <= ground_depth)
+            .map(|(index, depth)| (depth, PadTarget::Plot(index)))
+    } else {
+        None
+    };
+    let mut assisted: Option<(f32, Target)> = None;
+    let (minimum, maximum) = if controls.finger_pick {
+        (15., 27.)
+    } else {
+        (8., 19.)
+    };
+    for target in adventure.targets(&garden, player.position) {
+        let point = adventure.position(target, &garden);
+        let y = match target {
+            Target::Tree(id) | Target::Rock(id) => forest::node(id)
+                .map_or_else(|| world::surface_height(point, &garden), |node| node.height),
+            _ if adventure.area.outdoors() => world::surface_height(point, &garden),
+            _ => 0.,
+        };
+        let base = Vec3::new(point.x, y, point.y);
+        if let Some(depth) = hit_volume(ray, target, base, &garden)
+            && depth <= ground_depth
+            && exact.is_none_or(|(closest, _)| depth < closest)
+        {
+            exact = Some((depth, PadTarget::Place(target)));
+        }
+        let center = base + Vec3::Y * target.height();
+        if ray.direction.dot(center - ray.origin) > ground_depth + 0.35 {
+            continue;
+        }
+        let Ok(projected) = camera.world_to_viewport(view, center) else {
+            continue;
+        };
+        let extent = camera
+            .world_to_viewport(view, center + Vec3::X * 0.45)
+            .map_or(minimum * layout.scale, |edge| edge.distance(projected))
+            .clamp(minimum * layout.scale, maximum * layout.scale);
+        let distance = projected.distance(at) / extent;
+        if distance <= 1. && assisted.is_none_or(|(closest, _)| distance < closest) {
+            assisted = Some((distance, target));
+        }
+    }
+    adventure.focus = None;
+    match exact
+        .map(|(_, entry)| entry)
+        .or_else(|| assisted.map(|(_, target)| PadTarget::Place(target)))
+    {
+        Some(PadTarget::Plot(index)) => focus.selected = Some(index),
+        Some(PadTarget::Place(target)) => {
+            adventure.focus = Some(target);
+            if matches!(target, Target::Travel(_)) {
+                player.navigate(adventure.reach(target, &garden), &adventure, &garden);
+            }
+        }
+        None => {
+            if let Some(point) = ground {
+                if let Some(gate) = Frontier::ALL.into_iter().find(|&gate| {
+                    !gate.unlocked(&garden)
+                        && gate.boundary(point)
+                        && player.position.distance(gate.position()) < 18.
+                }) {
+                    let target = Target::Gate(gate);
+                    adventure.focus = Some(target);
+                    player.navigate(adventure.reach(target, &garden), &adventure, &garden);
+                } else {
+                    player.navigate(Reach::walk(point), &adventure, &garden);
+                }
+            }
+        }
+    }
 }
 
 pub fn interact(
@@ -1770,10 +1842,20 @@ pub fn interact(
         farm_menu.show(FarmPage::Journal(GuideTab::Story));
         return;
     }
+    if adventure.map && adventure.area.outdoors() {
+        return;
+    }
     if controls.move_axis != Vec2::ZERO || focus.selected.is_some() {
         adventure.queued = None;
         adventure.waiting = None;
         return;
+    }
+    if let Some(target @ Target::Person(person)) = adventure.focus
+        && player.0.destination_moved(person.position(&garden))
+    {
+        player
+            .0
+            .navigate(adventure.reach(target, &garden), &adventure, &garden);
     }
     if !controls.act && adventure.queued.is_none() {
         return;

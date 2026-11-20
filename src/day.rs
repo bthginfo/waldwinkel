@@ -25,6 +25,15 @@ impl FarmClock {
         self.0 as u16
     }
 
+    pub(crate) fn precise_minute(self) -> f32 {
+        self.0
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_minutes(minutes: f32) -> Self {
+        Self(minutes)
+    }
+
     pub fn night(self) -> bool {
         self.minute() >= NIGHT
     }

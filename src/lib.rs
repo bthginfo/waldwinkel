@@ -22,6 +22,8 @@ mod onboarding;
 mod processing;
 mod progression;
 mod regions;
+mod resident;
+mod resident_view;
 mod season_view;
 mod seasons;
 mod session;
@@ -33,6 +35,7 @@ mod travel;
 mod ui;
 mod waywatch;
 mod weather;
+mod wildlife;
 mod workshop;
 mod world;
 
@@ -50,9 +53,11 @@ struct Ready(bool, usize);
 struct Controls {
     move_axis: Vec2,
     pick_at: Option<Vec2>,
+    finger_pick: bool,
     cycle: bool,
     pad_cycle: i8,
     pad_action: bool,
+    pad_quick: bool,
     cancel: bool,
     act: bool,
     zoom: f32,
@@ -149,12 +154,14 @@ pub fn main() {
         .init_resource::<Notice>()
         .init_resource::<input::Gesture>()
         .init_resource::<ui::HudLayout>()
+        .init_resource::<resident_view::ResidentPins>()
         .init_resource::<ui::SafeInsets>()
         .init_resource::<world::Models>()
         .init_resource::<ui::Icons>()
         .init_resource::<ui::UiFonts>()
         .init_resource::<battle_ui::DeckIcons>()
         .add_event::<harvest_fx::Break>()
+        .add_event::<sound::Cue>()
         .add_systems(
             Startup,
             (
@@ -169,6 +176,7 @@ pub fn main() {
                 battle_ui::setup,
                 cinematic::setup,
                 sound::setup,
+                wildlife::setup,
             ),
         )
         .add_systems(
@@ -202,7 +210,7 @@ pub fn main() {
             Update,
             (
                 adventure::draw,
-                town::move_residents,
+                resident::move_residents,
                 world::update_plots,
                 world::show_exterior,
                 season_view::visibility,
@@ -217,10 +225,10 @@ pub fn main() {
                 weather::precipitation,
                 weather::lighting,
                 sound::play,
+                wildlife::animate,
                 adventure::animate_animals,
                 ui::update,
                 ui::update_fertilizer,
-                ui::map_labels.after(world::update_camera),
             )
                 .chain()
                 .after(adventure::interact)
@@ -229,7 +237,7 @@ pub fn main() {
         .add_systems(
             Update,
             (
-                harvest_fx::animate,
+                harvest_fx::animate.before(sound::play),
                 forest::draw,
                 session::update,
                 town::update,
@@ -241,7 +249,13 @@ pub fn main() {
             )
                 .after(adventure::interact),
         )
-        .add_systems(PostUpdate, session::autosave);
+        .add_systems(PostUpdate, session::autosave)
+        .add_systems(
+            PostUpdate,
+            (ui::map_labels, resident_view::update)
+                .after(bevy::render::camera::CameraUpdateSystem)
+                .before(bevy::ui::UiSystem::Prepare),
+        );
     #[cfg(target_os = "android")]
     app.add_systems(Startup, controller::setup)
         .add_systems(
@@ -302,6 +316,7 @@ fn act(
 ) {
     if controls.move_axis != Vec2::ZERO
         || adventure.area != Area::Island
+        || adventure.map
         || adventure.focus.is_some()
     {
         focus.pending = None;
