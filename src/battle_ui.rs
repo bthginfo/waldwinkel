@@ -3,11 +3,13 @@ use bevy::prelude::*;
 use crate::{
     Adventure, GardenFocus, Notice,
     adventure::commit,
-    duel::{Chapter, Emblem, Intent, Outcome, Ration},
+    controller::FocusEnabled,
+    duel::{Card, Chapter, Emblem, Intent, Outcome, Ration},
     farm_ui::FarmMenu,
     garden::{Garden, SavePath},
     homestead::Product,
     session::{Checkpoint, Session},
+    sound::Cue,
     ui::{self, UiFonts},
     waywatch::Trial,
     world::Gardener,
@@ -53,56 +55,83 @@ pub struct CardPicture(usize);
 pub struct HealthFill(bool);
 
 #[derive(Component)]
+pub struct FlyingCard;
+#[derive(Component)]
+pub struct CombatImpact;
+#[derive(Component)]
+pub struct ImpactSymbol;
+
+#[derive(Clone, Copy)]
+struct Feedback {
+    at: f32,
+    card: Option<Card>,
+    from: Vec2,
+    to: Vec2,
+    amount: u16,
+    kind: Emblem,
+    opponent: bool,
+    sounded: bool,
+}
+
+#[derive(Resource, Default)]
+pub struct CombatMotion(Option<Feedback>);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Guardian {
+    Trial(Trial),
+    Dummy,
+}
+
+#[derive(Component)]
 pub struct GuardianMotion(pub f32);
 
 pub fn draw_trial_guardian(
     mut commands: Commands,
     assets: Res<AssetServer>,
     menu: Res<FarmMenu>,
-    mut shown: Local<Option<(Trial, Entity)>>,
+    mut shown: Local<Option<(Guardian, Entity)>>,
 ) {
-    let trial = menu.battle().and_then(|battle| battle.trial);
-    if shown.as_ref().map(|(id, _)| *id) == trial {
+    let guardian = menu.battle().and_then(|battle| {
+        if battle.training {
+            Some(Guardian::Dummy)
+        } else {
+            battle.trial.map(Guardian::Trial)
+        }
+    });
+    if shown.as_ref().map(|(id, _)| *id) == guardian {
         return;
     }
     if let Some((_, entity)) = shown.take() {
         commands.entity(entity).despawn();
     }
-    if let Some(trial) = trial {
-        let point = trial.watch.point() + Vec2::new(-0.91, 1.86);
-        let ground = crate::world::exterior_ground(point);
+    if let Some(guardian) = guardian {
+        let (model, point, ground) = match guardian {
+            Guardian::Trial(trial) => {
+                let point = trial.watch.point() + Vec2::new(-0.91, 1.86);
+                (trial.enemy().model(), point, crate::world::exterior_ground(point))
+            }
+            Guardian::Dummy => ("training_dummy", crate::adventure::HOME + Vec2::new(1.89, -0.38), 0.06),
+        };
         let actor = commands
             .spawn((
-                SceneRoot(assets.load(format!("models/{}.glb#Scene0", trial.enemy().model()))),
+                SceneRoot(assets.load(format!("models/{model}.glb#Scene0"))),
                 Transform::from_xyz(point.x, ground, point.y),
                 GuardianMotion(ground),
             ))
             .id();
-        *shown = Some((trial, actor));
+        *shown = Some((guardian, actor));
     }
 }
 
 pub fn animate_guardian(
     time: Res<Time>,
     menu: Res<FarmMenu>,
+    motion: Res<CombatMotion>,
     mut guardian: Query<(&GuardianMotion, &mut Transform)>,
-    mut previous: Local<Option<(u16, u16)>>,
-    mut recoil_at: Local<Option<f32>>,
 ) {
-    let stats = menu
-        .battle()
-        .map(|battle| (battle.enemy_hp, battle.enemy_guard));
     let now = time.elapsed_secs();
-    if let (Some((hp, guard)), Some((old_hp, old_guard))) = (stats, *previous)
-        && (hp < old_hp || guard < old_guard)
-    {
-        *recoil_at = Some(now);
-    }
-    if stats.is_none() {
-        *recoil_at = None;
-    }
-    *previous = stats;
-    let pulse = recoil_at.map_or(0., |start| {
+    let pulse = motion.0.filter(|fx| fx.opponent && menu.battle().is_some()).map_or(0., |fx| {
+        let start = fx.at + if fx.card.is_some() { 0.21 } else { 0.08 };
         let progress = ((now - start) / 0.31).clamp(0., 1.);
         (std::f32::consts::PI * progress).sin()
     });
@@ -113,12 +142,12 @@ pub fn animate_guardian(
 }
 
 #[derive(Resource)]
-pub struct DeckIcons([Handle<Image>; Emblem::ALL.len()]);
+pub struct DeckIcons([Handle<Image>; Card::ALL.len()]);
 
 impl FromWorld for DeckIcons {
     fn from_world(world: &mut World) -> Self {
         let assets = world.resource::<AssetServer>();
-        Self(Emblem::ALL.map(|emblem| assets.load(emblem.texture())))
+        Self(Card::ALL.map(|card| assets.load(card.portrait())))
     }
 }
 
@@ -219,7 +248,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                     max_width: Val::Px(1090.),
                     align_self: AlignSelf::Center,
                     flex_direction: FlexDirection::Column,
-                    row_gap: Val::Px(8.),
+                    row_gap: Val::Px(6.),
                     padding: UiRect::all(Val::Px(13.)),
                     border: UiRect::all(Val::Px(1.)),
                     ..default()
@@ -280,24 +309,26 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                             hand.spawn((
                                 DuelButton::Play(index),
                                 Button,
+                                FocusEnabled(true),
                                 Node {
                                     width: Val::Px(121.),
-                                    min_height: Val::Px(115.),
-                                    padding: UiRect::all(Val::Px(8.)),
+                                    max_width: Val::Percent(12.0),
+                                    min_height: Val::Px(146.),
+                                    padding: UiRect::all(Val::Px(5.)),
                                     flex_direction: FlexDirection::Column,
-                                    justify_content: JustifyContent::Center,
+                                    justify_content: JustifyContent::FlexStart,
                                     row_gap: Val::Px(2.),
-                                    border: UiRect::bottom(Val::Px(3.)),
+                                    border: UiRect::all(Val::Px(2.)),
                                     ..default()
                                 },
                                 BorderColor(Color::srgb_u8(165, 132, 91)),
                                 BackgroundColor(ui::cream()),
                                 BorderRadius::all(Val::Px(9.)),
+                                ui::shadow(),
                             ))
                             .with_children(|card| {
                                 card.spawn(Node {
-                                    justify_content: JustifyContent::SpaceBetween,
-                                    align_items: AlignItems::Center,
+                                    min_height: Val::Px(61.),
                                     ..default()
                                 })
                                 .with_children(|top| {
@@ -305,26 +336,31 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                                         CardPicture(index),
                                         ImageNode::default(),
                                         Node {
-                                            width: Val::Px(34.),
-                                            height: Val::Px(34.),
+                                            width: Val::Percent(100.),
+                                            height: Val::Px(61.),
                                             ..default()
                                         },
                                     ));
                                     top.spawn((
                                         Node {
+                                            position_type: PositionType::Absolute,
+                                            top: Val::Px(4.),
+                                            left: Val::Px(4.),
                                             justify_content: JustifyContent::Center,
                                             align_items: AlignItems::Center,
-                                            min_width: Val::Px(23.),
-                                            min_height: Val::Px(23.),
+                                            min_width: Val::Px(24.),
+                                            min_height: Val::Px(24.),
+                                            border: UiRect::all(Val::Px(1.)),
                                             ..default()
                                         },
                                         BorderRadius::all(Val::Px(12.)),
-                                        BackgroundColor(Color::srgb_u8(73, 101, 76)),
+                                        BackgroundColor(Color::srgb_u8(45, 69, 62)),
+                                        BorderColor(Color::srgb_u8(243, 206, 133)),
                                     ))
                                     .with_child((DuelText::Cost(index), fonts.button("", 13.)));
                                 });
-                                card.spawn((DuelText::Name(index), fonts.title("", 16.)));
-                                card.spawn((DuelText::Effects(index), fonts.body("", 13.)));
+                                card.spawn((DuelText::Name(index), fonts.title("", 15.)));
+                                card.spawn((DuelText::Effects(index), fonts.body("", 12.)));
                             });
                         }
                     });
@@ -366,6 +402,40 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                         });
                     });
             });
+            veil.spawn((
+                FlyingCard,
+                ImageNode::default(),
+                Node {
+                    display: Display::None,
+                    position_type: PositionType::Absolute,
+                    ..default()
+                },
+                ZIndex(3),
+                ui::shadow(),
+            ));
+            veil.spawn((
+                CombatImpact,
+                fonts.title("", 39.),
+                Node {
+                    display: Display::None,
+                    position_type: PositionType::Absolute,
+                    min_width: Val::Px(110.),
+                    padding: UiRect::axes(Val::Px(12.), Val::Px(4.)),
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                },
+                BackgroundColor(Color::NONE),
+                BorderRadius::all(Val::Px(16.)),
+                ZIndex(4),
+            )).with_child((
+                ImpactSymbol, ImageNode::default(),
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(-28.), top: Val::Px(9.),
+                    width: Val::Px(32.), height: Val::Px(32.),
+                    ..default()
+                },
+            ));
         });
 }
 
@@ -382,6 +452,10 @@ pub fn input(
     path: Res<SavePath>,
     mut notice: ResMut<Notice>,
     time: Res<Time>,
+    mut motion: ResMut<CombatMotion>,
+    places: Query<(&DuelButton, &GlobalTransform)>,
+    window: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    mut sounds: EventWriter<Cue>,
 ) {
     if !session.playing() {
         return;
@@ -402,6 +476,10 @@ pub fn input(
         } else {
             DuelButton::Retreat
         })
+    } else if controller.provisions && (battle.pack_open || !battle.training && !battle.ration_used
+        && Ration::ALL.into_iter().any(|ration| garden.stock(Product::Prepared(ration.dish())) > 0))
+    {
+        Some(DuelButton::Pack)
     } else if controller.end_turn || keys.any_just_pressed([KeyCode::Space, KeyCode::Enter]) {
         Some(DuelButton::End)
     } else {
@@ -424,6 +502,8 @@ pub fn input(
     };
     let battle = menu.battle_mut().expect("open battle");
     let now = time.elapsed_secs();
+    let old = (battle.enemy_hp, battle.enemy_guard, battle.hp, battle.guard);
+    let mut played = None;
     let (player, transform) = &mut *player;
     if battle.outcome == Outcome::Running {
         match (battle.retreat_pending, button) {
@@ -443,7 +523,14 @@ pub fn input(
     match (battle.outcome, button) {
         (Outcome::Won, DuelButton::End | DuelButton::Retreat) => {
             adventure.focus = None;
-            menu.close();
+            menu.back();
+            return;
+        }
+        (Outcome::Lost, DuelButton::End | DuelButton::Retreat)
+        | (Outcome::Running, DuelButton::End)
+            if battle.training && (battle.retreat_pending || battle.outcome == Outcome::Lost) =>
+        {
+            menu.back();
             return;
         }
         (Outcome::Lost, DuelButton::End | DuelButton::Retreat)
@@ -494,15 +581,57 @@ pub fn input(
             return;
         }
         (Outcome::Running, DuelButton::Play(index)) if !battle.pack_open => {
-            battle.play(index);
+            let card = battle.hand.get(index).copied();
+            if battle.play(index) {
+                played = card;
+            } else {
+                return;
+            }
         }
         (Outcome::Running, DuelButton::End) => battle.end_turn(),
         _ => return,
     }
+    let strike = old.0.saturating_sub(battle.enemy_hp) + old.1.saturating_sub(battle.enemy_guard);
+    let hurt = old.2.saturating_sub(battle.hp);
+    let mend = battle.hp.saturating_sub(old.2);
+    let shield = battle.guard.saturating_sub(old.3);
+    let (kind, amount, opponent) = if hurt > 0 {
+        (Emblem::Strike, hurt, false)
+    } else if strike > 0 {
+        (Emblem::Strike, strike, true)
+    } else if mend > 0 {
+        (Emblem::Heal, mend, false)
+    } else if shield > 0 {
+        (Emblem::Guard, shield, false)
+    } else {
+        (played.map_or(Emblem::Focus, Card::emblem), 0, false)
+    };
+    let from = window.single().ok()
+        .and_then(|window| {
+            let (_, t) = places.iter().find(|(id, _)| **id == button)?;
+            let size = Vec2::new(window.physical_width() as f32, window.physical_height() as f32);
+            Some((100. * t.translation().xy() / size).clamp(Vec2::ZERO, Vec2::splat(100.)))
+        })
+        .unwrap_or(Vec2::new(50., 76.));
+    motion.0 = Some(Feedback {
+        at: now, card: played, from,
+        to: if opponent { Vec2::new(71., 39.) } else { Vec2::new(29., 40.) },
+        amount, kind, opponent, sounded: false,
+    });
+    if played.is_some() {
+        sounds.write(Cue::CardSlide);
+    } else {
+        sounds.write(Cue::Turn);
+    }
     if battle.outcome != Outcome::Won {
         return;
     }
-    let prize = if let Some(trial) = battle.trial {
+    let prize = if battle.training {
+        if let Some(prologue) = &mut garden.prologue {
+            prologue.sparred = true;
+        }
+        Some("Übung geschafft · Du kannst am Binder dein Deck zusammenstellen.".into())
+    } else if let Some(trial) = battle.trial {
         trial.reward(&mut garden)
     } else if let Some((prize, card)) = garden.rpg.win(battle.level, battle.hp) {
         let coins = 7 + battle.level * 2;
@@ -521,10 +650,89 @@ pub fn input(
     }
 }
 
+pub fn animate_feedback(
+    time: Res<Time>,
+    menu: Res<FarmMenu>,
+    session: Res<Session>,
+    icons: Res<DeckIcons>,
+    assets: Res<AssetServer>,
+    mut motion: ResMut<CombatMotion>,
+    mut flying: Single<(&mut Node, &mut ImageNode), With<FlyingCard>>,
+    mut impact: Single<(&mut Node, &mut Text, &mut TextColor, &mut BackgroundColor),
+        (With<CombatImpact>, Without<FlyingCard>)>,
+    mut symbol: Single<&mut ImageNode, (With<ImpactSymbol>, Without<FlyingCard>)>,
+    mut sounds: EventWriter<Cue>,
+) {
+    let (fly_node, art) = &mut *flying;
+    let (hit_node, number, ink, halo) = &mut *impact;
+    fly_node.display = Display::None;
+    hit_node.display = Display::None;
+    if menu.battle().is_none() || !session.playing() {
+        motion.0 = None;
+        return;
+    }
+    let Some(fx) = &mut motion.0 else { return };
+    let age = time.elapsed_secs() - fx.at;
+    if let Some(card) = fx.card.filter(|_| age < 0.36) {
+        let t = (age / 0.36).clamp(0., 1.);
+        let ease = 1. - (1. - t).powi(3);
+        let center = fx.from.lerp(fx.to, ease) - Vec2::Y * (std::f32::consts::PI*t).sin()*12.;
+        let width = 106. + 40. * (std::f32::consts::PI * t).sin();
+        fly_node.display = Display::Flex;
+        fly_node.left = Val::Percent(center.x);
+        fly_node.top = Val::Percent(center.y);
+        fly_node.margin = UiRect::left(Val::Px(-width*0.5));
+        fly_node.width = Val::Px(width);
+        fly_node.height = Val::Px(width*0.60);
+        art.image = icons.0[card as usize].clone();
+        art.color = Color::srgba(1., 1., 1., (1.45-t).min(1.));
+    }
+    let local = age - if fx.card.is_some() { 0.23 } else { 0.08 };
+    if local < 0. {
+        return;
+    }
+    if !fx.sounded {
+        fx.sounded = true;
+        let cue = match fx.kind {
+            Emblem::Strike if fx.amount == 0 => Cue::CardGuard,
+            Emblem::Strike => Cue::CardHit,
+            Emblem::Guard => Cue::CardGuard,
+            Emblem::Heal | Emblem::Spore => Cue::CardBloom,
+            Emblem::Focus => Cue::CardGuard,
+        };
+        sounds.write(cue);
+    }
+    if local > 0.62 {
+        motion.0 = None;
+        return;
+    }
+    let t = local / 0.62;
+    let fade = (1. - t).sqrt();
+    let (label, color) = match fx.kind {
+        Emblem::Strike if fx.amount > 0 =>
+            (format!("−{}", fx.amount), if fx.opponent { (1., 0.77, 0.48) } else { (1., 0.56, 0.45) }),
+        Emblem::Guard => (format!("+{} Schild", fx.amount), (0.69, 0.87, 1.)),
+        Emblem::Heal => (format!("+{} Leben", fx.amount), (0.72, 1., 0.66)),
+        Emblem::Spore => ("Sporen".into(), (0.83, 1., 0.64)),
+        _ if fx.card.is_some() => ("Karte gespielt".into(), (1., 0.85, 0.58)),
+        _ => ("Zugwechsel".into(), (1., 0.85, 0.58)),
+    };
+    hit_node.display = Display::Flex;
+    hit_node.left = Val::Percent(fx.to.x);
+    hit_node.top = Val::Percent(fx.to.y - 9.*t);
+    hit_node.margin = UiRect::left(Val::Px(-55.));
+    number.0 = label;
+    ink.0 = Color::srgba(color.0, color.1, color.2, fade);
+    halo.0 = Color::srgba(0.13, 0.20, 0.19, 0.76*fade);
+    symbol.image = assets.load(fx.kind.texture());
+    symbol.color = Color::srgba(1., 1., 1., fade);
+}
+
 pub fn update(
     menu: Res<FarmMenu>,
     session: Res<Session>,
     icons: Res<DeckIcons>,
+    time: Res<Time>,
     garden: Res<Garden>,
     controller: Res<crate::controller::Controller>,
     mut veil: Single<&mut Node, With<DuelPane>>,
@@ -532,7 +740,7 @@ pub fn update(
     mut pictures: Query<(&CardPicture, &mut ImageNode)>,
     mut bars: Query<(&HealthFill, &mut Node), (Without<DuelPane>, Without<DuelButton>)>,
     mut buttons: Query<
-        (&DuelButton, &Interaction, &mut Node, &mut BackgroundColor),
+        (&DuelButton, &Interaction, &mut Node, &mut BackgroundColor, &mut FocusEnabled),
         Without<DuelPane>,
     >,
 ) {
@@ -541,18 +749,21 @@ pub fn update(
         return;
     };
     veil.display = Display::Flex;
-    if menu.is_changed() || session.is_changed() || controller.is_changed() {
-        for (HealthFill(player), mut node) in &mut bars {
-            let (current, max) = if *player {
-                (battle.hp, battle.max_hp)
-            } else {
-                (battle.enemy_hp, battle.enemy_max)
-            };
-            node.width = Val::Percent(100. * f32::from(current) / f32::from(max));
+    let ease = (1. - (-time.delta_secs()*13.).exp()).clamp(0., 1.);
+    for (HealthFill(player), mut node) in &mut bars {
+        let (current, max) = if *player { (battle.hp, battle.max_hp) }
+            else { (battle.enemy_hp, battle.enemy_max) };
+        let target = 100. * f32::from(current) / f32::from(max);
+        let Val::Percent(previous) = node.width else { continue };
+        let next = previous + (target-previous)*ease;
+        if (target-previous).abs() > 0.001 {
+            node.width = Val::Percent(if (target-next).abs() < 0.12 { target } else { next });
         }
+    }
+    if menu.is_changed() || session.is_changed() || controller.is_changed() {
         for (CardPicture(i), mut picture) in &mut pictures {
             if let Some(card) = battle.hand.get(*i) {
-                let icon = &icons.0[card.emblem() as usize];
+                let icon = &icons.0[*card as usize];
                 if picture.image != *icon {
                     picture.image = icon.clone();
                 }
@@ -564,6 +775,7 @@ pub fn update(
                     || format!("Ebene {} · Zug {}", battle.level, battle.round),
                     |trial| format!("Prüfung {} · Zug {}", trial.rank + 1, battle.round),
                 ),
+                DuelText::Chapter if battle.training => "Hofübung".into(),
                 DuelText::Chapter => battle
                     .trial
                     .map_or_else(
@@ -571,6 +783,7 @@ pub fn update(
                         |trial| trial.watch.name(),
                     )
                     .into(),
+                DuelText::EnemyName if battle.training => "Strohwächter".into(),
                 DuelText::EnemyName => battle.enemy.name().into(),
                 DuelText::Friend => format!(
                     "{} / {} Leben · {} Schild",
@@ -611,7 +824,16 @@ pub fn update(
                     if battle.outcome == Outcome::Running && !battle.retreat_pending =>
                 {
                     let (draw, trash) = battle.piles();
-                    format!("{draw} im Zugstapel · {trash} abgelegt")
+                    let mut help = format!("{draw} im Zugstapel · {trash} abgelegt");
+                    if controller.active {
+                        help.push_str("\nA · Spielen   Y · Zug beenden   B · Zurück");
+                        if !battle.training && !battle.ration_used
+                            && Ration::ALL.into_iter().any(|r| garden.stock(Product::Prepared(r.dish())) > 0)
+                        {
+                            help.push_str("   X · Proviant");
+                        }
+                    }
+                    help
                 }
                 DuelText::Piles => String::new(),
                 DuelText::Rule if battle.pack_open => {
@@ -625,11 +847,15 @@ pub fn update(
                         None => basic,
                     }
                 }
-                DuelText::Rule => battle
-                    .trial
-                    .filter(|_| battle.outcome == Outcome::Running)
-                    .map_or("", |trial| trial.watch.rule())
-                    .into(),
+                DuelText::Rule => {
+                    let conditions = battle.conditions();
+                    if conditions.is_empty() {
+                        battle.trial.filter(|_| battle.outcome == Outcome::Running)
+                            .map_or("", |trial| trial.watch.rule()).into()
+                    } else {
+                        conditions
+                    }
+                },
                 DuelText::Pack => if battle.pack_open {
                     "Schließen"
                 } else {
@@ -647,6 +873,7 @@ pub fn update(
                     .get(i)
                     .map_or_else(String::new, |&card| battle.card_description(card)),
                 DuelText::End if battle.retreat_pending => "Rückzug bestätigen".into(),
+                DuelText::End if battle.training && battle.outcome != Outcome::Running => "Zum Kartenbinder".into(),
                 DuelText::End => match battle.outcome {
                     Outcome::Running if controller.active => "Y · Zug beenden",
                     Outcome::Running => "Zug beenden",
@@ -660,7 +887,7 @@ pub fn update(
             }
         }
     }
-    for (&button, &interaction, mut node, mut color) in &mut buttons {
+    for (&button, &interaction, mut node, mut color, mut focus) in &mut buttons {
         let (visible, enabled) = match button {
             DuelButton::Play(i) => (
                 battle.outcome == Outcome::Running
@@ -681,6 +908,7 @@ pub fn update(
                 battle.outcome == Outcome::Running
                     && !battle.retreat_pending
                     && !battle.ration_used
+                    && !battle.training
                     && Ration::ALL
                         .into_iter()
                         .any(|ration| garden.stock(Product::Prepared(ration.dish())) > 0),
@@ -697,6 +925,7 @@ pub fn update(
         } else {
             Display::None
         };
+        focus.0 = visible && enabled;
         color.0 = match button {
             DuelButton::Play(_) if !enabled => Color::srgb_u8(202, 196, 176),
             DuelButton::Play(_) if interaction != Interaction::None => {

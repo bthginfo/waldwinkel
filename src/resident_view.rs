@@ -185,7 +185,8 @@ pub fn update(
         let mut people = Npc::ALL;
         if is_map {
             people.sort_by_key(|&npc| {
-                std::cmp::Reverse((marks[npc as usize], tracked == Some(Target::Person(npc))))
+                std::cmp::Reverse((adventure.map_focus == Some(Target::Person(npc)),
+                    marks[npc as usize], tracked == Some(Target::Person(npc))))
             });
         }
         for npc in people {
@@ -255,7 +256,9 @@ pub fn update(
         if let Some(pin) = pins.pins[badge.0 as usize] {
             let top = layout.hud_position(pin.center - pin.half);
             let size = pin.half * (2. / layout.scale);
+            let selected = is_map && adventure.map_focus == Some(Target::Person(badge.0));
             let fill = match pin.mark {
+                _ if selected => Color::srgb_u8(250, 202, 113),
                 Some(QuestMark::Available) => Color::srgb_u8(238, 191, 101),
                 Some(QuestMark::TurnIn) => Color::srgb_u8(149, 214, 170),
                 None => ui::cream(),
@@ -273,7 +276,9 @@ pub fn update(
                 .map_unchanged(|node| &mut node.height)
                 .set_if_neq(Val::Px(size.y));
             color.set_if_neq(BackgroundColor(fill));
-            border.set_if_neq(if pin.tracked {
+            border.set_if_neq(if selected {
+                BorderColor(Color::srgb_u8(133, 80, 30))
+            } else if pin.tracked {
                 BorderColor(Color::srgb_u8(60, 120, 113))
             } else {
                 BorderColor(ui::stroke())

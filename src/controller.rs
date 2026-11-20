@@ -9,6 +9,9 @@ pub enum Panel {
     Cinematic,
 }
 
+#[derive(Component)]
+pub struct FocusEnabled(pub bool);
+
 #[derive(Resource, Default)]
 pub struct Controller {
     pub walk: Vec2,
@@ -25,6 +28,8 @@ pub struct Controller {
     pub field_tool: bool,
     pub active: bool,
     pub end_turn: bool,
+    pub page_step: i8,
+    pub provisions: bool,
     #[cfg(target_os = "android")]
     pointer: Option<Vec2>,
     #[cfg(target_os = "android")]
@@ -71,7 +76,7 @@ mod android {
     };
     use ndk_sys as ndk;
 
-    use super::{Controller, Panel, focus_step};
+    use super::{Controller, FocusEnabled, Panel, focus_step};
     use crate::{
         farm_ui::{Choice, FarmMenu, FarmPage},
         session::Session,
@@ -253,6 +258,7 @@ mod android {
                 &'static ComputedNode,
                 &'static GlobalTransform,
                 &'static InheritedVisibility,
+                Option<&'static FocusEnabled>,
                 Option<&'static Choice>,
                 Option<&'static DialogueButton>,
             ),
@@ -393,6 +399,12 @@ mod android {
         controller.fertilizer = world && triggers.1 && !last.triggers.1;
         controller.field_tool = world && hit(14);
         controller.end_turn = layer == Some(Panel::Duel) && hit(7);
+        controller.provisions = layer == Some(Panel::Duel) && hit(6);
+        controller.page_step = if layer == Some(Panel::Farm) {
+            i8::from(hit(9)) - i8::from(hit(8))
+        } else {
+            0
+        };
         last.triggers = triggers;
         if hit(10) || (hit(5) && !world) {
             keyboard.write(escape(entity, ButtonState::Pressed));
@@ -412,8 +424,9 @@ mod android {
             let candidates: Vec<_> = targets
                 .buttons
                 .iter()
-                .filter_map(|(entity, node, pose, visible, button, dialogue)| {
+                .filter_map(|(entity, node, pose, visible, enabled, button, dialogue)| {
                     if !visible.get()
+                        || enabled.is_some_and(|state| !state.0)
                         || node.size().min_element() < 4.
                         || !targets.parents.iter_ancestors(entity).any(|parent| {
                             targets

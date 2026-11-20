@@ -5,7 +5,7 @@ pub const LAST_LEVEL: u32 = 25;
 pub const CAMP_INTERVAL: u32 = 5;
 const COPY_LIMIT: usize = 2;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Emblem {
     Strike,
     Guard,
@@ -15,14 +15,6 @@ pub enum Emblem {
 }
 
 impl Emblem {
-    pub const ALL: [Self; 5] = [
-        Self::Strike,
-        Self::Guard,
-        Self::Heal,
-        Self::Focus,
-        Self::Spore,
-    ];
-
     pub fn texture(self) -> &'static str {
         match self {
             Self::Strike => "ui/card_strike.png",
@@ -160,6 +152,10 @@ impl Card {
         self.spec().cost
     }
 
+    pub fn portrait(self) -> String {
+        format!("ui/portrait_card_{:02}.png", self as usize)
+    }
+
     pub fn emblem(self) -> Emblem {
         let spec = self.spec();
         if spec.spores > 0 {
@@ -203,6 +199,11 @@ impl Card {
         }
         if spec.draw > 0 {
             pieces.push(format!("{} ziehen", spec.draw));
+        }
+        match self {
+            Self::Scout => pieces.push("Nächster Treffer +4".into()),
+            Self::SeedShot => pieces.push("Verstärkt aktive Sporen".into()),
+            _ => {}
         }
         pieces.join(" · ")
     }
@@ -762,6 +763,7 @@ pub struct Battle {
     pub message: String,
     pub retreat_pending: bool,
     pub trial: Option<crate::waywatch::Trial>,
+    pub training: bool,
     pub pack_open: bool,
     pub ration_used: bool,
     pub style: Style,
@@ -776,6 +778,7 @@ pub struct Battle {
     spores: [u16; 2],
     charged: Option<u16>,
     armor_break: bool,
+    marked: bool,
     rng: u64,
 }
 
@@ -791,6 +794,18 @@ impl Battle {
         if trial.watch == crate::waywatch::Watch::Kiln {
             battle.enemy_guard = 3;
         }
+        battle
+    }
+
+    pub fn training() -> Self {
+        let mut battle = Self::encounter(1, Enemy::Mosskin, &Progress::default());
+        battle.training = true;
+        battle.enemy_max = 31;
+        battle.enemy_hp = battle.enemy_max;
+        battle.hand = vec![Card::BarkShield, Card::TwigStrike, Card::TrailRush, Card::SeedShot];
+        battle.drawing = vec![Card::LeafPoultice, Card::TrailRush, Card::BarkShield,
+                              Card::TwigStrike, Card::SeedShot];
+        battle.message = "Der Strohwächter greift für 8 an. Spiele Rindenschild und Asthieb, dann beende den Zug.".into();
         battle
     }
 
@@ -812,6 +827,7 @@ impl Battle {
             message: String::new(),
             retreat_pending: false,
             trial: None,
+            training: false,
             pack_open: false,
             ration_used: false,
             style: progress.style,
@@ -826,6 +842,7 @@ impl Battle {
             spores: [0; 2],
             charged: None,
             armor_break: false,
+            marked: false,
             rng: u64::from(level) * 0x85ebca77 + 0xc2b2ae35,
         };
         shuffle(&mut battle.drawing, &mut battle.rng);
@@ -866,6 +883,9 @@ impl Battle {
     }
 
     pub fn intent(&self) -> Intent {
+        if self.training {
+            return Intent::Attack(8);
+        }
         if let Some(damage) = self.charged {
             return if self.enemy_guard == 0 {
                 Intent::Stagger
@@ -898,6 +918,15 @@ impl Battle {
 
     pub fn card_description(&self, card: Card) -> String {
         card.description_with(self.strength)
+    }
+
+    pub fn conditions(&self) -> String {
+        match (self.marked, self.spores[0]) {
+            (true, 0) => "Spur erkannt · Nächster Treffer +4".into(),
+            (true, spores) => format!("Nächster Treffer +4 · {spores} Sporen vor dem Gegenzug"),
+            (false, spores) if spores > 0 => format!("{spores} Sporen vor dem Gegenzug"),
+            _ => String::new(),
+        }
     }
 
     fn draw(&mut self, count: u8) {
@@ -941,12 +970,13 @@ impl Battle {
             .hp
             .saturating_add(u16::from(spec.healing))
             .min(self.max_hp);
+        let marked_hit = spec.damage > 0 && std::mem::take(&mut self.marked);
         if spec.damage > 0 {
             if self.armor_break && self.enemy_guard > 0 {
                 self.enemy_guard = self.enemy_guard.saturating_sub(8);
                 self.armor_break = false;
             }
-            let power = u16::from(spec.damage) + u16::from(self.strength);
+            let power = u16::from(spec.damage) + u16::from(self.strength) + 4*u16::from(marked_hit);
             let absorbed = if spec.piercing {
                 0
             } else {
@@ -962,6 +992,17 @@ impl Battle {
         self.used.push(card);
         self.played_this_turn = self.played_this_turn.saturating_add(1);
         let mut effects = Vec::new();
+        if card == Card::Scout {
+            self.marked = true;
+            effects.push("Spur erkannt · nächster Treffer +4".into());
+        }
+        if marked_hit {
+            effects.push("Spur genutzt".into());
+        }
+        if card == Card::SeedShot && self.spores[0] > 0 {
+            self.spores[0] = self.spores[0].saturating_add(2);
+            effects.push("Sporen keimen · +2".into());
+        }
         if self.style == Style::Trail && self.played_this_turn == 3 {
             self.draw(1);
             effects.push("Windspur · eine Karte ziehen".into());
@@ -1013,7 +1054,7 @@ impl Battle {
                 self.hp = self.hp.saturating_sub(lost);
                 format!(
                     "{} greift an · {} Lebenspunkte verloren",
-                    self.enemy.name(),
+                    if self.training { "Der Strohwächter" } else { self.enemy.name() },
                     lost
                 )
             }
@@ -1140,6 +1181,22 @@ fn shuffle(items: &mut [Card], rng: &mut u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tracked_enemy_and_sown_spores_reward_play_order() {
+        let mut battle = Battle::new(1, &Progress::default());
+        battle.hand = vec![Card::Scout, Card::TwigStrike, Card::ReedSnare, Card::SeedShot];
+        assert!(battle.play(0));
+        let before = battle.enemy_hp;
+        assert!(battle.conditions().contains("+4"));
+        assert!(battle.play(0));
+        assert_eq!(before-battle.enemy_hp,11);
+        assert!(battle.play(0));
+        assert_eq!(battle.spores,[4,4]);
+        assert!(battle.play(0));
+        assert_eq!(battle.spores,[6,4]);
+        assert!(!battle.conditions().contains("+4"));
+    }
 
     #[test]
     fn a_deck_needs_twelve_owned_cards_and_at_most_two_copies() {

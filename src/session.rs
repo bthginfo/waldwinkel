@@ -162,7 +162,8 @@ impl SaveSlots {
         let garden = match Garden::load(&self.files[index]) {
             Ok(garden) => garden,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                let garden = Garden::default();
+                let mut garden = Garden::default();
+                garden.prologue = Some(Default::default());
                 garden.save(&self.files[index])?;
                 garden
             }
@@ -462,18 +463,18 @@ pub fn input(
                     &path,
                     &mut notice,
                     time.elapsed_secs(),
-                    "Auftrag gestartet · Dein erster Morgen".into(),
+                    "Prolog gestartet · Dein erster Morgen".into(),
                     None,
                     None,
                 );
             }
-            farm_menu.close();
+            farm_menu.back();
             *gesture = Gesture::default();
             *controls = Controls::default();
             return;
         }
         if dialog.open() {
-            dialog.close();
+            dialog.back();
             *gesture = Gesture::default();
             *controls = Controls::default();
             return;
@@ -701,7 +702,7 @@ pub fn update(
     ready: Res<Ready>,
     mut overlay: Query<(&MenuScreen, &mut Node)>,
     mut texts: Query<(&MenuText, &mut Text)>,
-    mut buttons: Query<(&MenuButton, &Interaction, &mut BackgroundColor)>,
+    mut buttons: Query<(&MenuButton, &Interaction, &mut BackgroundColor, &mut crate::controller::FocusEnabled)>,
 ) {
     for (screen, mut node) in &mut overlay {
         let display = if screen.0 == session.screen {
@@ -797,7 +798,7 @@ pub fn update(
             text.0 = value;
         }
     }
-    for (button, interaction, mut bg) in &mut buttons {
+    for (button, interaction, mut bg, mut focus) in &mut buttons {
         let enabled = match button {
             MenuButton::Slot(i) => {
                 #[cfg(target_os = "android")]
@@ -809,6 +810,7 @@ pub fn update(
             }
             _ => true,
         };
+        focus.0 = enabled;
         let color = ui::button_color(*interaction, enabled);
         if bg.0 != color {
             bg.0 = color;

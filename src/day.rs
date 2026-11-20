@@ -69,8 +69,14 @@ impl FarmClock {
     }
 }
 
-pub fn tick(time: Res<Time>, ready: Res<Ready>, mut garden: ResMut<Garden>) {
-    if ready.0 && garden.clock.minute() < MIDNIGHT {
+pub fn tick(
+    time: Res<Time>,
+    ready: Res<Ready>,
+    menu: Res<crate::farm_ui::FarmMenu>,
+    dialog: Res<crate::town::Dialog>,
+    mut garden: ResMut<Garden>,
+) {
+    if ready.0 && garden.clock.minute() < MIDNIGHT && !menu.open() && !dialog.open() {
         garden.clock.advance(time.delta_secs());
     }
 }

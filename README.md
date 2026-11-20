@@ -1,13 +1,29 @@
-# Waldwinkel 1.8.0
+# Waldwinkel 1.9.0
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
-![Die verbundene Insel mit Gebirgspässen und Flusstälern](docs/13-insel.jpg)
+![Die zusammenhängende Insel mit Gebirgspässen und Flusstälern](docs/190-insel.jpg)
 
 ## Installieren
 
 - Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://github.com/bthginfo/waldwinkel/releases/latest/download/Waldwinkel-Android.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
+
+## Neu in 1.9.0
+
+- **Spielbarer Prolog.** Ein neuer Spielstand beginnt mit der Ankunft auf dem Hof. Der Prolog zeigt das jeweilige Ziel im Spiel und prüft den Handgriff. Du bestellst ein Beet, fällst einen Baum, baust Stein ab, reparierst die Werkbank, erntest, kochst und spielst ein Übungsduell. Danach zeigt dir die Inselkarte den Weg zu Bo und zur Hauptgeschichte.
+- **Hofbuch.** Unter **Journal → Hofbuch** findest du je drei Ränge für Gartenbau, Werkstatt, Hofküche, Inselkunde und Duellkunst. Neben Belohnungen bringen die Ränge häufiger Saatgut, eine zusätzliche Portion bei sauberer Zubereitung oder mehr Bretter pro Charge.
+- **Beetplanung.** Kürbisse mit großen Blättern halten in den Nachbarbeeten die Feuchtigkeit. Sonnenblumen können die Qualität benachbarter Tomaten und Erdbeeren verbessern. Diese zwei Kulturen tragen nach der Ernte erneut.
+- **Hofküche.** Zutaten schneiden, im richtigen Moment rühren und abschöpfen. Beim Einmachen zählt die Zutatenfolge und der Moment zum Verschließen. Beim Mahlen kurbelst du abwechselnd links und rechts. Einzelne Schritte haben eigene Geräusche und sichtbare Rückmeldungen.
+- **Kartenkampf.** Alle 18 Karten haben eigene Illustrationen. Beim Spielen fliegt die Karte aus der Hand. Gegner reagieren auf Treffer, und Werte und Klänge zeigen an, was gerade passiert. Mit „Spuren lesen“ bereitest du einen stärkeren Treffer vor. „Samenwurf“ verstärkt aktive Sporen.
+- **Xbox-Steuerung.** Das Steuerkreuz markiert Orte und Figuren auf der Karte. A startet die Route. B geht in Untermenüs eine Ebene zurück und behält die Auswahl. Der Menüfokus überspringt ausgegraute Aktionen. Mit LB und RB blätterst du in längeren Listen.
+- **Insel und Innenräume.** Wald, Strand, Stadt, Klamm, Weiden, Moor und Hof haben örtliche Pflanzen, Gesteine und Wegränder. Holz, Gewebe, Erde und Metall haben eigene Oberflächen. In der Hütte, der Mine und den Dämmergängen setzen Laternen und Kristalle Lichtakzente.
+
+### Spielaufnahmen
+
+[Inselübersicht](docs/190-insel.jpg) · [Hof](docs/190-hof.jpg) · [Farnwald](docs/190-farnwald.jpg) · [Muschelbucht](docs/190-muschelbucht.jpg) · [Eichenhafen](docs/190-eichenhafen.jpg) · [Kupferklamm](docs/190-kupferklamm.jpg) · [Windweiden](docs/190-windweiden.jpg) · [Nebelmoor](docs/190-nebelmoor.jpg)
+
+[Holzhütte](docs/190-holzhuette.jpg) · [Mine](docs/190-mine.jpg) · [Dämmergänge](docs/190-daemmergaenge.jpg) · [Prolog](docs/190-prolog.jpg) · [Hofküche](docs/190-kochen.jpg) · [Kartenkampf](docs/190-kartenkampf.jpg)
 
 ## Neu in 1.8.0
 
@@ -172,7 +188,8 @@ Im Startmenü kannst du auf bis zu drei getrennten Plätzen ein **Neues Spiel** 
 ### Steuerung
 
 - **Touch.** Tippe auf Boden, Gegenstände oder Figuren. Drücke die rechte Aktionstaste, um den gewählten Gegenstand zu benutzen oder eine Figur anzusprechen. Tippe auf ein Namensschild auf der Karte, um zu dieser Figur zu laufen.
-- **Xbox-Controller auf Android.** Links/rechts am Steuerkreuz wählt Ziele, oben öffnet das Journal und unten die Tasche. **View** öffnet ebenfalls die Tasche. Mit **LT** wählst du Saatgut oder Möbel, mit **RT** düngst du. **LB/RB** zoomen. **Menü** pausiert im Gelände. In Menüs nimm den linken Stick oder das Steuerkreuz und bestätige mit **A**. Der rechte Stick steuert den Zeiger. Drücke ihn am Hof hinein, um das Feldwerkzeug zu wechseln.
+- **Xbox auf Android, in der Welt.** Der linke Stick bewegt den Tanuki. Links/rechts am Steuerkreuz wechselt das Ziel, **A** wählt oder bestätigt es und **X** führt eine nahe Aktion direkt aus. **↑** öffnet das Journal, **↓** und **View** die Tasche. **LT** öffnet Saatgut oder Möbel, **RT** düngt am gewählten Beet, **R3** wechselt das Feldwerkzeug. **LB/RB** zoomen, **Y** öffnet die Karte und **Menü** pausiert. Der rechte Stick steuert den Zeiger.
+- **Xbox in Menüs und auf der Karte.** Linker Stick oder Steuerkreuz wechselt den Menüfokus. **A** bestätigt, **B** geht zurück und **LB/RB** blättern. Auf der Karte wählst du mit links/rechts am Steuerkreuz einen Ort oder eine Figur und startest die Route mit **A**. Im Kampf spielt **A** die markierte Karte, **Y** beendet den Zug und **X** öffnet verfügbaren Proviant.
 - **Tastatur und Maus.** WASD und Pfeiltasten bewegen den Tanuki. Tab wechselt das Beet, Leertaste führt die Aktion aus. Das Mausrad zoomt. R wechselt das Feldwerkzeug. M öffnet die Karte, E die Saatguttasche, Q das Journal und I die Tasche. Im Kampf spielen die Ziffern 1–8 eine Karte aus. Leertaste oder Enter beenden den Zug. F10 blendet das HUD aus, F12 speichert ein Spielbild.
 
 ## Projekt ausführen und bauen
@@ -197,7 +214,7 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 - `art/Waldwinkel.blend` enthält die Modelle und eine Gesamtansicht der Landschaft. `blender -b -P art/build_scene.py` exportiert die Modelle als GLB und erzeugt das Höhenfeld für Ufer, Brücken und Hindernisse. Bevy animiert Beine, Schuhe, Arme und den Schweif des Tanuki über getrennte Drehpunkte.
 - `art/draw_icons.py` zeichnet die HUD-Symbole und das App-Icon. Die verwendeten Schriften sind DM Sans und DM Serif Text mit beigefügter OFL-Lizenz.
-- `art/draw_inventory.py` zeichnet die Gegenstandsbilder. `art/build_audio.py` erzeugt Originalmusik, Umgebungsklänge und Effekte.
+- `art/draw_inventory.py` zeichnet die Gegenstandsbilder. `art/draw_card_portraits.py` erzeugt die Illustrationen für Karten und Kochstationen. `art/render_score.py` rendert die Musik. `art/build_audio.py` und `art/action_audio.py` erzeugen Umgebungsklänge und Effekte. [Quellen der Aufnahmen](docs/audio.md)
 - Android leitet Controller-Ereignisse aus der NDK-Eingabewarteschlange an dasselbe Spiel- und UI-Eingabesystem weiter wie Touch. Die Schnittstelle liegt in `src/controller.rs`.
 - Blender liefert die Regen- und Schneemodelle. Bevy animiert den Niederschlag, färbt die Außenansicht nach Wetter und Jahreszeit und zeigt gegossenen Boden.
 - Blender exportiert saisonales Laub, Schneeauflagen und Fensterlicht als getrennte GLB-Ebenen. Beim Backen entsteht auch ein Höhenfeld für Regendach und Baumkronen. Die Wiesen verwenden ein gemeinsames Mesh mit saisonalen Vertexfarben. Die Niederschlagspartikel werden wiederverwendet.
@@ -209,11 +226,14 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 - **Blender Motion State Inspection** und **Character Rigging** für Achsen, Gelenkpunkte und Fußkontakt. **Blender Weather FX** ist eine Referenz für spätere Wetter-Looks und Oberflächenmasken. [Motion State Inspection](https://skills.sh/affaan-m/ecc/blender-motion-state-inspection), [Character Rigging](https://skills.sh/el4cteo/blender-skills/blender-character-rigging), [Weather FX](https://skills.sh/el4cteo/blender-skills/blender-weather-fx)
 - **Bevy 3D Lighting** und **Bevy VFX** für Tiefennebel, lokale Lichtflächen und eine wiederverwendete Partikelmenge. Die Umsetzung verwendet Bevy 0.16.1. [Bevy 3D Lighting](https://skills.sh/thedivergentai/game-dev-agentic-skills/bevy-3d-lighting) · [Bevy VFX](https://skills.sh/chrisgliddon/bevy-skills/bevy-vfx)
 - **Physics Tuning** und Rapier-Referenz für begrenzte Bewegungsschritte und das Gleiten entlang von Hindernissen. Waldwinkel verwendet sein Bevy-Höhenfeld für die kinematische Bewegung. [Physics Tuning](https://skills.sh/gamedev-skills/awesome-gamedev-agent-skills/physics-tuning) · [Rapier Character Controller](https://rapier.rs/docs/user_guides/bevy_plugin/character_controller/)
+- **Game Feel**, **Game UI/UX** und **Audio Design** für lesbare Aktionssignale, bedienbare Menüs und kurze, auf die Animation abgestimmte Klänge. [Game Feel](https://gameskill.dev/skills/game-feel) · [Game UI/UX](https://gameskill.dev/skills/game-ui-ux) · [Audio Design](https://gameskill.dev/skills/audio-design)
 
 ## Tests
 
-74 Rust-Tests prüfen neben Hof, Handwerk und Dämmergängen die neuen Kampfstile, das Lichtfest ohne Expedition, den Weg vom Hafen zur Farnwacht und das Wiederherstellen einer Sicherung. Einstieg und Navigation wurden im Spiel getestet. Die Lichtfest-Szene wurde mit einem vorbereiteten Spielstand aufgerufen. Im Android-14-Emulator blieben drei Testspielstände beim Update erhalten. Im Android-16-Emulator wurde ein Spielstand über den internen Speicher exportiert und in einen freien Platz importiert. Bewegung, Tasche und Karte funktionierten mit einem virtuellen Xbox-Profil. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen als Geräte- und Spielzeitprüfungen aus.
+90 Rust-Tests prüfen den Prolog bis zum Start der Geschichte, die Wegverbindungen, das Speichern, die Menünavigation und die Systeme für Hof, Handwerk und Kampf. Dazu kommen Prüfungen der 226 GLB-Dateien und Aufnahmen aus dem laufenden Spiel. Beim Update im Android-14-Emulator blieben drei vorhandene Testspielstände erhalten. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen aus.
 
 Die Blender-Landschaften entstanden nach eigenen Bildreferenzen. [Insel und Pässe](art/references/insel.jpg) · [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)
 
 Für den Hausausbau dienten Baupläne und Handwerksfortschritt in Palia sowie der Kauf von Haus- und Stallausbauten beim Schreiner in Coral Island als Referenzen. [Palia](https://palia.com/news/dev-update-8) · [Coral Island](https://blog.stairwaygames.com/post/october-2021-dev-update)
+
+Der Prolog und das Hofbuch greifen zwei Ideen auf. Tätigkeiten lassen sich durch Ausprobieren lernen, und die Arbeit am eigenen Hof trägt zur Entwicklung der Insel bei. [Palia über Berufe](https://palia.com/news/the-skills-of-palia) · [Coral Island über den Stadtrang](https://blog.stairwaygames.com/post/december-2021-dev-update)

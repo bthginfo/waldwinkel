@@ -362,8 +362,16 @@ def terrain_models(api):
         for a,b in zip(rows,rows[1:]):
             if min(a[1][2],b[1][2])<-.38:
                 continue
+            x,z,_=a[1]
+            dark,bright='cbad7d','ead1a1'
+            if x < -107.:
+                dark,bright='9b906d','c7b892'
+            elif x > 107. and z < 65.:
+                dark,bright='b9936d','d7b286'
+            elif beach_mix(x,z) > .58 and z < 61.:
+                dark,bright='d5b888','eee0b1'
             for lane in range(3):
-                tint=blend('cbad7d','ead1a1',rng.uniform(.25,.84))
+                tint=blend(dark,bright,rng.uniform(.25,.84))
                 if lane!=1:
                     tint=blend(tint,'b7b879',.53)
                 paths.face([a[lane],b[lane],b[lane+1],a[lane+1]],tint,'ground')

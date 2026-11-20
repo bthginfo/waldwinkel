@@ -453,6 +453,13 @@ impl Dialog {
     pub fn close(&mut self) {
         *self = Self::default();
     }
+    pub fn back(&mut self) {
+        if self.trading {
+            self.trading = false;
+        } else {
+            self.close();
+        }
+    }
     fn product(&self, garden: &Garden) -> Option<Product> {
         Product::at(self.index, garden).or_else(|| Product::at(0, garden))
     }
@@ -702,6 +709,7 @@ pub fn update(
             &mut Node,
             &Interaction,
             &mut BackgroundColor,
+            &mut crate::controller::FocusEnabled,
         ),
         Without<DialoguePane>,
     >,
@@ -819,7 +827,7 @@ pub fn update(
             text.0 = caption.into();
         }
     }
-    for (button, mut node, interaction, mut bg) in &mut buttons {
+    for (button, mut node, interaction, mut bg, mut focus) in &mut buttons {
         let shown = match button {
             DialogueButton::Trade => (merchant.is_some() || npc == Npc::Runa) && !dialog.trading,
             DialogueButton::Pick | DialogueButton::Deal | DialogueButton::Back => dialog.trading,
@@ -855,6 +863,7 @@ pub fn update(
             DialogueButton::Trade if npc == Npc::Runa => garden.clock.market_open(),
             _ => true,
         };
+        focus.0 = shown && enabled;
         let color = ui::button_color(*interaction, enabled);
         if bg.0 != color {
             bg.0 = color;

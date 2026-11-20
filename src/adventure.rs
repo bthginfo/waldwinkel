@@ -347,6 +347,15 @@ pub const LANDMARKS: [(&str, Target); 9] = [
     ("Dämmergänge", Target::DuskGate),
 ];
 
+pub fn map_destination(target: Target, garden: &Garden) -> Target {
+    if let Target::Travel(district) = target {
+        return Frontier::for_district(district)
+            .filter(|gate| !gate.unlocked(garden))
+            .map_or(target, Target::Gate);
+    }
+    target
+}
+
 pub fn landmark_center(
     camera: &Camera,
     view: &GlobalTransform,
@@ -371,7 +380,7 @@ pub fn tracked_pin(
     view: &GlobalTransform,
     scale: f32,
 ) -> Option<(Target, Vec2)> {
-    if !adventure.area.outdoors() {
+    if !adventure.area.outdoors() && garden.prologue.is_none() {
         return None;
     }
     let target = adventure.tracked_target(garden)?;
@@ -387,6 +396,10 @@ pub fn tracked_pin(
             Target::WatchTrace(_) => 1.12,
             Target::Person(_) => 2.18,
             Target::Bench | Target::Forge | Target::Loom | Target::HarborBoard => 1.72,
+            Target::Door => 1.76,
+            Target::Bed | Target::Binder | Target::Exit | Target::Rock(_) => 1.32,
+            Target::Kitchen => 2.56,
+            Target::Tree(_) => 2.75,
             Target::Resonator(_) => 2.54,
             _ => return None,
         };
@@ -415,6 +428,7 @@ pub struct Adventure {
     pub furniture: usize,
     pub tracked: Option<Guide>,
     pub map: bool,
+    pub map_focus: Option<Target>,
     pub zoom: f32,
     waiting: Option<(Target, f32, f32)>,
     queued: Option<Target>,
@@ -588,6 +602,12 @@ fn dusk_cell(cell: u16) -> Vec2 {
 
 impl Adventure {
     pub fn tracked_target(&self, garden: &Garden) -> Option<Target> {
+        if let Some(lesson) = crate::tutorial::Prologue::current(garden) {
+            if lesson.action().is_some() && garden.clock.night() {
+                return crate::tutorial::Lesson::Sleep.target(garden, self.area);
+            }
+            return lesson.target(garden, self.area);
+        }
         self.tracked
             .and_then(|guide| guide.target(garden))
             .or_else(|| Guide::BuildPlan.target(garden))
@@ -974,6 +994,9 @@ impl Adventure {
         player: Vec2,
         now: f32,
     ) -> (String, String, &'static str, bool) {
+        if self.map && self.area.outdoors() && let Some(target) = self.map_focus {
+            return (target.name().into(), "Steuerkreuz · Ziel wechseln   A · Hinlaufen   B · Zurück".into(), "Hinlaufen", true);
+        }
         if let Some(target) = self.focus {
             let walking = self.queued == Some(target);
             if let Some(reason) = target.restriction(garden) {
@@ -1201,6 +1224,7 @@ impl Adventure {
         if self.area == Area::Island
             && player.length() < 15.
             && garden.onboarding != Onboarding::Done
+            && garden.prologue.is_none()
         {
             return (
                 "Dein erster Morgen".into(),
@@ -1266,6 +1290,7 @@ impl Adventure {
         self.strike = None;
         self.waiting = None;
         self.map = false;
+        self.map_focus = None;
         match area {
             Area::Mine(depth) => self.layout = MineFloor::generate(depth),
             Area::Expedition(level) => self.layout = MineFloor::expedition(level),
@@ -1546,10 +1571,12 @@ pub fn select(
     let (player, pose) = &mut *player;
     if controls.cancel {
         adventure.map = false;
+        adventure.map_focus = None;
         adventure.focus = None;
         adventure.queued = None;
         adventure.waiting = None;
-        *focus = GardenFocus::default();
+        focus.selected = None;
+        focus.pending = None;
         player.stop();
         return;
     }
@@ -1563,6 +1590,37 @@ pub fn select(
         }
     }
     let (camera, view) = *camera;
+    if adventure.map && adventure.area.outdoors() {
+        controls.move_axis = Vec2::ZERO;
+        if controls.pad_cycle != 0 {
+            let mut destinations: Vec<_> = LANDMARKS.into_iter()
+                .map(|(_, target)| map_destination(target, &garden))
+                .chain(Npc::ALL.into_iter().filter(|npc| npc.available(&garden)).map(Target::Person))
+                .collect();
+            if let Some(quest) = adventure.tracked_target(&garden).filter(|quest| !destinations.contains(quest)) {
+                destinations.push(quest);
+            }
+            let right = view.compute_transform().right().xz();
+            destinations.sort_by(|&a, &b| adventure.position(a, &garden).dot(right)
+                .total_cmp(&adventure.position(b, &garden).dot(right)));
+            let current = destinations.iter().position(|&target| Some(target) == adventure.map_focus);
+            let end = destinations.len() as isize;
+            let next = current.map_or_else(|| if controls.pad_cycle < 0 { end-1 } else { 0 },
+                |i| (i as isize + controls.pad_cycle as isize).rem_euclid(end));
+            adventure.map_focus = destinations.get(next as usize).copied();
+            return;
+        }
+        if controls.pad_action && controls.act {
+            if let Some(target) = adventure.map_focus.take().or_else(|| adventure.tracked_target(&garden)) {
+                adventure.map = false;
+                adventure.focus = Some(target);
+                player.stop();
+                player.navigate(adventure.reach(target, &garden), &adventure, &garden);
+            }
+            controls.act = false;
+            return;
+        }
+    }
     let auto = controls.pad_action && focus.selected.is_none() && adventure.focus.is_none();
     if !adventure.map && (controls.pad_cycle != 0 || auto) {
         let point = player.position;
@@ -1585,12 +1643,14 @@ pub fn select(
             })
             .collect();
         let closest = || -> Option<PadTarget> {
-            let tutorial = match garden.onboarding {
+            let tutorial = crate::tutorial::Prologue::current(&garden)
+                .and_then(crate::tutorial::Lesson::action)
+                .or(match garden.onboarding {
                 Onboarding::Till => Some(crate::garden::Action::Till),
                 Onboarding::Sow => Some(crate::garden::Action::Sow),
                 Onboarding::Water => Some(crate::garden::Action::Water),
                 _ => None,
-            };
+                });
             let heading = (pose.rotation * Vec3::Z).xz();
             let tracked = adventure.tracked_target(&garden);
             targets
@@ -1604,7 +1664,7 @@ pub fn select(
                                 if tutorial.is_some()
                                     && garden.action(i, adventure.crop) == tutorial =>
                             {
-                                9.
+                                if crate::tutorial::suggested_plot(&garden) == Some(i) { 12. } else { 9. }
                             }
                             PadTarget::Plot(i)
                                 if focus.tool != crate::fieldwork::FieldTool::Auto
@@ -1702,13 +1762,7 @@ pub fn select(
                         landmark_offset(target),
                     )?;
                     let delta = (at - center).abs() / layout.scale;
-                    let destination = if let Target::Travel(district) = target {
-                        Frontier::for_district(district)
-                            .filter(|gate| !gate.unlocked(&garden))
-                            .map_or(target, Target::Gate)
-                    } else {
-                        target
-                    };
+                    let destination = map_destination(target, &garden);
                     (delta.x <= 53. && delta.y <= 12.)
                         .then_some((destination, delta.length_squared()))
                 })
@@ -1726,6 +1780,7 @@ pub fn select(
     player.stop();
     let was_map = adventure.map;
     adventure.map = false;
+    adventure.map_focus = None;
     if let Some(target) = landmark {
         adventure.focus = Some(target);
         if was_map {
@@ -1834,10 +1889,20 @@ pub fn interact(
 ) {
     if controls.zoom != 0. {
         adventure.map = false;
+        adventure.map_focus = None;
         adventure.zoom = (adventure.zoom + controls.zoom).clamp(-0.7, 1.25);
     }
     if controls.map {
         adventure.map = !adventure.map;
+        adventure.map_focus = None;
+        if adventure.map {
+            adventure.focus = None;
+            adventure.queued = None;
+            adventure.waiting = None;
+            focus.selected = None;
+            focus.pending = None;
+            player.0.stop();
+        }
     }
     if controls.inventory {
         farm_menu.show(FarmPage::Inventory);
@@ -2211,6 +2276,9 @@ pub fn interact(
                 return;
             }
             garden.broken.push(i);
+            if let Some(prologue) = &mut garden.prologue {
+                prologue.quarried = true;
+            }
             let quantity = garden.stone_per_rock();
             garden.stone = garden.stone.saturating_add(quantity);
             adventure.focus = None;
@@ -2698,6 +2766,9 @@ pub fn draw(
                 preview_slot,
             } => {
                 spawn("interior", HOME, 0., 0.);
+                for point in [Vec2::new(-2.4, -1.64), Vec2::new(2.36, -1.63)] {
+                    spawn("lamplight_pool", HOME + point, 0.034, 0.);
+                }
                 spawn(
                     "bedroom_bed",
                     adventure.position(Target::Bed, &garden),
@@ -2757,23 +2828,26 @@ pub fn draw(
                     }
                 }
                 for &cell in &adventure.layout.cells {
+                    let mut support = None;
                     if cell % 4 == 1 && cell < 72 && adventure.layout.cells.contains(&(cell + 9)) {
-                        spawn(
-                            "mine_support",
+                        support = Some((
                             cell_position(cell) + Vec2::Y * TILE * 0.48,
                             0.,
-                            0.,
-                        );
+                        ));
                     } else if cell % 5 == 2
                         && cell % 9 < 8
                         && adventure.layout.cells.contains(&(cell + 1))
                     {
-                        spawn(
-                            "mine_support",
+                        support = Some((
                             cell_position(cell) + Vec2::X * TILE * 0.48,
-                            0.,
                             std::f32::consts::FRAC_PI_2,
-                        );
+                        ));
+                    }
+                    if let Some((point, angle)) = support {
+                        spawn("mine_support", point, 0., angle);
+                        spawn("lamplight_pool", point, 0.045, angle);
+                    } else if *depth >= 3 && cell % 7 == 0 {
+                        spawn("crystallight_pool", cell_position(cell), 0.044, 0.);
                     }
                 }
                 for &cell in &adventure.layout.ores {
@@ -2827,6 +2901,14 @@ pub fn draw(
                             -0.02,
                             angle,
                         );
+                        if decoration == 0 || (decoration == 1 && chapter == Chapter::Mist) {
+                            spawn(
+                                if chapter == Chapter::Mist { "crystallight_pool" } else { "lamplight_pool" },
+                                p + offset * 0.48,
+                                0.052,
+                                angle,
+                            );
+                        }
                     }
                 }
                 spawn(

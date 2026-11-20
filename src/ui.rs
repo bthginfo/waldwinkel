@@ -311,12 +311,12 @@ pub fn map_labels(
     garden: Res<Garden>,
     layout: Res<HudLayout>,
     camera: Single<(&Camera, &Transform), With<IslandCamera>>,
-    mut labels: Query<(&Landmark, &mut Node, &mut Visibility)>,
+    mut labels: Query<(&Landmark, &mut Node, &mut Visibility, &mut BackgroundColor)>,
     mut pin: Single<(&mut Node, &mut Visibility), (With<TrackedPin>, Without<Landmark>)>,
 ) {
     let (camera, pose) = *camera;
     let view = GlobalTransform::from(*pose);
-    for (label, mut node, mut visible) in &mut labels {
+    for (label, mut node, mut visible, mut background) in &mut labels {
         let position = if adventure.map && adventure.area.outdoors() {
             landmark_center(
                 camera,
@@ -333,6 +333,12 @@ pub fn map_labels(
             *visible = Visibility::Inherited;
             node.left = px(p.x / layout.scale - 53.);
             node.top = px(p.y / layout.scale - 12.);
+            let active = adventure.map_focus == Some(crate::adventure::map_destination(label.0, &garden));
+            background.set_if_neq(BackgroundColor(if active {
+                Color::srgb_u8(145, 95, 37)
+            } else {
+                Color::srgba(0.19, 0.33, 0.26, 0.87)
+            }));
         } else {
             *visible = Visibility::Hidden;
         }
@@ -503,7 +509,7 @@ pub fn button_color(interaction: Interaction, enabled: bool) -> Color {
     }
 }
 
-pub fn dialog_button(width: f32) -> (Button, Node, BorderRadius, BackgroundColor) {
+pub fn dialog_button(width: f32) -> (Button, Node, BorderRadius, BackgroundColor, crate::controller::FocusEnabled) {
     (
         Button,
         Node {
@@ -516,6 +522,7 @@ pub fn dialog_button(width: f32) -> (Button, Node, BorderRadius, BackgroundColor
         },
         BorderRadius::all(px(12.)),
         BackgroundColor(button_color(Interaction::None, true)),
+        crate::controller::FocusEnabled(true),
     )
 }
 
@@ -1069,6 +1076,10 @@ pub fn update(
         sky: Sky::at(garden.day),
         season: Season::at(garden.day),
     };
+    if controller.active && adventure.map && adventure.area.outdoors() && adventure.map_focus.is_none() {
+        panel.title = "Inselkarte".into();
+        panel.detail = "Steuerkreuz links/rechts · Ziel wählen   B · Zurück".into();
+    }
     if let Some(index) = focus.selected {
         let plot = garden.plots[index];
         let stage = plot.stage();
@@ -1106,6 +1117,14 @@ pub fn update(
             panel
                 .detail
                 .push_str(&format!(" · Dünger {}", garden.fertilizer));
+        }
+        if matches!(stage, Stage::Sprout | Stage::Young | Stage::Ripe) {
+            let nearby = garden.companion(index);
+            if nearby.shade {
+                panel.detail.push_str(" · Kürbisschatten hält Wasser");
+            } else if nearby.flowers && matches!(plot.crop(), crate::garden::Crop::Strawberry | crate::garden::Crop::Tomato) {
+                panel.detail.push_str(" · Bestäubt");
+            }
         }
         if focus.tool != crate::fieldwork::FieldTool::Auto
             && let Some(action) = panel.action

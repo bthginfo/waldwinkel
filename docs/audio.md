@@ -4,6 +4,8 @@ Die Musik von Waldwinkel ist eine eigene Komposition aus zwei gleich langen Spur
 
 Die kurzen Rückmeldungen für Gartenarbeit, Handwerk und Duelle sind getrennt abgemischt. Beim Fällen ertönt der Axtschlag beim ersten Kontakt, dann splittert das Holz, und beim Auftreffen des Stamms folgt der Aufprall. Unterschiedliche Aufnahmen und kleine Abweichungen in Tonhöhe und Lautstärke variieren wiederholte Aktionen. [GameSkill Audio Design](https://gameskill.dev/skills/audio-design)
 
+Im Kartenkampf hört man zuerst das Gleiten des Papiers. Treffer, Schild und Sporen klingen mit dem Effekt an. Beim Kochen hört man das Messer auf dem Brett, das Rühren und das fertige Gericht. Glas und Handmühle verwenden andere Geräusche. `python art/action_audio.py` mischt diese Rückmeldungen aus den mitgelieferten Ausschnitten und kurzen Resonanzen.
+
 ## Aufnahmen
 
 - Klavier aus der **VS Chamber Orchestra Community Edition**, aufgenommen von Simon Dalzell. Harfe aus derselben Bibliothek. Lizenz CC0 1.0. [VSCO 2 CE](https://github.com/sgossner/VSCO-2-CE/tree/440300901dfe9275fd84e0b7763af1f8443ae62e)

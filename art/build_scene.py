@@ -29,6 +29,8 @@ import surface_art
 import village_art
 import figure_art
 import depth_art
+import region_art
+import room_art
 from harvestable import Harvestables, LEAF
 from season_art import SeasonalArt, gathering_assets
 OUT = ROOT / "assets" / "models"
@@ -2372,7 +2374,7 @@ def effects():
     return [*clouds, marker, shadow]
 
 
-def light_color(color, normal, pos, mode, bvh):
+def light_color(color, normal, pos, mode, bvh, local=False):
     if mode=="raw":
         return (*map(linear,color[:3]), color[3] if len(color)==4 else 1)
     if mode=="light":
@@ -2381,12 +2383,12 @@ def light_color(color, normal, pos, mode, bvh):
     direct = abs(normal.dot(SUN)) if mode=="leaf" else max(0.,normal.dot(SUN))
     occlusion = 0.
     shadow = 0.
-    if bvh and pos.z>-.50:
+    if bvh and (local or pos.z>-.50):
         origin = pos+normal*.026
-        if direct > .01:
+        if direct > .01 and not local:
             shadow=sum(bvh.ray_cast(origin,direction,28)[0] is not None
                        for direction in SOFT_SUN)/len(SOFT_SUN)
-        reach = 1.25 if mode in ("ground","stone") and upper>.48 else .64
+        reach = .37 if local else (1.25 if mode in ("ground","stone") and upper>.48 else .64)
         occlusion=sum(bvh.ray_cast(origin,direction,reach)[0] is not None
                       for direction in AMBIENT_RAYS if direction.dot(normal)>.12)/len(AMBIENT_RAYS)
     sunshine = direct*(1.-shadow)
@@ -2400,7 +2402,7 @@ def light_color(color, normal, pos, mode, bvh):
     return (*result,1)
 
 
-def build_object(model, bvh, material, collection, offset, finishes):
+def build_object(model, bvh, material, collection, offset, finishes, local=False):
     mesh=bpy.data.meshes.new(model.name)
     mesh.from_pydata(model.vertices,[],model.faces)
     mesh.update()
@@ -2425,7 +2427,7 @@ def build_object(model, bvh, material, collection, offset, finishes):
             vertex=mesh.vertices[mesh.loops[loop_index].vertex_index]
             v=vertex.co*.88+sampling+offset
             tint, style = (color[corner], "raw") if mode=="gradient" else (color, mode)
-            attr.data[loop_index].color=light_color(tint,normal,v,"raw" if figure else style,bvh)
+            attr.data[loop_index].color=light_color(tint,normal,v,"raw" if figure else style,bvh,local)
             if mode in finish_indices:
                 uv.data[loop_index].uv=surface_art.uv(vertex.co,normal,mode)
     if model.pivot is not None:
@@ -2772,6 +2774,9 @@ def generate():
     world.extend(depth_art.models(SimpleNamespace(
         Model=Model,landscape=landscape,seasonal=seasonal,grass=grass,flowers=flowers,fern=fern)))
     RNG.setstate(existing_rng)
+    world.extend(region_art.models(SimpleNamespace(
+        Model=Model,landscape=landscape,grass=grass,flowers=flowers,fern=fern)))
+    RNG.setstate(existing_rng)
     terrain=landscape.terrain_models(SimpleNamespace(Model=Model, blend=blend))
     landscape.bake_heightmap(ROOT)
     resources=resource_models()
@@ -2788,6 +2793,14 @@ def generate():
     RNG.setstate(prev_rng)
     extra.extend(harvest.bake(ROOT))
     extra.extend([seasonal.wood_snow, seasonal.night_windows])
+    room_art.refine(extra, lantern)
+    extra.extend(room_art.lighting(Model))
+    extra.append(room_art.practice_dummy(Model))
+    for model in extra:
+        if figure_art.is_figure(model.asset):
+            continue
+        model.colors=[(tint,surface_art.finish_for(model.asset,tint,style))
+                      for tint,style in model.colors]
     exterior=[*world,*districts,*terrain,*seasonal.layers.values()]
     exterior_assets={model.asset for model in exterior}
     offsets={asset:Vector(point(*location,0)) for asset,location in landscape.ORIGINS.items()}
@@ -2827,9 +2840,14 @@ def generate():
             coll=bpy.data.collections.new(name)
             master.children.link(coll)
             collections[m.asset]=coll
-        surface=lantern_light if m.asset in ("evening_market_pool","shadow") else material
-        obj=build_object(m,shadow if m.asset in exterior_assets else None,surface,
-                         collections[m.asset],offsets.get(m.asset,zero),finishes)
+        alpha=m.asset.endswith("_pool") or m.asset=="shadow"
+        surface=lantern_light if alpha else material
+        local=(m.asset not in exterior_assets and m.casts and len(m.faces)>40
+               and not alpha and not figure_art.is_figure(m.asset))
+        lighting=BVHTree.FromPolygons(m.vertices,m.faces) if local else (
+            shadow if m.asset in exterior_assets else None)
+        obj=build_object(m,lighting,surface,collections[m.asset],
+                         offsets.get(m.asset,zero),finishes,local)
         objects.setdefault(m.asset,[]).append(obj)
 
     for asset, selection in objects.items():
@@ -2840,7 +2858,9 @@ def generate():
         path=OUT/(asset+".glb")
         bpy.ops.export_scene.gltf(filepath=str(path),use_selection=True,export_format="GLB",
                                   export_yup=True,export_normals=True,export_vertex_color="ACTIVE")
-        glb_unlit(path, {"shadow":1.,"night_windows":.94,"evening_market_pool":1.}.get(asset))
+        alpha=1. if asset.endswith("_pool") or asset=="shadow" else (
+            .94 if asset=="night_windows" else None)
+        glb_unlit(path,alpha)
 
     # Arrange the asset source pieces for inspection while leaving exported model origins intact.
     for asset, selection in objects.items():

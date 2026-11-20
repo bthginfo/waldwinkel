@@ -115,13 +115,19 @@ impl Recipe {
         }
     }
 
+    fn workshop_yield(self, g: &Garden) -> u32 {
+        self.yield_count() + u32::from(
+            self == Self::Boards && crate::logbook::Path::Workshop.rank(g) == 3,
+        )
+    }
+
     pub fn describe(self, g: &Garden, batches: u32) -> String {
         if let Some(site) = self.source().filter(|_| !self.learned(g)) {
             return format!("Bauplan beim Wegzeichen · {}", site.name());
         }
         format!(
             "Ergibt {} · {}",
-            self.yield_count() * batches,
+            self.workshop_yield(g) * batches,
             detail(self.ingredients(), g, batches)
         )
     }
@@ -133,7 +139,7 @@ impl Recipe {
             && self.learned(g)
             && ready(self.ingredients(), g, batches)
             && g.stock(Product::Crafted(self))
-                .checked_add(self.yield_count() * batches)
+                .checked_add(self.workshop_yield(g) * batches)
                 .is_some()
     }
 
@@ -142,8 +148,12 @@ impl Recipe {
             return Err(self.describe(g, batches.clamp(1, 5)));
         }
         take(self.ingredients(), g, batches);
-        let amount = self.yield_count() * batches;
+        let amount = self.workshop_yield(g) * batches;
         g.add_stock(Product::Crafted(self), amount);
+        g.logbook.part(self, batches);
+        if self == Self::Boards && let Some(prologue) = &mut g.prologue {
+            prologue.boarded = true;
+        }
         Ok(format!("+{amount} {}", self.name()))
     }
 }

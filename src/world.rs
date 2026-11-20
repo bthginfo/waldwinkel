@@ -683,10 +683,16 @@ pub fn update_selection(
     mut selection: Single<(&mut Visibility, &mut Transform), With<Selection>>,
 ) {
     let (visibility, transform) = &mut *selection;
+    let lesson = crate::tutorial::suggested_plot(&garden);
     let selection = focus.selected.map(|index| (PLOTS[index], 1.)).or_else(|| {
         adventure
             .focus
             .map(|entry| (adventure.position(entry, &garden), entry.selection_scale()))
+    }).or_else(|| {
+        (adventure.area == Area::Island && !garden.clock.night())
+            .then_some(lesson)
+            .flatten()
+            .map(|i| (PLOTS[i], 1.))
     });
     if let Some((point, scale)) = selection.filter(|_| !adventure.map) {
         let ground = if adventure.area.outdoors() {
@@ -694,7 +700,8 @@ pub fn update_selection(
         } else {
             0.
         };
-        transform.translation = position3(point, ground + 0.052);
+        let raised = lesson.is_some_and(|index| PLOTS[index] == point);
+        transform.translation = position3(point, ground + if raised { 0.15 } else { 0.052 });
         transform.scale = Vec3::new(scale, 1., scale);
         visibility.set_if_neq(Visibility::Inherited);
     } else {

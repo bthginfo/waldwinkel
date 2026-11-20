@@ -8,12 +8,14 @@ use crate::{
     regions::Frontier,
     story::{Guide, Resonator},
     town::{self, Npc},
+    tutorial::{Lesson, Prologue},
     waywatch::{Stage, Watch},
     workshop::Project,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
+    Tutorial(Lesson),
     Garden,
     MeetBo,
     Watch(Watch),
@@ -33,6 +35,9 @@ pub fn festival_ready(garden: &Garden) -> bool {
 }
 
 pub fn next(garden: &Garden) -> Step {
+    if let Some(lesson) = Prologue::current(garden) {
+        return Step::Tutorial(lesson);
+    }
     if garden.story.harbor_lit {
         return Step::Done;
     }
@@ -70,6 +75,7 @@ pub fn next(garden: &Garden) -> Step {
 impl Step {
     pub fn hint(self, garden: &Garden, controller: bool) -> String {
         match self {
+            Self::Tutorial(lesson) => lesson.instruction(garden, controller, false),
             Self::Garden if controller => "A wählt ein nahes Beet. Erneut A bearbeitet es.".into(),
             Self::Garden => garden.onboarding.hint().into(),
             Self::MeetBo => "Folge dem Weg nach Eichenhafen und sprich mit Bo.".into(),
@@ -83,6 +89,7 @@ impl Step {
 
     pub fn title(self) -> &'static str {
         match self {
+            Self::Tutorial(lesson) => lesson.title(),
             Self::Garden => "Dein erster Morgen",
             Self::MeetBo => "Bo in Eichenhafen",
             Self::Watch(site) => site.name(),
@@ -98,6 +105,7 @@ impl Step {
 
     pub fn chapter(self) -> &'static str {
         match self {
+            Self::Tutorial(_) => "Prolog · Ankommen auf Waldwinkel",
             Self::Garden | Self::MeetBo | Self::Watch(Watch::Fern) | Self::Pier => {
                 "Kapitel 1 · Das erste Licht"
             }
@@ -111,6 +119,7 @@ impl Step {
 
     pub fn detail(self, garden: &Garden) -> String {
         match self {
+            Self::Tutorial(lesson) => lesson.instruction(garden, false, false),
             Self::Garden | Self::MeetBo => garden.onboarding.hint().into(),
             Self::Watch(Watch::Fern) if Watch::Fern.stage(garden) == Stage::Surveyed
                 && !garden.workshop.restored => Project::Restore.detail(garden),
@@ -146,6 +155,7 @@ impl Step {
 
     pub fn target(self, garden: &Garden) -> Option<Target> {
         match self {
+            Self::Tutorial(lesson) => lesson.target(garden, crate::adventure::Area::Island),
             Self::Garden | Self::Done => None,
             Self::MeetBo => Some(Target::Person(Npc::Bo)),
             Self::Watch(Watch::Fern)

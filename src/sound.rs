@@ -30,6 +30,16 @@ pub enum Cue {
     Fall,
     Craft,
     Skill,
+    CardSlide,
+    CardHit,
+    CardGuard,
+    CardBloom,
+    Turn,
+    KitchenChop,
+    KitchenStir,
+    KitchenJar,
+    KitchenMill,
+    KitchenDone,
 }
 
 #[derive(Resource)]
@@ -44,6 +54,7 @@ pub struct Sounds {
     skill: Handle<AudioSource>,
     impact: Handle<AudioSource>,
     support: Handle<AudioSource>,
+    actions: [Handle<AudioSource>; 8],
 }
 
 #[derive(Default)]
@@ -54,7 +65,6 @@ pub struct Pace {
     acted_at: f32,
     field_cue: Option<(Action, f32)>,
     duck_until: f32,
-    battle: Option<(u16, u16, u16, u16, u8, usize)>,
 }
 
 pub fn setup(mut commands: Commands, assets: Res<AssetServer>) {
@@ -90,6 +100,8 @@ pub fn setup(mut commands: Commands, assets: Res<AssetServer>) {
         skill: wave("skill_learn"),
         impact: wave("card_hit"),
         support: wave("card_shield"),
+        actions: ["card_slide", "card_bloom", "turn_page", "kitchen_chop", "kitchen_stir",
+                  "kitchen_jar", "kitchen_mill", "kitchen_done"].map(wave),
     });
 }
 
@@ -166,41 +178,23 @@ pub fn play(
             Cue::Fall => (&sounds.fall, 0.59),
             Cue::Craft => (&sounds.craft, 0.36),
             Cue::Skill => (&sounds.skill, 0.43),
+            Cue::CardSlide => (&sounds.actions[0], 0.31),
+            Cue::CardHit => (&sounds.impact, 0.56),
+            Cue::CardGuard => (&sounds.support, 0.40),
+            Cue::CardBloom => (&sounds.actions[1], 0.43),
+            Cue::Turn => (&sounds.actions[2], 0.29),
+            Cue::KitchenChop => (&sounds.actions[3], 0.37),
+            Cue::KitchenStir => (&sounds.actions[4], 0.40),
+            Cue::KitchenJar => (&sounds.actions[5], 0.38),
+            Cue::KitchenMill => (&sounds.actions[6], 0.38),
+            Cue::KitchenDone => (&sounds.actions[7], 0.43),
         };
         one_shot(&mut commands, clip, level, take);
-        pace.duck_until = now + 0.38;
+        if !matches!(cue, Cue::CardSlide | Cue::Turn) {
+            pace.duck_until = now + 0.38;
+        }
         pace.take += 1;
     }
-
-    let combat = menu.battle().map(|battle| {
-        (
-            battle.enemy_hp,
-            battle.enemy_guard,
-            battle.hp,
-            battle.guard,
-            battle.energy,
-            battle.hand.len(),
-        )
-    });
-    if audible
-        && let (
-            Some((enemy, armor, life, guard, energy, hand)),
-            Some((old_enemy, old_armor, old_life, old_guard, old_energy, old_hand)),
-        ) = (combat, pace.battle)
-    {
-        let cue = if enemy < old_enemy || armor < old_armor || life < old_life {
-            Some((&sounds.impact, 0.53))
-        } else if guard > old_guard || life > old_life || energy < old_energy || hand != old_hand {
-            Some((&sounds.support, 0.36))
-        } else {
-            None
-        };
-        if let Some((clip, level)) = cue {
-            one_shot(&mut commands, clip, level, pace.take);
-            pace.take += 1;
-        }
-    }
-    pace.battle = combat;
 
     let coast = if outside {
         [Vec2::X, Vec2::NEG_X, Vec2::Y, Vec2::NEG_Y]
@@ -226,7 +220,7 @@ pub fn play(
     } else {
         0.56 * (1. - dusk * 0.59) * if sky == Sky::Rain { 0.80 } else { 1. }
     };
-    let duck = if combat.is_some() {
+    let duck = if menu.battle().is_some() {
         0.24
     } else if dialog.open() {
         0.49

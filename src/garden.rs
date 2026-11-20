@@ -22,7 +22,7 @@ use std::{
 pub const PLOT_COUNT: usize = 12;
 pub const FERTILIZER_PRICE: u32 = 4;
 const FERTILIZER_PACK: u32 = 2;
-const SAVE_VERSION: u8 = 15;
+const SAVE_VERSION: u8 = 16;
 pub const MAX_SAVE_SIZE: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -168,6 +168,44 @@ impl Action {
 
 pub const FURNITURE_COUNT: usize = 14;
 
+#[derive(Default)]
+pub struct Neighbors {
+    pub shade: bool,
+    pub flowers: bool,
+}
+
+fn companion(plots: &[Plot], index: usize) -> Neighbors {
+    let mut effect = Neighbors::default();
+    let Some(&center) = crate::world::PLOTS.get(index) else { return effect };
+    for (i, &other) in crate::world::PLOTS.iter().enumerate() {
+        if i == index || center.distance_squared(other) > 1.70_f32.powi(2) {
+            continue;
+        }
+        match plots.get(i) {
+            Some(Plot::Sown { crop: Crop::Pumpkin, growth: 2.., .. }) => effect.shade = true,
+            Some(Plot::Sown { crop: Crop::Sunflower, growth: 3.., .. }) => effect.flowers = true,
+            _ => {}
+        }
+    }
+    effect
+}
+
+#[cfg(test)]
+#[test]
+fn ripe_tomatoes_regrow_and_orthogonal_companions_hold_water() {
+    let mut garden = Garden::default();
+    garden.plots[0] = Plot::Sown { crop: Crop::Tomato, growth: 3, wet: true };
+    garden.plots[1] = Plot::Sown { crop: Crop::Pumpkin, growth: 2, wet: false };
+    garden.plots[3] = Plot::Sown { crop: Crop::Sunflower, growth: 3, wet: true };
+    assert!(garden.companion(0).shade && garden.companion(0).flowers);
+    assert!(!garden.companion(2).flowers);
+    garden.sleep();
+    assert!(garden.plots[0].remaining().unwrap().1);
+    assert!(garden.work(0,Crop::Tomato,Action::Harvest).is_some());
+    assert_eq!(garden.crop_total(Crop::Tomato),3);
+    assert_eq!(garden.plots[0].remaining().map(|(days,_)|days),Some(2));
+}
+
 #[derive(Resource, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Garden {
@@ -209,6 +247,8 @@ pub struct Garden {
     pub seasons: crate::seasons::SeasonProgress,
     pub harbor: crate::harbor::Progress,
     pub onboarding: Onboarding,
+    pub prologue: Option<crate::tutorial::Prologue>,
+    pub logbook: crate::logbook::Logbook,
     pub large_ui: bool,
     pub sound_muted: bool,
     pub music_muted: bool,
@@ -258,6 +298,8 @@ impl Default for Garden {
             seasons: Default::default(),
             harbor: Default::default(),
             onboarding: Onboarding::Welcome,
+            prologue: None,
+            logbook: Default::default(),
             large_ui: false,
             sound_muted: false,
             music_muted: false,
@@ -420,6 +462,10 @@ impl Garden {
         })
     }
 
+    pub fn companion(&self, index: usize) -> Neighbors {
+        companion(&self.plots, index)
+    }
+
     pub fn action(&self, index: usize, crop: Crop) -> Option<Action> {
         if self.clock.night() {
             return None;
@@ -478,28 +524,43 @@ impl Garden {
             }
             Action::Harvest => {
                 let crop = plot.crop();
-                let quality = if !self.fertilized[index] {
-                    Quality::Normal
-                } else if self.harvest_roll() % 4 == 0 {
-                    Quality::Premium
-                } else {
+                let quality = if self.fertilized[index] {
+                    if self.harvest_roll() % 4 == 0 { Quality::Premium } else { Quality::Fine }
+                } else if matches!(crop, Crop::Tomato | Crop::Strawberry)
+                    && self.companion(index).flowers
+                    && self.harvest_roll() % 3 == 0
+                {
                     Quality::Fine
+                } else {
+                    Quality::Normal
                 };
                 self.fertilized[index] = false;
                 self.harvested = self.harvested.saturating_add(3);
+                self.logbook.crop(crop);
                 self.ledger.record(crate::commissions::Activity::Harvest, 1);
                 let item = Product::Crop(crop, quality);
                 self.add_stock(item, 3);
                 let mut message = format!("+3 {}", item.label());
-                if self.harvest_roll() % 10 < 3 {
+                let chance = 30 + 5*u64::from(crate::logbook::Path::Garden.rank(self));
+                if self.harvest_roll() % 100 < chance {
                     self.add_seeds(crop, 1);
                     message.push_str(" · +1 Samen");
                 }
-                (Plot::Tilled, message)
+                let next = if matches!(crop, Crop::Tomato | Crop::Strawberry) {
+                    message.push_str(" · wächst nach");
+                    Plot::Sown { crop, growth: crop.days()-2, wet: Sky::at(self.day) == Sky::Rain }
+                } else {
+                    Plot::Tilled
+                };
+                (next, message)
             }
         };
-        self.onboarding
-            .farm_action(action, new.remaining().is_some_and(|(_, wet)| wet));
+        let wet = new.remaining().is_some_and(|(_, wet)| wet);
+        if self.prologue.is_some() {
+            crate::tutorial::Prologue::farm(self, index, action, wet);
+        } else {
+            self.onboarding.farm_action(action, wet);
+        }
         self.plots[index] = new;
         Some(message)
     }
@@ -528,6 +589,9 @@ impl Garden {
         self.ledger.record(crate::commissions::Activity::Fell, 1);
         self.tree_regrowth.push((index, self.day.saturating_add(3)));
         self.wood = self.wood.saturating_add(self.wood_per_tree());
+        if let Some(prologue) = &mut self.prologue {
+            prologue.chopped = true;
+        }
         true
     }
 
@@ -545,14 +609,15 @@ impl Garden {
             ready > day
         });
         let wet_next = Sky::at(self.day) == Sky::Rain;
-        for plot in &mut self.plots {
+        let shade: [bool; PLOT_COUNT] = std::array::from_fn(|i| self.companion(i).shade);
+        for (index, plot) in self.plots.iter_mut().enumerate() {
             if let Plot::Sown { crop, growth, wet } = *plot {
                 *plot = Plot::Sown {
                     crop,
                     growth: growth
                         .saturating_add(u8::from(wet || rain))
                         .min(crop.days()),
-                    wet: wet_next,
+                    wet: wet_next || (wet && shade[index]),
                 };
             }
         }
@@ -623,6 +688,13 @@ impl Garden {
             ));
         }
         garden.plots.resize(PLOT_COUNT, Plot::Grass);
+        if let Some(prologue) = &mut garden.prologue {
+            if prologue.plot.is_some_and(|index| index >= PLOT_COUNT) {
+                prologue.plot = None;
+                prologue.planted = false;
+                prologue.watered = false;
+            }
+        }
         garden.furniture.resize(FURNITURE_COUNT, 0);
         garden.workshop.house = garden.workshop.house.min(2);
         garden.plan = garden.plan.filter(|plan| plan.valid());
@@ -668,6 +740,9 @@ impl Garden {
         }
         if garden.version < 15 {
             crate::waywatch::restore_bells(&mut garden);
+        }
+        if garden.version < 16 {
+            crate::logbook::Logbook::recover_previous(&mut garden);
         }
         if garden.onboarding == Onboarding::Water
             && garden

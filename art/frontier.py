@@ -84,15 +84,21 @@ def deck(x,z):
 
 
 def tint(x,z,grain,base,blend):
-    if x > 87. and z < 65.:
+    if x > 75. and z < 72.:
         clay=math.exp(-(((x-154.)/19.)**2+((z+4.)/14.)**2))
         weathered=blend("a89765","c2ac76",grain)
-        return blend(weathered,blend("aa8a72","c6a283",grain),.67*clay)
-    if z > 79.:
-        return blend("8eab6f","c2c783",grain)
-    if x < -87.:
-        return blend("75875e","a4aa73",grain)
+        base=blend(base,blend(weathered,blend("aa8a72","c6a283",grain),.67*clay),
+                   smoothstep((x-75.)/29.)*smoothstep((72.-z)/20.))
+    if z > 70.:
+        base=blend(base,blend("8eab6f","c2c783",grain),smoothstep((z-70.)/35.))
+    if x < -76.:
+        base=blend(base,blend("75875e","a4aa73",grain),smoothstep((-x-76.)/33.))
     return base
+
+
+def smoothstep(x):
+    t = min(1., max(0., x))
+    return t*t*(3.-2.*t)
 
 
 def models(api):

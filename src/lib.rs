@@ -20,6 +20,7 @@ mod harvest_fx;
 mod homestead;
 mod input;
 mod inventory;
+mod logbook;
 #[cfg(target_os = "android")]
 mod mobile;
 mod onboarding;
@@ -36,6 +37,7 @@ mod story;
 mod terrain;
 mod town;
 mod travel;
+mod tutorial;
 mod ui;
 mod water;
 mod waywatch;
@@ -170,6 +172,7 @@ pub fn main() {
         .init_resource::<ui::Icons>()
         .init_resource::<ui::UiFonts>()
         .init_resource::<battle_ui::DeckIcons>()
+        .init_resource::<battle_ui::CombatMotion>()
         .add_event::<harvest_fx::Break>()
         .add_event::<sound::Cue>()
         .add_event::<world::Watered>()
@@ -181,6 +184,7 @@ pub fn main() {
                 forest::setup,
                 season_view::setup,
                 ui::setup,
+                tutorial::setup,
                 weather::setup,
                 session::setup,
                 town::setup,
@@ -213,6 +217,7 @@ pub fn main() {
                 world::advance_player,
                 act,
                 adventure::interact,
+                tutorial::update,
             )
                 .chain()
                 .after(session::open_menu)
@@ -258,6 +263,7 @@ pub fn main() {
                 town::update,
                 farm_ui::update,
                 battle_ui::update,
+                battle_ui::animate_feedback.before(sound::play),
                 battle_ui::draw_trial_guardian,
                 battle_ui::animate_guardian,
                 ui::sync_visibility,
