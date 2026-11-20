@@ -1,6 +1,7 @@
 """Geometry and terrain parameters for the three outer regions."""
 import math
 import random
+import route_details
 
 ORIGINS = {
     "district_copper": (137., -5.),
@@ -83,7 +84,9 @@ def deck(x,z):
 
 def tint(x,z,grain,base,blend):
     if x > 87. and z < 65.:
-        return blend("a89a62","c9ad70",grain)
+        clay=math.exp(-(((x-154.)/19.)**2+((z+4.)/14.)**2))
+        weathered=blend("a89765","c2ac76",grain)
+        return blend(weathered,blend("aa8a72","c6a283",grain),.67*clay)
     if z > 79.:
         return blend("8eab6f","c2c783",grain)
     if x < -87.:
@@ -206,19 +209,6 @@ def models(api):
     wind.pole((x,z,y+5.37),(x,z,y+6.53),1.27,"bd815c",9,tip=.056)
     api.window(wind,x,z+1.30,y+2.05,.47,.58)
     api.window(wind,x,z+1.10,y+3.62,.46,.53)
-    spin=y+4.94
-    for i in range(4):
-        a=i*math.tau/4+.57
-        vx,vy=math.cos(a),math.sin(a)
-        p,q=-vy,vx
-        wind.pole((x,z+1.51,spin),(x+vx*3.39,z+1.51,spin+vy*3.39),.064,"946f52",5)
-        corners=[(x+vx*t+p*w,z+1.55,spin+vy*t+q*w) for t,w in [(1.12,.05),(3.24,.05),(3.22,.79),(1.22,.73)]]
-        wind.face(corners,"eddbb2","raw")
-        wind.face(corners[::-1],"e0c69e","raw")
-        for j in range(4):
-            t=1.21+j*.63
-            wind.pole((x+vx*t,z+1.585,spin+vy*t),(x+vx*t+p*.72,z+1.585,spin+vy*t+q*.72),.022,"b08357",5)
-    wind.pole((x,z+1.53,spin),(x,z+1.67,spin),.25,"9d754f",9,tip=.19)
     for cx,cz in [(8.4,11.6),(24.15,15.6),(-23,-6.4)]:
         for side in [-1,1]:
             for j in range(7):
@@ -272,7 +262,7 @@ def models(api):
         moor.ellipsoid(xx,z,yy,.40,.40,.37,
                        ["958985","9e928a","ad9b87"][i%3],8,4,rough=.14)
         if i%2==0:
-            api.fern(moor,xx+.09,z+.39,.30)
+            api.fern(moor,xx+.09,z+.39,.30,y)
     for side in [-1,1]:
         moor.box(x+side*1.38,z,y+.31,.64,.91,.65,"91837a",.12)
         moor.obstacle_circle(x+side*1.38,z,.45)
@@ -335,7 +325,10 @@ def models(api):
                 m.ellipsoid(x,z,y+.25,radius,radius*.84,radius*.6,colors[i%3],8,4,rough=.21)
                 m.obstacle_circle(x,z,radius*.68)
             elif theme=="moor":
-                api.fern(m,x,z,rng.uniform(.23,.61))
+                api.fern(m,x,z,rng.uniform(.23,.61),y)
             else:
                 api.grass(m,x,z,y,rng.uniform(.22,.39),colors[i%3],4)
+    for theme,m,_ in palettes:
+        ox,oz=ORIGINS[m.asset]
+        route_details.dress(api,theme,m,lambda x,z: landscape.height(ox+x,oz+z),(ox,oz))
     return result

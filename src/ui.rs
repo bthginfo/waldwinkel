@@ -2,13 +2,14 @@ use bevy::{prelude::*, window::PrimaryWindow};
 
 use crate::{
     GardenFocus, Notice, Ready,
-    adventure::{Adventure, Area, LANDMARKS, Target, landmark_center},
+    adventure::{
+        Adventure, Area, GUIDE_OFFSET, LANDMARKS, Target, landmark_center, landmark_offset,
+    },
     garden::{Action, Garden, Stage},
     homestead,
     input::Gesture,
-    regions::Frontier,
     session::Session,
-    town::{self, Dialog},
+    town::Dialog,
     travel::District,
     weather::{Season, Sky},
     world::{Gardener, IslandCamera, PLOTS, can_work},
@@ -20,13 +21,16 @@ const BUTTON_WIDTH: f32 = 188.0;
 const BUTTON_HEIGHT: f32 = 62.0;
 const BUTTON_BOTTOM: f32 = 29.0;
 const FERTILIZER_BOTTOM: f32 = BUTTON_BOTTOM + BUTTON_HEIGHT + 10.0;
-const FERTILIZER_HEIGHT: f32 = 41.0;
+const FERTILIZER_HEIGHT: f32 = 52.0;
 const FERTILIZER_WIDTH: f32 = 119.0;
 const CONTEXT_WIDTH: f32 = 316.0;
 const TOOLS_TOP: f32 = 88.;
-const TOOL_WIDTH: f32 = 105.;
-const TOOL_HEIGHT: f32 = 41.;
-const TOOL_STEP: f32 = 47.;
+const TOOL_WIDTH: f32 = 113.;
+const TOOL_HEIGHT: f32 = 58.;
+const TOOL_GAP: f32 = 7.;
+const TOOL_STEP: f32 = TOOL_HEIGHT + TOOL_GAP;
+const ZOOM_WIDTH: f32 = 56.;
+const MENU_WIDTH: f32 = 94.;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Utility {
@@ -40,14 +44,9 @@ pub enum Utility {
     Fertilize,
 }
 impl Utility {
-    const ALL: [Self; 7] = [
-        Self::In,
-        Self::Out,
-        Self::Map,
-        Self::Choice,
-        Self::Task,
-        Self::Inventory,
-        Self::Menu,
+    const TOOLBAR: [[(Self, &'static str); 2]; 2] = [
+        [(Self::Map, "Karte"), (Self::Task, "Journal")],
+        [(Self::Choice, "Saatgut"), (Self::Inventory, "Tasche")],
     ];
     pub fn apply(self, controls: &mut crate::Controls) {
         match self {
@@ -67,10 +66,10 @@ impl Utility {
 pub struct UtilityLabel(Utility);
 
 pub(crate) fn cream() -> Color {
-    Color::srgb_u8(252, 240, 213)
+    Color::srgb_u8(252, 245, 225)
 }
 fn ink() -> Color {
-    Color::srgb_u8(43, 67, 52)
+    Color::srgb_u8(34, 59, 48)
 }
 fn muted() -> Color {
     Color::srgb_u8(86, 100, 71)
@@ -100,6 +99,7 @@ pub struct HudLayout {
     pub scale: f32,
     context_height: f32,
     fertilizer: bool,
+    large: bool,
 }
 
 impl Default for HudLayout {
@@ -109,6 +109,7 @@ impl Default for HudLayout {
             scale: 1.0,
             context_height: 65.,
             fertilizer: false,
+            large: false,
         }
     }
 }
@@ -135,11 +136,27 @@ impl HudLayout {
     pub fn utility(self, at: Vec2) -> Option<Utility> {
         let right = (self.size.x - at.x) / self.scale;
         let bottom = (self.size.y - at.y) / self.scale;
+        let top = at.y / self.scale;
+        if (MARGIN..=MARGIN + MENU_WIDTH).contains(&right)
+            && (MARGIN..=MARGIN + TOOL_HEIGHT).contains(&top)
+        {
+            return Some(Utility::Menu);
+        }
         if self.fertilizer
             && (MARGIN..=MARGIN + FERTILIZER_WIDTH).contains(&right)
             && (FERTILIZER_BOTTOM..=FERTILIZER_BOTTOM + FERTILIZER_HEIGHT).contains(&bottom)
         {
             return Some(Utility::Fertilize);
+        }
+        if (self.zoom_bottom()..=self.zoom_bottom() + TOOL_HEIGHT).contains(&bottom) {
+            if (MARGIN..=MARGIN + ZOOM_WIDTH).contains(&right) {
+                return Some(Utility::In);
+            }
+            if (MARGIN + ZOOM_WIDTH + TOOL_GAP..=MARGIN + ZOOM_WIDTH * 2. + TOOL_GAP)
+                .contains(&right)
+            {
+                return Some(Utility::Out);
+            }
         }
         let point = at / self.scale - Vec2::new(MARGIN, TOOLS_TOP);
         if point.x < 0. || point.y < 0. {
@@ -149,17 +166,23 @@ impl HudLayout {
         if point.y % TOOL_STEP > TOOL_HEIGHT {
             return None;
         }
-        if row == 0 && point.x <= TOOL_WIDTH {
-            return Some(if point.x < TOOL_WIDTH / 2. {
-                Utility::Out
-            } else {
-                Utility::In
-            });
-        }
-        if point.x > TOOL_WIDTH {
+        let col_width = TOOL_WIDTH + TOOL_GAP;
+        let col = (point.x / col_width) as usize;
+        if point.x % col_width > TOOL_WIDTH {
             return None;
         }
-        Utility::ALL.get(row + 1).copied()
+        Utility::TOOLBAR
+            .get(row)?
+            .get(col)
+            .map(|&(command, _)| command)
+    }
+
+    fn zoom_bottom(self) -> f32 {
+        if self.fertilizer {
+            FERTILIZER_BOTTOM + FERTILIZER_HEIGHT + 9.
+        } else {
+            FERTILIZER_BOTTOM
+        }
     }
 
     pub fn on_other_ui(self, at: Vec2) -> bool {
@@ -172,14 +195,13 @@ impl HudLayout {
         let bottom = (self.size.y - at.y) / self.scale;
         ((MARGIN..=MARGIN + 55.0).contains(&top)
             && ((MARGIN..=MARGIN + 188.0).contains(&left)
-                || (MARGIN..=MARGIN + 300.0).contains(&right)))
+                || (MARGIN..=MARGIN + MENU_WIDTH + 298.0).contains(&right)))
             || ((BUTTON_BOTTOM..=BUTTON_BOTTOM + self.context_height).contains(&bottom)
                 && (at.x - self.size.x * 0.5).abs() < CONTEXT_WIDTH * self.scale * 0.5)
     }
 }
 
 pub fn resize(
-    adventure: Res<Adventure>,
     focus: Res<GardenFocus>,
     garden: Res<Garden>,
     window: Single<&Window, With<PrimaryWindow>>,
@@ -187,15 +209,16 @@ pub fn resize(
     mut scale: ResMut<UiScale>,
 ) {
     let size = Vec2::new(window.width(), window.height());
-    let context_height = if adventure.journal { 109. } else { 65. };
+    let context_height = 65.;
     let fertilizer =
         focus.selected.is_some_and(|i| garden.fertilizable(i)) && !garden.clock.night();
     if size != layout.size
         || layout.context_height != context_height
         || layout.fertilizer != fertilizer
+        || layout.large != garden.large_ui
     {
-        let fit = (size.y / 680.0)
-            .max(0.78)
+        let preference = if garden.large_ui { 1.16 } else { 1.0 };
+        let fit = ((size.y / 680.0).max(0.83) * preference)
             .min(size.y / 505.0)
             .min(size.x / 728.0)
             .clamp(0.42, 1.48);
@@ -204,6 +227,7 @@ pub fn resize(
             scale: fit,
             context_height,
             fertilizer,
+            large: garden.large_ui,
         };
         scale.0 = fit;
     }
@@ -212,16 +236,27 @@ pub fn resize(
 #[derive(Component)]
 pub struct Landmark(Target);
 
+#[derive(Component)]
+pub struct TrackedPin;
+
 pub fn map_labels(
     adventure: Res<Adventure>,
+    garden: Res<Garden>,
     layout: Res<HudLayout>,
     camera: Single<(&Camera, &GlobalTransform), With<IslandCamera>>,
     mut labels: Query<(&Landmark, &mut Node, &mut Visibility)>,
+    mut pin: Single<(&mut Node, &mut Visibility), (With<TrackedPin>, Without<Landmark>)>,
 ) {
     let (camera, view) = *camera;
     for (label, mut node, mut visible) in &mut labels {
         let position = if adventure.map && adventure.area.outdoors() {
-            landmark_center(camera, view, adventure.position(label.0), layout.scale)
+            landmark_center(
+                camera,
+                view,
+                adventure.position(label.0),
+                layout.scale,
+                landmark_offset(label.0),
+            )
         } else {
             None
         };
@@ -232,6 +267,26 @@ pub fn map_labels(
         } else {
             *visible = Visibility::Hidden;
         }
+    }
+    let (node, visible) = &mut *pin;
+    let point = adventure
+        .tracked_target(&garden)
+        .filter(|_| adventure.map && adventure.area.outdoors())
+        .and_then(|target| {
+            landmark_center(
+                camera,
+                view,
+                adventure.position(target),
+                layout.scale,
+                GUIDE_OFFSET,
+            )
+        });
+    if let Some(p) = point {
+        **visible = Visibility::Inherited;
+        node.left = px(p.x / layout.scale - 53.);
+        node.top = px(p.y / layout.scale - 14.);
+    } else {
+        **visible = Visibility::Hidden;
     }
 }
 
@@ -251,6 +306,9 @@ pub struct ActionSurface;
 pub struct FertilizerButton;
 
 #[derive(Component)]
+pub struct ZoomTools;
+
+#[derive(Component)]
 pub struct ProgressTrack;
 
 #[derive(Component)]
@@ -261,6 +319,7 @@ pub struct ActionIcon;
 
 #[derive(Component)]
 pub enum Field {
+    Place,
     Day,
     Coins,
     Weather,
@@ -281,6 +340,10 @@ pub struct Icons {
     day: Handle<Image>,
     coin: Handle<Image>,
     stick: Handle<Image>,
+    map: Handle<Image>,
+    journal: Handle<Image>,
+    bag: Handle<Image>,
+    menu: Handle<Image>,
 }
 
 impl FromWorld for Icons {
@@ -297,6 +360,10 @@ impl FromWorld for Icons {
             day: assets.load("ui/day.png"),
             coin: assets.load("ui/coin.png"),
             stick: assets.load("ui/stick.png"),
+            map: assets.load("ui/map.png"),
+            journal: assets.load("ui/journal.png"),
+            bag: assets.load("ui/bag.png"),
+            menu: assets.load("ui/menu.png"),
         }
     }
 }
@@ -363,9 +430,9 @@ pub fn button_color(interaction: Interaction, enabled: bool) -> Color {
         return Color::srgb_u8(130, 130, 108);
     }
     match interaction {
-        Interaction::Pressed => Color::srgb_u8(45, 67, 52),
-        Interaction::Hovered => Color::srgb_u8(79, 109, 79),
-        Interaction::None => Color::srgb_u8(65, 94, 70),
+        Interaction::Pressed => Color::srgb_u8(34, 59, 48),
+        Interaction::Hovered => Color::srgb_u8(64, 94, 70),
+        Interaction::None => Color::srgb_u8(43, 73, 57),
     }
 }
 
@@ -374,7 +441,7 @@ pub fn dialog_button(width: f32) -> (Button, Node, BorderRadius, BackgroundColor
         Button,
         Node {
             width: px(width),
-            min_height: px(44.),
+            min_height: px(58.),
             padding: UiRect::axes(px(8.), px(4.)),
             align_items: AlignItems::Center,
             justify_content: JustifyContent::Center,
@@ -436,7 +503,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>, icons: Res<Icons>) {
                     ..default()
                 },
                 BorderRadius::all(px(19.0)),
-                BackgroundColor(cream()),
+                BackgroundColor(Color::srgb_u8(43, 73, 57)),
                 BorderColor(stroke()),
                 shadow(),
             ))
@@ -454,7 +521,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>, icons: Res<Icons>) {
                         BorderRadius::MAX,
                     ))
                     .with_child(icon(&icons.sprout, 28.0));
-                brand.spawn(text("Waldwinkel", &title, 24.0, ink()));
+                brand.spawn((Field::Place, text("Waldwinkel", &title, 23.0, cream())));
             });
 
             for (name, target) in LANDMARKS {
@@ -474,10 +541,26 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>, icons: Res<Icons>) {
                 ))
                 .with_child(text(name, &bold, 13., cream()));
             }
+            root.spawn((
+                TrackedPin,
+                Visibility::Hidden,
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: px(106.),
+                    height: px(27.),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                },
+                BorderRadius::all(px(9.)),
+                BackgroundColor(Color::srgb_u8(230, 181, 98)),
+                GlobalZIndex(3),
+            ))
+            .with_child(text("Markiertes Ziel", &bold, 13., ink()));
 
             root.spawn(Node {
                 position_type: PositionType::Absolute,
-                right: px(MARGIN),
+                right: px(MARGIN + MENU_WIDTH + 8.),
                 top: px(MARGIN),
                 height: px(54.0),
                 column_gap: px(8.0),
@@ -589,7 +672,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>, icons: Res<Icons>) {
                     display: Display::Flex,
                     flex_direction: FlexDirection::Column,
                     justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
+                    align_items: AlignItems::FlexStart,
                     border: UiRect::all(px(1.0)),
                     ..default()
                 },
@@ -631,45 +714,94 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>, icons: Res<Icons>) {
                 ));
             });
 
-            for (row, labels) in [
-                vec![(Utility::Out, "−"), (Utility::In, "+")],
-                vec![(Utility::Map, "Weltkarte")],
-                vec![(Utility::Choice, "Saatgut")],
-                vec![(Utility::Task, "Aufgaben")],
-                vec![(Utility::Inventory, "Tasche")],
-                vec![(Utility::Menu, "Menü")],
-            ]
-            .into_iter()
-            .enumerate()
-            {
+            for (row, labels) in Utility::TOOLBAR.into_iter().enumerate() {
                 root.spawn(Node {
                     position_type: PositionType::Absolute,
                     left: px(MARGIN),
                     top: px(TOOLS_TOP + row as f32 * TOOL_STEP),
-                    width: px(TOOL_WIDTH),
+                    width: px(TOOL_WIDTH * 2. + TOOL_GAP),
                     height: px(TOOL_HEIGHT),
-                    column_gap: px(4.),
+                    column_gap: px(TOOL_GAP),
                     ..default()
                 })
                 .with_children(|group| {
                     for (utility, label) in labels {
+                        let image = match utility {
+                            Utility::Map => &icons.map,
+                            Utility::Task => &icons.journal,
+                            Utility::Inventory => &icons.bag,
+                            _ => &icons.seeds,
+                        };
                         group
                             .spawn((
                                 Node {
-                                    flex_grow: 1.,
-                                    flex_basis: px(0.),
+                                    width: px(TOOL_WIDTH),
                                     height: px(TOOL_HEIGHT),
                                     align_items: AlignItems::Center,
                                     justify_content: JustifyContent::Center,
+                                    column_gap: px(3.),
+                                    border: UiRect::all(px(1.)),
                                     ..default()
                                 },
-                                BorderRadius::all(px(14.)),
-                                BackgroundColor(Color::srgba(0.98, 0.94, 0.82, 0.9)),
+                                BorderRadius::all(px(15.)),
+                                BackgroundColor(cream()),
+                                BorderColor(Color::srgb_u8(218, 202, 165)),
+                                shadow(),
                             ))
-                            .with_child((UtilityLabel(utility), text(label, &bold, 14., ink())));
+                            .with_children(|tool| {
+                                tool.spawn(icon(image, 24.));
+                                tool.spawn((UtilityLabel(utility), text(label, &bold, 15., ink())));
+                            });
                     }
                 });
             }
+            root.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    right: px(MARGIN),
+                    top: px(MARGIN),
+                    width: px(MENU_WIDTH),
+                    height: px(TOOL_HEIGHT),
+                    column_gap: px(3.),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                },
+                BackgroundColor(cream()),
+                BorderRadius::all(px(15.)),
+                shadow(),
+            ))
+            .with_children(|menu| {
+                menu.spawn(icon(&icons.menu, 25.));
+                menu.spawn(text("Menü", &bold, 15., ink()));
+            });
+            root.spawn((
+                ZoomTools,
+                Node {
+                    position_type: PositionType::Absolute,
+                    right: px(MARGIN),
+                    bottom: px(FERTILIZER_BOTTOM),
+                    column_gap: px(TOOL_GAP),
+                    ..default()
+                },
+            ))
+            .with_children(|zoom| {
+                for label in ["−", "+"] {
+                    zoom.spawn((
+                        Node {
+                            width: px(ZOOM_WIDTH),
+                            height: px(TOOL_HEIGHT),
+                            align_items: AlignItems::Center,
+                            justify_content: JustifyContent::Center,
+                            ..default()
+                        },
+                        BorderRadius::all(px(15.)),
+                        BackgroundColor(cream()),
+                        shadow(),
+                    ))
+                    .with_child(text(label, &bold, 23., ink()));
+                }
+            });
             root.spawn((
                 FertilizerButton,
                 Node {
@@ -763,7 +895,11 @@ pub fn sync_visibility(
 pub fn update_fertilizer(
     layout: Res<HudLayout>,
     garden: Res<Garden>,
-    mut button: Single<(&mut Node, &mut BackgroundColor), With<FertilizerButton>>,
+    mut button: Single<
+        (&mut Node, &mut BackgroundColor),
+        (With<FertilizerButton>, Without<ZoomTools>),
+    >,
+    mut zoom: Single<&mut Node, With<ZoomTools>>,
 ) {
     let (node, color) = &mut *button;
     node.display = if layout.fertilizer {
@@ -776,6 +912,7 @@ pub fn update_fertilizer(
     } else {
         cream()
     };
+    zoom.bottom = px(layout.zoom_bottom());
 }
 
 #[derive(PartialEq)]
@@ -784,6 +921,7 @@ pub(crate) struct Panel {
     enabled: bool,
     pressed: bool,
     title: String,
+    place: &'static str,
     detail: String,
     fallback: &'static str,
     counters: (u32, u32),
@@ -820,6 +958,11 @@ pub fn update(
         enabled,
         pressed: gesture.action_held(),
         title,
+        place: if adventure.area.outdoors() {
+            District::at(player.position).map_or("Waldwinkel", District::name)
+        } else {
+            adventure.area.name()
+        },
         detail,
         fallback,
         counters: (garden.day, garden.farm.coins),
@@ -884,22 +1027,6 @@ pub fn update(
     if (notice.index.is_none() || notice.index == focus.selected) && now < notice.until {
         panel.detail.clone_from(&notice.message);
     }
-    if adventure.journal {
-        if let Some(region) = District::at(player.position).and_then(Frontier::for_district) {
-            panel.title = region.district().name().into();
-            panel.detail = format!(
-                "{} von 3 Aufträgen erfüllt\n{}",
-                garden.regions.story_steps(region),
-                garden
-                    .regions
-                    .next_order(region)
-                    .unwrap_or("Alle Aufträge erledigt.")
-            );
-        } else {
-            panel.title = "Stadtaufträge".into();
-            panel.detail = town::journal_summary(&garden);
-        }
-    }
     for (utility, mut label) in &mut labels {
         let next = match utility.0 {
             Utility::Choice if adventure.area == Area::Home => "Einrichten",
@@ -907,23 +1034,9 @@ pub fn update(
                 homestead::choice_label(adventure.area, adventure.focus, adventure.offer(&garden))
                     .unwrap_or("Saatgut")
             }
-            Utility::Task if adventure.journal => "Schließen",
-            Utility::Task
-                if District::at(player.position)
-                    .and_then(Frontier::for_district)
-                    .is_some() =>
-            {
-                "Aufträge"
-            }
-            Utility::Task
-                if adventure.area.outdoors() && District::at(player.position).is_some() =>
-            {
-                "Stadtaufträge"
-            }
-            Utility::Task if garden.task().1 => "Belohnung",
-            Utility::Task => "Aufgaben",
+            Utility::Task => "Journal",
             Utility::Map if adventure.map => "Nahansicht",
-            Utility::Map if adventure.area.outdoors() => "Weltkarte",
+            Utility::Map if adventure.area.outdoors() => "Karte",
             Utility::Map => "Übersicht",
             Utility::Inventory => "Tasche",
             _ => continue,
@@ -943,6 +1056,7 @@ pub fn update(
     }
     for (label, mut value) in &mut fields {
         value.0 = match label {
+            Field::Place => panel.place.into(),
             Field::Day => format!("Tag {} · {}", panel.counters.0, garden.clock.display()),
             Field::Coins => panel.counters.1.to_string(),
             Field::Weather => format!(
@@ -960,9 +1074,9 @@ pub fn update(
         };
     }
     action_surface.0 = if panel.enabled && panel.pressed {
-        Color::srgb_u8(229, 223, 185)
+        Color::srgb_u8(217, 180, 110)
     } else if panel.enabled {
-        cream()
+        Color::srgb_u8(244, 219, 160)
     } else {
         Color::srgba(0.97, 0.94, 0.82, 0.79)
     };
@@ -975,4 +1089,47 @@ pub fn update(
         None => icons.choose.clone(),
     };
     *old_panel = Some(panel);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_toolbar_and_zoom_hit_boxes_fit_phone_and_tablet_layouts() {
+        for (size, scale) in [
+            (Vec2::new(1000., 560.), 0.83),
+            (Vec2::new(1280., 800.), 1.18),
+            (Vec2::new(1280., 800.), 1.36),
+        ] {
+            let layout = HudLayout {
+                size,
+                scale,
+                fertilizer: true,
+                ..default()
+            };
+            for (row, tools) in Utility::TOOLBAR.into_iter().enumerate() {
+                for (column, (expected, _)) in tools.into_iter().enumerate() {
+                    let center = Vec2::new(
+                        MARGIN + TOOL_WIDTH / 2. + column as f32 * (TOOL_WIDTH + TOOL_GAP),
+                        TOOLS_TOP + row as f32 * TOOL_STEP + TOOL_HEIGHT / 2.,
+                    ) * scale;
+                    assert!(layout.utility(center) == Some(expected));
+                    assert!(!layout.on_stick(center) && !layout.on_action(center));
+                }
+            }
+            let zoom = size
+                - Vec2::new(
+                    MARGIN + ZOOM_WIDTH / 2.,
+                    layout.zoom_bottom() + TOOL_HEIGHT / 2.,
+                ) * scale;
+            assert!(layout.utility(zoom) == Some(Utility::In));
+            assert!(!layout.on_action(zoom));
+            let pause = Vec2::new(
+                size.x - (MARGIN + MENU_WIDTH / 2.) * scale,
+                (MARGIN + TOOL_HEIGHT / 2.) * scale,
+            );
+            assert!(layout.utility(pause) == Some(Utility::Menu));
+        }
+    }
 }

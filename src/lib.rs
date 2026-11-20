@@ -12,6 +12,7 @@ mod processing;
 mod progression;
 mod regions;
 mod session;
+mod story;
 mod terrain;
 mod town;
 mod travel;
@@ -148,6 +149,7 @@ pub fn main() {
                 world::animate_gardener,
                 world::watering_effect,
                 world::move_clouds,
+                world::turn_mill,
                 world::update_camera,
                 weather::update.after(world::update_camera),
                 adventure::animate_animals,
@@ -167,14 +169,19 @@ pub fn main() {
             town::update,
             farm_ui::update,
             battle_ui::update,
+            battle_ui::animate_guardian,
             ui::sync_visibility,
         )
             .after(adventure::interact),
     )
     .add_systems(PostUpdate, session::autosave);
     #[cfg(target_os = "android")]
-    app.add_systems(Startup, controller::setup)
-        .add_systems(PreUpdate, controller::poll.before(bevy::input::InputSystem));
+    app.add_systems(Startup, controller::setup).add_systems(
+        PreUpdate,
+        (controller::poll, controller::hide_after_touch)
+            .chain()
+            .before(bevy::input::InputSystem),
+    );
     #[cfg(not(target_os = "android"))]
     app.add_systems(Update, capture);
     app.run();

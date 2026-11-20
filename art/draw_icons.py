@@ -170,3 +170,33 @@ for kind, halo in [
         for x, y in [(33, 41), (49, 35), (63, 43)]:
             ellipse(draw, (x - 2, y - 2, x + 3, y + 3), "#e6d0a8")
     save(image, f"card_{kind}")
+
+# Icons for the compact field toolbar. Labels stay visible beside each mark.
+image, draw = canvas()
+polygon(draw,[(17,27),(38,20),(58,29),(79,22),(79,67),(58,76),(38,67),(17,74)],"#a5b483")
+line(draw,[(17,27),(38,20),(58,29),(79,22),(79,67),(58,76),(38,67),(17,74),(17,27)],INK,4)
+line(draw,[(38,20),(38,67)],INK,3)
+line(draw,[(58,29),(58,76)],INK,3)
+line(draw,[(22,60),(34,53),(48,57),(70,40)],"#f3e2ac",4)
+save(image,"map")
+
+image, draw = canvas()
+box(draw,(20,23,78,74),"#587760",7)
+polygon(draw,[(25,31),(43,30),(48,35),(53,30),(72,31),(72,64),(55,63),(48,68),(42,63),(25,65)],"#e4cc96")
+line(draw,[(48,36),(48,64)],"#a88658",3)
+line(draw,[(31,42),(40,42)],INK,3)
+line(draw,[(54,43),(65,43)],INK,3)
+save(image,"journal")
+
+image, draw = canvas()
+line(draw,[(36,38),(35,24),(42,20),(55,20),(61,25),(60,38)],INK,6)
+box(draw,(24,33,72,74),"#879b71",8)
+box(draw,(27,36,69,56),"#b8905c",6)
+box(draw,(44,47,53,58),"#ead5a1",2)
+save(image,"bag")
+
+image, draw = canvas()
+for y in [35,48,61]:
+    ellipse(draw,(23,y-2,29,y+4),GOLD)
+    line(draw,[(36,y),(70,y)],INK,5)
+save(image,"menu")

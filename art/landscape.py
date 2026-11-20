@@ -224,9 +224,10 @@ def terrain_models(api):
         v=clamp(.54-z*.004+.13*math.cos(x*.06+z*.13))
         return blend('53aeb3','92d7ca',v)
 
-    for x in range(-286,287,12):
-        for z in range(-162,287,12):
-            poly=[(x,z,SEA),(x+12,z,SEA),(x+12,z+12,SEA),(x,z+12,SEA)]
+    # The wide overview can see farther out to sea than the walking camera.
+    for x in range(-590,591,22):
+        for z in range(-520,619,22):
+            poly=[(x,z,SEA),(x+22,z,SEA),(x+22,z+22,SEA),(x,z+22,SEA)]
             sea.gradient(poly,[water_color(a,b) for a,b,_ in poly])
     for _ in range(910):
         x,z=rng.uniform(-221,221),rng.uniform(-78,206)

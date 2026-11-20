@@ -5,6 +5,7 @@ use crate::{
     homestead::{Homestead, Product},
     regions::RegionProgress,
     session::Checkpoint,
+    story::StoryProgress,
     town::Journal,
     weather::Sky,
 };
@@ -19,7 +20,7 @@ use std::{
 pub const PLOT_COUNT: usize = 12;
 pub const FERTILIZER_PRICE: u32 = 4;
 const FERTILIZER_PACK: u32 = 2;
-const SAVE_VERSION: u8 = 9;
+const SAVE_VERSION: u8 = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Quality {
@@ -198,6 +199,8 @@ pub struct Garden {
     pub town: Journal,
     pub regions: RegionProgress,
     pub rpg: duel::Progress,
+    pub story: StoryProgress,
+    pub large_ui: bool,
 }
 
 impl Default for Garden {
@@ -234,6 +237,8 @@ impl Default for Garden {
             town: Journal::default(),
             regions: RegionProgress::default(),
             rpg: duel::Progress::default(),
+            story: StoryProgress::default(),
+            large_ui: false,
         }
     }
 }

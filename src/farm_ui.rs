@@ -12,6 +12,7 @@ use crate::{
     progression::{self, CARDS_FOR_SALE, GearSource},
     regions::Bell,
     session::{Checkpoint, Session},
+    story::{Guide, GuideTab},
     ui::{self, UiFonts},
     world::Gardener,
 };
@@ -34,6 +35,7 @@ pub enum FarmPage {
     CardShop,
     Gear(GearSource),
     Expedition,
+    Journal(GuideTab),
     Battle,
 }
 
@@ -137,6 +139,7 @@ impl FarmMenu {
                 .chain((1..=garden.rpg.camp() / CAMP_INTERVAL).map(|index| index * CAMP_INTERVAL))
                 .map(Entry::Level)
                 .collect(),
+            FarmPage::Journal(tab) => Guide::entries(tab).map(Entry::Guide).collect(),
             FarmPage::Battle => Vec::new(),
         }
     }
@@ -158,10 +161,11 @@ enum Entry {
     Talent(Talent),
     Gear(Gear),
     Level(u32),
+    Guide(Guide),
 }
 
 impl Entry {
-    fn title(self) -> String {
+    fn title(self, garden: &Garden) -> String {
         match self {
             Self::Seed(crop) => crop.name().into(),
             Self::Stock(item) => item.label(),
@@ -174,6 +178,7 @@ impl Entry {
             Self::Gear(gear) => gear.name().into(),
             Self::Level(1) => "Ebene 1".into(),
             Self::Level(level) => format!("Glockenrast {level}"),
+            Self::Guide(guide) => guide.title(garden).into(),
         }
     }
 
@@ -236,6 +241,7 @@ impl Entry {
             },
             Self::Level(1) => "Am Eingang beginnen".into(),
             Self::Level(_) => "Hier beginnen und Leben auffüllen".into(),
+            Self::Guide(guide) => guide.detail(garden),
         }
     }
 
@@ -267,6 +273,7 @@ pub enum Choice {
     Talents,
     Gear,
     Return,
+    Guide(GuideTab),
 }
 
 #[derive(Component)]
@@ -304,15 +311,17 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
         .with_children(|veil| {
             veil.spawn((
                 Node {
-                    width: Val::Px(545.),
+                    width: Val::Px(590.),
                     max_width: Val::Percent(95.),
                     padding: UiRect::all(Val::Px(22.)),
+                    border: UiRect::all(Val::Px(1.)),
                     flex_direction: FlexDirection::Column,
                     row_gap: Val::Px(13.),
                     ..default()
                 },
                 BorderRadius::all(Val::Px(24.)),
                 BackgroundColor(ui::cream()),
+                BorderColor(ui::stroke()),
                 ui::shadow(),
             ))
             .with_children(|paper| {
@@ -414,10 +423,12 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                             (Choice::Work, "Herstellen", 164.),
                             (Choice::AddCopy, "+ Karte", 84.),
                             (Choice::RemoveCopy, "− Karte", 84.),
-                            (Choice::SaveDeck, "Deck speichern", 122.),
+                            (Choice::SaveDeck, "Deck speichern", 129.),
                             (Choice::Talents, "Talente", 84.),
                             (Choice::Gear, "Ausrüstung", 106.),
                             (Choice::Return, "Zurück", 84.),
+                            (Choice::Guide(GuideTab::Orders), "Aufträge", 104.),
+                            (Choice::Guide(GuideTab::Story), "Geschichte", 112.),
                         ] {
                             footer
                                 .spawn((action, ui::dialog_button(width)))
@@ -558,6 +569,10 @@ pub fn input(
             menu.message.clear();
             None
         }
+        Choice::Guide(tab) if matches!(page, FarmPage::Journal(_)) => {
+            menu.navigate(FarmPage::Journal(tab));
+            None
+        }
         Choice::Talents if page == FarmPage::Binder => {
             menu.navigate(FarmPage::Talents);
             None
@@ -623,6 +638,35 @@ pub fn input(
             } else {
                 Err("Für diesen Rang fehlen Punkte, oder das Talent ist bereits ausgebaut.".into())
             })
+        }
+        Choice::Work if matches!(page, FarmPage::Journal(_)) => {
+            let Some(Entry::Guide(guide)) = menu.selected else {
+                return;
+            };
+            if guide == Guide::Farm {
+                Some(if garden.claim() {
+                    Ok("Hofaufgabe erfüllt · +5 Münzen und Saatgut".into())
+                } else {
+                    Err("Die Hofaufgabe ist noch offen.".into())
+                })
+            } else if let Some(target) = guide.target(&garden) {
+                adventure.tracked = Some(guide);
+                if adventure.area.outdoors() {
+                    adventure.map = true;
+                    adventure.focus = Some(target);
+                    *focus = GardenFocus::default();
+                    *gesture = Gesture::default();
+                    *controls = Controls::default();
+                    menu.close();
+                    None
+                } else {
+                    Some(Err(
+                        "Ziel markiert. Draußen kannst du es auf der Weltkarte sehen.".into(),
+                    ))
+                }
+            } else {
+                None
+            }
         }
         Choice::Work if matches!(page, FarmPage::Gear(_)) => {
             let (FarmPage::Gear(source), Some(Entry::Gear(gear))) = (page, menu.selected) else {
@@ -738,6 +782,8 @@ pub fn update(
                 FarmPage::CardShop => "Runas Karten",
                 FarmPage::Gear(_) => "Ausrüstung",
                 FarmPage::Expedition => "Dämmergänge",
+                FarmPage::Journal(GuideTab::Story) => "Das Licht der Wegglocken",
+                FarmPage::Journal(GuideTab::Orders) => "Aufträge",
                 FarmPage::Battle => "",
             }
             .into(),
@@ -802,6 +848,13 @@ pub fn update(
                     garden.rpg.hp,
                     garden.rpg.max_hp()
                 ),
+                FarmPage::Journal(GuideTab::Story) => format!(
+                    "{}/3 Klangsteine · Wähle ein Ziel, um es auf der Karte zu sehen.",
+                    garden.story.voices()
+                ),
+                FarmPage::Journal(GuideTab::Orders) => {
+                    "Hof, Eichenhafen und die Außenregionen".into()
+                }
                 FarmPage::Battle => String::new(),
             },
             Field::Message if progress.is_some() => {
@@ -855,7 +908,9 @@ pub fn update(
                 "Wähle eine Karte. Schließen verwirft ungespeicherte Änderungen.".into()
             }
             Field::Message => String::new(),
-            Field::CardName(i) => entry_at(i).map_or_else(String::new, Entry::title),
+            Field::CardName(i) => {
+                entry_at(i).map_or_else(String::new, |entry| entry.title(&garden))
+            }
             Field::CardDetail(i) => entry_at(i).map_or_else(String::new, |entry| {
                 let extra = entry.detail(page, &garden);
                 match entry {
@@ -876,6 +931,8 @@ pub fn update(
                 }
                 (FarmPage::Gear(GearSource::Smith), _) => "Kaufen & anlegen",
                 (FarmPage::Gear(GearSource::Workbench), _) => "Bauen & anlegen",
+                (FarmPage::Journal(_), Some(Entry::Guide(Guide::Farm))) => "Belohnung holen",
+                (FarmPage::Journal(_), _) => "Auf Karte zeigen",
                 _ => "Herstellen",
             }
             .into(),
@@ -902,6 +959,10 @@ pub fn update(
                 true,
             ),
             Choice::Return => (matches!(page, FarmPage::Talents | FarmPage::Gear(_)), true),
+            Choice::Guide(tab) => (
+                matches!(page, FarmPage::Journal(current) if current != tab),
+                true,
+            ),
             Choice::AddCopy => (
                 page == FarmPage::Binder,
                 matches!(selected, Some(Entry::CombatCard(card)) if menu.copies(card) < 2)
@@ -931,6 +992,10 @@ pub fn update(
                     (FarmPage::Gear(source), Some(Entry::Gear(gear))) => {
                         source.ready(&garden, gear)
                     }
+                    (FarmPage::Journal(_), Some(Entry::Guide(Guide::Farm))) => garden.task().1,
+                    (FarmPage::Journal(_), Some(Entry::Guide(guide))) => {
+                        guide.target(&garden).is_some()
+                    }
                     _ => false,
                 };
                 (
@@ -941,6 +1006,7 @@ pub fn update(
                             | FarmPage::CardShop
                             | FarmPage::Talents
                             | FarmPage::Gear(_)
+                            | FarmPage::Journal(_)
                     ),
                     available,
                 )

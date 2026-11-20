@@ -212,6 +212,7 @@ pub enum MenuButton {
     Resume,
     Save,
     Title,
+    UiSize,
 }
 
 #[derive(Component)]
@@ -220,6 +221,7 @@ pub enum MenuText {
     SlotAction(usize),
     Message(Screen),
     ActiveSlot,
+    UiSize,
 }
 
 pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
@@ -318,11 +320,15 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                             for (action, label) in [
                                 (MenuButton::Resume, "Weiterspielen"),
                                 (MenuButton::Save, "Jetzt speichern"),
+                                (MenuButton::UiSize, "Darstellung"),
                                 (MenuButton::Title, "Speichern & Hauptmenü"),
                             ] {
-                                panel
-                                    .spawn((action, ui::dialog_button(350.)))
-                                    .with_child(fonts.button(label, 16.));
+                                let mut button = panel.spawn((action, ui::dialog_button(350.)));
+                                if matches!(action, MenuButton::UiSize) {
+                                    button.with_child((MenuText::UiSize, fonts.button(label, 16.)));
+                                } else {
+                                    button.with_child(fonts.button(label, 16.));
+                                }
                             }
                         }
                         panel.spawn((MenuText::Message(screen), fonts.body("", 13.)));
@@ -420,6 +426,14 @@ pub fn input(
         },
         (Screen::Pause, MenuButton::Resume) => {
             session.screen = Screen::Playing;
+        }
+        (Screen::Pause, MenuButton::UiSize) => {
+            g.large_ui = !g.large_ui;
+            let checkpoint = Checkpoint::new(adventure.area, player.position);
+            if let Err(error) = session.save(&mut slots, &mut g, checkpoint, time.elapsed_secs()) {
+                warn!("Darstellung konnte nicht gespeichert werden: {error}");
+                session.message = "Darstellung gilt bis zum nächsten Speichern.".into();
+            }
         }
         (Screen::Pause, MenuButton::Save | MenuButton::Title) => {
             let checkpoint = Checkpoint::new(adventure.area, player.position);
@@ -545,6 +559,12 @@ pub fn update(
                 session.index.unwrap_or(0) + 1,
                 garden.day
             ),
+            MenuText::UiSize => if garden.large_ui {
+                "Darstellung · Groß"
+            } else {
+                "Darstellung · Standard"
+            }
+            .into(),
         };
         if text.0 != value {
             text.0 = value;

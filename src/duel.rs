@@ -176,12 +176,16 @@ impl Card {
     }
 
     pub fn description(self) -> String {
+        self.description_with(0)
+    }
+
+    fn description_with(self, strength: u8) -> String {
         let spec = self.spec();
         let mut pieces = Vec::new();
         if spec.damage > 0 {
             pieces.push(format!(
                 "{} Schaden{}",
-                spec.damage,
+                spec.damage + strength,
                 if spec.piercing { " durch Schild" } else { "" }
             ));
         }
@@ -446,19 +450,84 @@ pub enum Enemy {
     Mosskin,
     KilnGuard,
     MistOwl,
+    MossKeeper,
+    KilnKeeper,
+    MistKeeper,
+    RootKeeper,
     BellKeeper,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Chapter {
+    Moss,
+    Clay,
+    Mist,
+    Root,
+    Bell,
+}
+
+impl Chapter {
+    pub fn at(level: u32) -> Self {
+        match level {
+            0..=5 => Self::Moss,
+            6..=10 => Self::Clay,
+            11..=15 => Self::Mist,
+            16..=20 => Self::Root,
+            _ => Self::Bell,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Moss => "Moosgänge",
+            Self::Clay => "Tonwerk",
+            Self::Mist => "Nebelkammern",
+            Self::Root => "Wurzelsaal",
+            Self::Bell => "Glockenhalle",
+        }
+    }
+
+    pub fn floor(self, variation: usize) -> &'static str {
+        match self {
+            Self::Moss => ["dusk_floor_0", "dusk_floor_1", "dusk_floor_2"][variation % 3],
+            Self::Clay => "dusk_floor_clay",
+            Self::Mist => "dusk_floor_mist",
+            Self::Root => "dusk_floor_root",
+            Self::Bell => "dusk_floor_bell",
+        }
+    }
+
+    pub fn wall_feature(self) -> &'static str {
+        match self {
+            Self::Moss => "dusk_wall",
+            Self::Clay => "dusk_wall_clay",
+            Self::Mist => "dusk_wall_mist",
+            Self::Root => "dusk_wall_root",
+            Self::Bell => "dusk_wall_bell",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Intent {
     Attack(u16),
+    Flurry(u16),
     Brace(u16),
+    Mend(u16),
+    Charge { guard: u16, damage: u16 },
+    Stagger,
 }
 
 impl Enemy {
     pub fn at(level: u32) -> Self {
         if level % CAMP_INTERVAL == 0 {
-            Self::BellKeeper
+            match Chapter::at(level) {
+                Chapter::Moss => Self::MossKeeper,
+                Chapter::Clay => Self::KilnKeeper,
+                Chapter::Mist => Self::MistKeeper,
+                Chapter::Root => Self::RootKeeper,
+                Chapter::Bell => Self::BellKeeper,
+            }
         } else {
             [Self::Mosskin, Self::KilnGuard, Self::MistOwl][((level - 1) * 7 % 3) as usize]
         }
@@ -469,7 +538,11 @@ impl Enemy {
             Self::Mosskin => "Mooshüter",
             Self::KilnGuard => "Tonwächter",
             Self::MistOwl => "Nebeleule",
-            Self::BellKeeper => "Glockenhüter",
+            Self::MossKeeper => "Moosglocke",
+            Self::KilnKeeper => "Ofenglocke",
+            Self::MistKeeper => "Nebelglocke",
+            Self::RootKeeper => "Wurzelglocke",
+            Self::BellKeeper => "Hüter der ersten Glocke",
         }
     }
 
@@ -478,7 +551,11 @@ impl Enemy {
             Self::Mosskin => "duel_mosskin",
             Self::KilnGuard => "duel_kiln",
             Self::MistOwl => "duel_owl",
-            Self::BellKeeper => "duel_keeper",
+            Self::MossKeeper => "duel_keeper",
+            Self::KilnKeeper => "duel_keeper_clay",
+            Self::MistKeeper => "duel_keeper_mist",
+            Self::RootKeeper => "duel_keeper_root",
+            Self::BellKeeper => "duel_keeper_bell",
         }
     }
 
@@ -486,7 +563,7 @@ impl Enemy {
         match self {
             Self::Mosskin => Loot::MossDown,
             Self::KilnGuard => Loot::ClaySeal,
-            Self::MistOwl | Self::BellKeeper => Loot::MoonDust,
+            _ => Loot::MoonDust,
         }
     }
 
@@ -494,27 +571,65 @@ impl Enemy {
         let base = 14 + level as u16 * 2;
         base + match self {
             Self::KilnGuard => 4,
-            Self::BellKeeper => 12,
-            _ => 0,
+            Self::Mosskin | Self::MistOwl => 0,
+            _ => 12,
         }
     }
 
     fn intent(self, level: u32, round: u16) -> Intent {
-        let bonus = match self {
-            Self::MistOwl => 2,
-            Self::BellKeeper => 4,
-            _ => 0,
+        let level = level as u16;
+        let hit = 4 + level / 2;
+        let guard = 4 + level / 3;
+        let heal = 5 + level / 4;
+        let charge = |armor, power| Intent::Charge {
+            guard: armor,
+            damage: power,
         };
-        let brace_round = match self {
-            Self::Mosskin => 3,
-            Self::KilnGuard => 2,
-            Self::MistOwl => 4,
-            Self::BellKeeper => 3,
-        };
-        if round % brace_round == 0 {
-            Intent::Brace(4 + level as u16 / 3 + bonus)
-        } else {
-            Intent::Attack(4 + level as u16 / 2 + bonus)
+        match self {
+            Self::Mosskin => match round % 4 {
+                2 => Intent::Mend(heal),
+                0 => Intent::Brace(guard),
+                _ => Intent::Attack(hit),
+            },
+            Self::KilnGuard => match round % 4 {
+                1 => Intent::Brace(guard + 3),
+                3 => charge(guard, hit + 5),
+                _ => Intent::Attack(hit + 2),
+            },
+            Self::MistOwl => match round % 4 {
+                0 => Intent::Brace(guard),
+                2 => Intent::Attack(hit + 3),
+                _ => Intent::Flurry((hit + 3) / 2),
+            },
+            Self::MossKeeper => match round % 4 {
+                1 => Intent::Attack(hit + 3),
+                2 => Intent::Mend(heal + 3),
+                3 => Intent::Brace(guard + 1),
+                _ => Intent::Flurry((hit + 5) / 2),
+            },
+            Self::KilnKeeper => match round % 4 {
+                1 => Intent::Brace(guard + 4),
+                2 => charge(guard + 2, hit + 8),
+                _ => Intent::Attack(hit + 3),
+            },
+            Self::MistKeeper => match round % 5 {
+                1 | 4 => Intent::Flurry((hit + 6) / 2),
+                2 => Intent::Brace(guard),
+                0 => Intent::Mend(heal),
+                _ => charge(guard, hit + 7),
+            },
+            Self::RootKeeper => match round % 5 {
+                1 => Intent::Attack(hit + 5),
+                2 | 0 => Intent::Mend(heal + 5),
+                3 => Intent::Flurry((hit + 6) / 2),
+                _ => charge(guard + 1, hit + 7),
+            },
+            Self::BellKeeper => match round % 4 {
+                1 => charge(guard + 4, hit + 11),
+                3 => Intent::Flurry((hit + 8) / 2),
+                0 => Intent::Mend(heal + 3),
+                _ => Intent::Attack(hit + 5),
+            },
         }
     }
 }
@@ -540,6 +655,7 @@ pub struct Battle {
     pub hand: Vec<Card>,
     pub outcome: Outcome,
     pub message: String,
+    pub retreat_pending: bool,
     resistance: u8,
     strength: u8,
     hand_size: u8,
@@ -547,6 +663,7 @@ pub struct Battle {
     drawing: Vec<Card>,
     used: Vec<Card>,
     spores: [u16; 2],
+    charged: Option<u16>,
     rng: u64,
 }
 
@@ -568,6 +685,7 @@ impl Battle {
             hand: Vec::new(),
             outcome: Outcome::Running,
             message: String::new(),
+            retreat_pending: false,
             resistance: progress.ranks[Talent::Shell as usize] + progress.gear.resistance(),
             strength: progress.gear.damage(),
             hand_size: 5 + u8::from(focus >= 1),
@@ -575,6 +693,7 @@ impl Battle {
             drawing: progress.deck.to_vec(),
             used: Vec::new(),
             spores: [0; 2],
+            charged: None,
             rng: u64::from(level) * 0x85ebca77 + 0xc2b2ae35,
         };
         shuffle(&mut battle.drawing, &mut battle.rng);
@@ -583,12 +702,35 @@ impl Battle {
     }
 
     pub fn intent(&self) -> Intent {
+        if let Some(damage) = self.charged {
+            return if self.enemy_guard == 0 {
+                Intent::Stagger
+            } else {
+                Intent::Attack(damage)
+            };
+        }
         self.enemy.intent(self.level, self.round)
     }
 
-    pub fn incoming(&self, raw: u16) -> u16 {
-        raw.saturating_sub(u16::from(self.resistance))
-            .saturating_sub(self.guard)
+    pub fn incoming(&self, intent: Intent) -> u16 {
+        let (raw, hits) = match intent {
+            Intent::Attack(raw) => (raw, 1),
+            Intent::Flurry(raw) => (raw, 2),
+            _ => return 0,
+        };
+        (raw.saturating_sub(u16::from(self.resistance)) * hits).saturating_sub(self.guard)
+    }
+
+    pub fn energy_limit(&self) -> u8 {
+        self.energy_limit
+    }
+
+    pub fn piles(&self) -> (usize, usize) {
+        (self.drawing.len(), self.used.len())
+    }
+
+    pub fn card_description(&self, card: Card) -> String {
+        card.description_with(self.strength)
     }
 
     fn draw(&mut self, count: u8) {
@@ -621,6 +763,7 @@ impl Battle {
         }
         self.energy -= spec.cost;
         self.hand.remove(index);
+        let (old_hp, old_enemy_hp, old_enemy_guard) = (self.hp, self.enemy_hp, self.enemy_guard);
         self.guard = self.guard.saturating_add(u16::from(spec.guard));
         self.hp = self
             .hp
@@ -641,7 +784,30 @@ impl Battle {
         }
         self.draw(spec.draw);
         self.used.push(card);
-        self.message = format!("{} gespielt", spec.name);
+        let mut effects = Vec::new();
+        if self.enemy_hp < old_enemy_hp {
+            effects.push(format!(
+                "−{} Leben beim Hüter",
+                old_enemy_hp - self.enemy_hp
+            ));
+        }
+        if self.enemy_guard < old_enemy_guard {
+            effects.push(format!("−{} Rüstung", old_enemy_guard - self.enemy_guard));
+        }
+        if self.hp > old_hp {
+            effects.push(format!("+{} Leben", self.hp - old_hp));
+        }
+        if spec.guard > 0 {
+            effects.push(format!("+{} Schild", spec.guard));
+        }
+        if spec.spores > 0 {
+            effects.push(format!("{} Sporen pro Zug", spec.spores));
+        }
+        self.message = if effects.is_empty() {
+            format!("{} gespielt", spec.name)
+        } else {
+            format!("{} · {}", spec.name, effects.join(" · "))
+        };
         if self.enemy_hp == 0 {
             self.outcome = Outcome::Won;
         }
@@ -658,9 +824,11 @@ impl Battle {
             self.outcome = Outcome::Won;
             return;
         }
-        self.message = match self.intent() {
-            Intent::Attack(damage) => {
-                let lost = self.incoming(damage);
+        let intent = self.intent();
+        self.charged = None;
+        self.message = match intent {
+            Intent::Attack(_) | Intent::Flurry(_) => {
+                let lost = self.incoming(intent);
                 self.hp = self.hp.saturating_sub(lost);
                 format!(
                     "{} greift an · {} Lebenspunkte verloren",
@@ -672,6 +840,20 @@ impl Battle {
                 self.enemy_guard = shield;
                 format!("{} baut {} Schild auf.", self.enemy.name(), shield)
             }
+            Intent::Mend(amount) => {
+                let restored = amount.min(self.enemy_max - self.enemy_hp);
+                self.enemy_hp += restored;
+                format!("{} sammelt Kräfte · +{restored} Leben", self.enemy.name())
+            }
+            Intent::Charge { guard, damage } => {
+                self.enemy_guard = self.enemy_guard.max(guard);
+                self.charged = Some(damage);
+                format!(
+                    "Aufgeladen · Brich {} Rüstung, um den Schlag zu stoppen.",
+                    self.enemy_guard
+                )
+            }
+            Intent::Stagger => "Die gebrochene Rüstung unterbricht den Schlag.".into(),
         };
         if self.hp == 0 {
             self.outcome = Outcome::Lost;
@@ -831,10 +1013,7 @@ mod tests {
         if battle.outcome != Outcome::Running {
             return None;
         }
-        let incoming = match battle.intent() {
-            Intent::Attack(raw) => battle.incoming(raw),
-            Intent::Brace(_) => 0,
-        };
+        let incoming = battle.incoming(battle.intent());
         battle
             .hand
             .iter()
@@ -854,12 +1033,15 @@ mod tests {
                 let guard = u16::from(spec.guard).min(incoming);
                 let wins = damage >= battle.enemy_hp;
                 let safety = guard > 0 && incoming >= battle.hp;
+                let breaks_charge = battle.charged.is_some()
+                    && !spec.piercing
+                    && u16::from(spec.damage) + u16::from(battle.strength) >= battle.enemy_guard;
                 let score = i32::from(damage + u16::from(spec.spores) * 2 + guard + healing * 2)
                     + i32::from(spec.draw) * 2
                     - i32::from(spec.cost) * 2
                     + if wins {
                         1000
-                    } else if safety {
+                    } else if safety || breaks_charge && battle.enemy_guard != 0 {
                         100
                     } else {
                         0
@@ -868,5 +1050,25 @@ mod tests {
             })
             .max_by_key(|&(_, score)| score)
             .map(|(index, _)| index)
+    }
+
+    #[test]
+    fn a_charge_can_be_stopped_and_flurries_apply_resistance_per_hit() {
+        let mut battle = Battle::new(25, &Progress::default());
+        let Intent::Charge { guard, damage } = battle.intent() else {
+            panic!("final boss must telegraph")
+        };
+        battle.end_turn();
+        assert_eq!(battle.intent(), Intent::Attack(damage));
+        assert_eq!(battle.enemy_guard, guard);
+        battle.hand = vec![Card::TrailRush, Card::TwigStrike];
+        assert!(battle.play(0));
+        assert!(battle.play(0));
+        assert_eq!(battle.intent(), Intent::Stagger);
+        battle.end_turn();
+        assert_eq!(battle.hp, battle.max_hp);
+        battle.resistance = 2;
+        battle.guard = 3;
+        assert_eq!(battle.incoming(Intent::Flurry(8)), 9);
     }
 }

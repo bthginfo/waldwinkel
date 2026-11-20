@@ -95,6 +95,9 @@ pub struct Cloud {
 }
 
 #[derive(Component)]
+pub struct MillSails;
+
+#[derive(Component)]
 pub struct Selection;
 
 #[derive(Component)]
@@ -178,6 +181,13 @@ impl FromWorld for Models {
 }
 
 pub fn setup(mut commands: Commands, models: Res<Models>, assets: Res<AssetServer>) {
+    let mill = Vec2::new(16., 122.8);
+    commands.spawn((
+        MillSails,
+        Exterior,
+        SceneRoot(assets.load("models/windmill_sails.glb#Scene0")),
+        Transform::from_xyz(mill.x, exterior_ground(mill) + 4.94, mill.y + 1.51),
+    ));
     commands.spawn((
         IslandCamera,
         Camera3d::default(),
@@ -819,6 +829,10 @@ pub fn move_clouds(time: Res<Time>, mut clouds: Query<(&Cloud, &mut Transform)>)
         transform.translation =
             cloud.origin + Vec3::new(phase.sin() * 0.53, phase.cos() * 0.10, 0.0);
     }
+}
+
+pub fn turn_mill(time: Res<Time>, sail: Single<&mut Transform, With<MillSails>>) {
+    sail.into_inner().rotate_z(0.60 * time.delta_secs());
 }
 
 fn position3(point: Vec2, height: f32) -> Vec3 {

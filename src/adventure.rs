@@ -1,12 +1,13 @@
 use crate::{
     Controls, GardenFocus, Notice,
-    duel::{Battle, CAMP_INTERVAL, Enemy, LAST_LEVEL},
+    duel::{Battle, CAMP_INTERVAL, Chapter, Enemy, LAST_LEVEL},
     farm_ui::{FarmMenu, FarmPage},
     furniture::CATALOG,
     garden::{Crop, Garden, SavePath},
     homestead::{Animal, ORCHARD, Ore, Product, Village},
     regions::{Bell, Frontier},
     session::Checkpoint,
+    story::{Guide, GuideTab, Resonator},
     town::{Dialog, Npc},
     travel::{self, District, FINDS},
     world::{self, Gardener, IslandCamera, Reach, Tool},
@@ -135,6 +136,7 @@ pub enum Target {
     DuskDown,
     DuskFoe,
     DuskCamp,
+    Resonator(Resonator),
 }
 
 impl Target {
@@ -201,6 +203,7 @@ impl Target {
             Self::DuskDown => "Abstieg",
             Self::DuskFoe => "Begegnung",
             Self::DuskCamp => "Glockenrast",
+            Self::Resonator(site) => site.name(),
         }
     }
 
@@ -234,6 +237,7 @@ impl Target {
             Self::DuskDown => "Tiefer steigen",
             Self::DuskFoe => "Kämpfen",
             Self::DuskCamp => "Ausruhen",
+            Self::Resonator(_) => "Stimmen",
         }
     }
 
@@ -254,14 +258,13 @@ impl Target {
             Self::Binder | Self::DuskFoe => 0.86,
             Self::DuskGate | Self::DuskExit => 1.05,
             Self::DuskDown | Self::DuskCamp => 0.42,
+            Self::Resonator(_) => 1.14,
             _ => 0.23,
         }
     }
 }
 
-pub const LANDMARKS: [(&str, Target); 11] = [
-    ("Hafenmarkt", Target::Village(Village::Board)),
-    ("Tierweide", Target::Village(Village::Feed)),
+pub const LANDMARKS: [(&str, Target); 9] = [
     ("Minenstollen", Target::Portal),
     ("Hof", Target::Door),
     ("Farnwald", Target::Travel(District::Forest)),
@@ -278,12 +281,19 @@ pub fn landmark_center(
     view: &GlobalTransform,
     p: Vec2,
     scale: f32,
+    offset: f32,
 ) -> Option<Vec2> {
     camera
         .world_to_viewport(view, Vec3::new(p.x, 0.85, p.y))
         .ok()
-        .map(|at| at + Vec2::Y * 23.0 * scale)
+        .map(|at| at + Vec2::Y * offset * scale)
 }
+
+pub fn landmark_offset(target: Target) -> f32 {
+    if target == Target::Portal { -24. } else { 23. }
+}
+
+pub const GUIDE_OFFSET: f32 = -36.;
 
 #[derive(Resource, Default)]
 pub struct Adventure {
@@ -291,7 +301,7 @@ pub struct Adventure {
     pub focus: Option<Target>,
     pub crop: Crop,
     pub furniture: usize,
-    pub journal: bool,
+    pub tracked: Option<Guide>,
     pub map: bool,
     pub zoom: f32,
     waiting: Option<(f32, f32)>,
@@ -326,6 +336,33 @@ fn cell_position(cell: u16) -> Vec2 {
 }
 
 impl MineFloor {
+    fn expedition(level: u32) -> Self {
+        let mut floor = Self::generate(900 + level);
+        let chapter = Chapter::at(level);
+        // Keep every original tile, foe and stair usable by saves made before the redesign.
+        // A connections rule adds loops and small side chambers without splitting the route.
+        let extra = match chapter {
+            Chapter::Moss => 2,
+            Chapter::Clay | Chapter::Mist => 4,
+            Chapter::Root | Chapter::Bell => 6,
+        };
+        for step in 0..extra {
+            let cell = (0..(GRID * GRID) as u16)
+                .filter(|cell| !floor.cells.contains(cell))
+                .filter(|&cell| {
+                    neighbors(cell)
+                        .filter(|next| floor.cells.contains(next))
+                        .count()
+                        >= 2
+                })
+                .max_by_key(|&cell| (u32::from(cell) * 37 + level * 23 + step * 53) % 101);
+            if let Some(cell) = cell {
+                floor.cells.push(cell);
+            }
+        }
+        floor
+    }
+
     pub fn generate(depth: u32) -> Self {
         let mut state = 0xa8cc_113du32 ^ depth.wrapping_mul(0x9e37_79b9);
         let mut roll = |upper: usize| {
@@ -438,6 +475,10 @@ fn dusk_cell(cell: u16) -> Vec2 {
 }
 
 impl Adventure {
+    pub fn tracked_target(&self, garden: &Garden) -> Option<Target> {
+        self.tracked.and_then(|guide| guide.target(garden))
+    }
+
     pub fn offer(&self, garden: &Garden) -> Option<Product> {
         Product::at(self.sale, garden).or_else(|| Product::at(0, garden))
     }
@@ -476,6 +517,9 @@ impl Adventure {
                     && !Bell::ALL
                         .into_iter()
                         .any(|bell| within(bell.position(), 0.59))
+                    && !Resonator::ALL
+                        .into_iter()
+                        .any(|site| within(site.position(), 0.63))
                     && !within(SALE_CHEST, 0.70)
                     && !inside(KITCHEN, Vec2::new(1.15, 0.64))
                     && !inside(PATTERN_STALL, Vec2::new(0.85, 0.51))
@@ -544,6 +588,7 @@ impl Adventure {
             Target::PatternStall => 0.94,
             Target::Gate(_) => 0.67,
             Target::Bell(_) => 0.66,
+            Target::Resonator(_) => 0.69,
             Target::Bed => 1.10,
             Target::Bench => 0.91,
             Target::Binder | Target::DuskFoe | Target::DuskCamp => 0.70,
@@ -610,6 +655,7 @@ impl Adventure {
             Target::DuskExit => DUSK + Vec2::new(-0.14, -0.77),
             Target::DuskDown => dusk_cell(self.layout.down),
             Target::DuskFoe | Target::DuskCamp => dusk_cell(self.layout.encounter),
+            Target::Resonator(site) => site.position(),
         }
     }
 
@@ -628,6 +674,12 @@ impl Adventure {
             .chain(Frontier::Moor.unlocked(garden).then_some(Target::DuskGate))
             .chain(Frontier::ALL.into_iter().map(Target::Gate))
             .chain(Bell::ALL.into_iter().map(Target::Bell))
+            .chain(
+                Resonator::ALL
+                    .into_iter()
+                    .filter(|site| site.frontier().is_none_or(|region| region.unlocked(garden)))
+                    .map(Target::Resonator),
+            )
             .chain(
                 District::ALL
                     .into_iter()
@@ -718,6 +770,7 @@ impl Adventure {
             let regional_action = match target {
                 Target::Gate(gate) => Some(gate.describe(garden)),
                 Target::Bell(bell) => Some(bell.describe(garden)),
+                Target::Resonator(site) => Some(site.describe(garden)),
                 Target::DuskDown => match self.area {
                     Area::Expedition(level) if garden.rpg.cleared < level => Some((
                         "Besiege zuerst den Hüter dieser Ebene.".into(),
@@ -911,7 +964,7 @@ impl Adventure {
                 true,
             ),
             Area::Expedition(level) => (
-                format!("Dämmergänge · Ebene {level}"),
+                format!("{} · Ebene {level}", Chapter::at(level).name()),
                 if garden.rpg.cleared < level {
                     "Suche den Hüter. Die Karte zeigt die Gänge.".into()
                 } else {
@@ -936,10 +989,9 @@ impl Adventure {
         self.strike = None;
         self.waiting = None;
         self.map = false;
-        self.journal = false;
         match area {
             Area::Mine(depth) => self.layout = MineFloor::generate(depth),
-            Area::Expedition(level) => self.layout = MineFloor::generate(900 + level),
+            Area::Expedition(level) => self.layout = MineFloor::expedition(level),
             _ => {}
         }
         player.teleport(from);
@@ -1103,6 +1155,7 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
             1.8,
         ),
         Target::Bell(_) => hit(Vec2::splat(0.67), 0., 1.95),
+        Target::Resonator(_) => hit(Vec2::splat(0.53), 0., 1.62),
         Target::Kitchen | Target::PatternStall => hit(Vec2::new(0.96, 0.61), 0., 1.82),
         Target::FarmAnimal(_) => ray_box(
             ray,
@@ -1173,23 +1226,48 @@ pub fn select(
         }
     }
     let landmark = if adventure.map && adventure.area.outdoors() {
-        LANDMARKS
-            .into_iter()
-            .filter_map(|(_, target)| {
-                let center =
-                    landmark_center(camera, view, adventure.position(target), layout.scale)?;
-                let delta = (at - center).abs() / layout.scale;
-                let destination = if let Target::Travel(district) = target {
-                    Frontier::for_district(district)
-                        .filter(|gate| !gate.unlocked(&garden))
-                        .map_or(target, Target::Gate)
-                } else {
-                    target
-                };
-                (delta.x <= 53. && delta.y <= 12.).then_some((destination, delta.length_squared()))
+        adventure
+            .tracked_target(&garden)
+            .filter(|&target| {
+                landmark_center(
+                    camera,
+                    view,
+                    adventure.position(target),
+                    layout.scale,
+                    GUIDE_OFFSET,
+                )
+                .is_some_and(|p| {
+                    (p - at)
+                        .abs()
+                        .cmple(Vec2::new(53., 14.) * layout.scale)
+                        .all()
+                })
             })
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|(target, _)| target)
+            .or_else(|| {
+                LANDMARKS
+                    .into_iter()
+                    .filter_map(|(_, target)| {
+                        let center = landmark_center(
+                            camera,
+                            view,
+                            adventure.position(target),
+                            layout.scale,
+                            landmark_offset(target),
+                        )?;
+                        let delta = (at - center).abs() / layout.scale;
+                        let destination = if let Target::Travel(district) = target {
+                            Frontier::for_district(district)
+                                .filter(|gate| !gate.unlocked(&garden))
+                                .map_or(target, Target::Gate)
+                        } else {
+                            target
+                        };
+                        (delta.x <= 53. && delta.y <= 12.)
+                            .then_some((destination, delta.length_squared()))
+                    })
+                    .min_by(|a, b| a.1.total_cmp(&b.1))
+                    .map(|(target, _)| target)
+            })
     } else {
         None
     };
@@ -1234,7 +1312,6 @@ pub fn interact(
         adventure.map = !adventure.map;
     }
     if controls.inventory {
-        adventure.journal = false;
         farm_menu.show(FarmPage::Inventory);
         return;
     }
@@ -1259,25 +1336,10 @@ pub fn interact(
     }
     let now = time.elapsed_secs();
     if controls.task {
-        if adventure.area.outdoors() && District::at(player.0.position).is_some() {
-            adventure.journal = !adventure.journal;
-        } else if garden.claim() {
-            commit(
-                &garden,
-                &path,
-                &mut notice,
-                now,
-                "Aufgabe erledigt · +5 Münzen und Saatgut".into(),
-                None,
-                None,
-            );
-        } else {
-            *notice = Notice {
-                message: garden.task().0.into(),
-                until: now + 3.7,
-                ..default()
-            };
-        }
+        adventure.queued = None;
+        player.0.stop();
+        farm_menu.show(FarmPage::Journal(GuideTab::Story));
+        return;
     }
     if controls.move_axis != Vec2::ZERO || focus.selected.is_some() {
         adventure.queued = None;
@@ -1354,6 +1416,13 @@ pub fn interact(
                 }
             }
         }
+        Target::Resonator(site) => match site.work(&mut garden) {
+            Ok(message) => message,
+            Err(message) => {
+                persistent = false;
+                message
+            }
+        },
         Target::SaleChest
         | Target::Village(Village::Seeds)
         | Target::Binder
@@ -1431,7 +1500,6 @@ pub fn interact(
         Target::Person(person) => {
             let position = player.position;
             player.teleport(position);
-            adventure.journal = false;
             dialog.talk(person);
             return;
         }
@@ -1605,6 +1673,7 @@ enum Stamp {
         gates: [bool; 3],
         bells: [bool; 7],
         finds: [bool; FINDS.len()],
+        resonance: [bool; Resonator::ALL.len()],
     },
     Home([u8; 6]),
     Mine(u32, Vec<u16>),
@@ -1638,6 +1707,7 @@ pub fn draw(
             gates: Frontier::ALL.map(|gate| gate.unlocked(&garden)),
             bells: Bell::ALL.map(|bell| bell.ready(&garden)),
             finds: std::array::from_fn(|i| FINDS[i].available(&garden, i)),
+            resonance: Resonator::ALL.map(|site| site.active(&garden)),
         },
         Area::Home => Stamp::Home(garden.furniture),
         Area::Expedition(level) => Stamp::Dusk(level, garden.rpg.cleared >= level),
@@ -1680,6 +1750,7 @@ pub fn draw(
                 gates,
                 bells,
                 finds,
+                resonance,
             } => {
                 spawn(
                     "sale_crate",
@@ -1728,6 +1799,15 @@ pub fn draw(
                         } else {
                             "waybell"
                         },
+                        p,
+                        world::exterior_ground(p),
+                        0.,
+                    );
+                }
+                for site in Resonator::ALL {
+                    let p = site.position();
+                    spawn(
+                        site.model(resonance[site as usize]),
                         p,
                         world::exterior_ground(p),
                         0.,
@@ -1875,22 +1955,22 @@ pub fn draw(
             }
             Stamp::Dusk(level, won) => {
                 let twist = std::f32::consts::FRAC_PI_2;
+                let chapter = Chapter::at(*level);
                 for &cell in &adventure.layout.cells {
                     let p = dusk_cell(cell);
-                    let surface = ["dusk_floor_0", "dusk_floor_1", "dusk_floor_2"];
                     spawn(
-                        surface[(u32::from(cell) + level) as usize % surface.len()],
+                        chapter.floor((u32::from(cell) + level) as usize),
                         p,
                         0.,
                         f32::from(cell % 4) * twist,
                     );
                     for (edge, (offset, angle)) in adventure.layout.walls(cell).enumerate() {
-                        let lantern = (usize::from(cell) * 3 + edge + *level as usize) % 6 == 0;
+                        let decoration = (usize::from(cell) * 3 + edge + *level as usize) % 6;
                         spawn(
-                            if lantern {
-                                "dusk_lantern_wall"
-                            } else {
-                                "dusk_wall"
+                            match decoration {
+                                0 => "dusk_lantern_wall",
+                                1 => chapter.wall_feature(),
+                                _ => "dusk_wall",
                             },
                             p + offset,
                             -0.02,
@@ -1907,16 +1987,25 @@ pub fn draw(
                 );
                 if !*won {
                     spawn("dusk_rosette", adventure.position(Target::DuskFoe), 0., 0.);
-                    spawn(
+                    let foe = spawn(
                         Enemy::at(*level).model(),
                         adventure.position(Target::DuskFoe),
                         0.,
                         -0.26,
                     );
+                    commands
+                        .entity(foe)
+                        .insert(crate::battle_ui::GuardianMotion);
                 } else if level % CAMP_INTERVAL == 0 {
                     spawn("dusk_camp", adventure.position(Target::DuskCamp), 0., 0.);
                 }
-                Color::srgb_u8(47, 47, 65)
+                match chapter {
+                    Chapter::Moss => Color::srgb_u8(41, 45, 53),
+                    Chapter::Clay => Color::srgb_u8(54, 40, 52),
+                    Chapter::Mist => Color::srgb_u8(40, 49, 66),
+                    Chapter::Root => Color::srgb_u8(46, 49, 42),
+                    Chapter::Bell => Color::srgb_u8(55, 47, 62),
+                }
             }
         };
         drawing.root = Some(root);
@@ -2102,6 +2191,12 @@ mod tests {
                 "first tile on {level}"
             );
             let mut cells = adventure.layout.cells.clone();
+            let old = MineFloor::generate(900 + level);
+            assert!(old.cells.iter().all(|cell| cells.contains(cell)));
+            assert_eq!(
+                (old.down, old.encounter),
+                (adventure.layout.down, adventure.layout.encounter)
+            );
             cells.sort_unstable();
             assert!(layouts.insert(cells), "duplicate layout at {level}");
             assert!(
@@ -2137,6 +2232,28 @@ mod tests {
                     "return from camp {level}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn story_landmarks_are_reachable_from_their_regions() {
+        let mut garden = Garden::default();
+        garden.regions = serde_json::from_str(r#"{"gates":[2,2,2]}"#).unwrap();
+        let adventure = Adventure::default();
+        for site in Resonator::ALL {
+            let start = site
+                .frontier()
+                .map_or(District::Town, Frontier::district)
+                .waypoint();
+            let mut player = Gardener::new(start);
+            assert!(
+                player.navigate(
+                    adventure.reach(Target::Resonator(site), &garden),
+                    &adventure,
+                    &garden
+                ),
+                "{site:?}"
+            );
         }
     }
 }

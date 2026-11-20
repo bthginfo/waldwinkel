@@ -29,6 +29,7 @@ mod android {
     use ndk_sys as ndk;
 
     use super::Controller;
+    use crate::{farm_ui::FarmMenu, session::Session, town::Dialog};
 
     const KEYS: [u32; 11] = [
         ndk::AKEYCODE_DPAD_UP,
@@ -182,7 +183,13 @@ mod android {
         mut keyboard: EventWriter<KeyboardInput>,
         mut cursor: Single<&mut Node, With<ControllerCursor>>,
         ui_scale: Res<UiScale>,
+        session: Res<Session>,
+        menu: Res<FarmMenu>,
+        dialog: Res<Dialog>,
+        buttons: Query<(&ComputedNode, &GlobalTransform, &InheritedVisibility), With<Button>>,
         mut closing: Local<bool>,
+        mut previous_hat: Local<Vec2>,
+        mut was_modal: Local<bool>,
     ) {
         let (entity, window) = *window;
         let mut gesture = |position, phase| {
@@ -223,12 +230,46 @@ mod android {
             keyboard.write(escape(entity, ButtonState::Pressed));
             *closing = true;
         }
-        let direction = dead_zone(
-            Vec2::new(look_x, look_y)
-                + Vec2::new(hat_x, hat_y)
-                + Vec2::new(down(3) - down(2), down(1) - down(0)),
-        );
         let size = Vec2::new(window.width(), window.height());
+        let modal = !session.playing() || menu.open() || dialog.open();
+        let entered_modal = modal && !*was_modal;
+        *was_modal = modal;
+        let hat = Vec2::new(hat_x, hat_y);
+        let dpad = Vec2::new(down(3) - down(2), down(1) - down(0));
+        let stick = Vec2::new(look_x, look_y);
+        let direction = dead_zone(if modal { stick } else { stick + hat + dpad });
+        let tap = |i| f32::from(u8::from(hit(i)));
+        let step = Vec2::new(tap(3) - tap(2), tap(1) - tap(0))
+            + if hat != *previous_hat {
+                hat
+            } else {
+                Vec2::ZERO
+            };
+        *previous_hat = hat;
+        if modal
+            && (step != Vec2::ZERO
+                || hit(4) && controller.pointer.is_none()
+                || entered_modal && controller.pointer.is_some())
+        {
+            let visible = buttons.iter().filter_map(|(button, transform, visible)| {
+                if !visible.get() || button.size().min_element() < 4. {
+                    return None;
+                }
+                let at = transform.translation().truncate() / window.scale_factor();
+                at.cmpge(Vec2::ZERO)
+                    .all()
+                    .then_some(at)
+                    .filter(|p| p.cmple(size).all())
+            });
+            let from = if entered_modal {
+                None
+            } else {
+                controller.pointer
+            };
+            if let Some(point) = focus_step(visible, from, step) {
+                controller.pointer = Some(point);
+            }
+        }
         let movement = time.delta_secs().clamp(0.01, 0.04) * 610. * direction;
         if direction != Vec2::ZERO || hit(4) {
             let center = controller.pointer.unwrap_or(size / 2.);
@@ -254,6 +295,40 @@ mod android {
         }
     }
 
+    fn focus_step(
+        buttons: impl Iterator<Item = Vec2>,
+        from: Option<Vec2>,
+        step: Vec2,
+    ) -> Option<Vec2> {
+        let axis = step.normalize_or_zero();
+        buttons
+            .filter_map(|point| {
+                let Some(from) = from else {
+                    return Some((point, point.y * 4096. + point.x));
+                };
+                let offset = point - from;
+                let along = axis.dot(offset);
+                let perpendicular = axis.perp_dot(offset).abs();
+                (along > 7.).then_some((point, along + perpendicular * 2.35))
+            })
+            .min_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(point, _)| point)
+    }
+
+    pub fn hide_after_touch(
+        mut touches: EventReader<TouchInput>,
+        mut controller: ResMut<Controller>,
+        mut cursor: Single<&mut Node, With<ControllerCursor>>,
+    ) {
+        if touches
+            .read()
+            .any(|event| event.id != POINTER_ID && event.phase == TouchPhase::Started)
+        {
+            controller.pointer = None;
+            cursor.display = Display::None;
+        }
+    }
+
     fn escape(window: Entity, state: ButtonState) -> KeyboardInput {
         KeyboardInput {
             key_code: KeyCode::Escape,
@@ -267,4 +342,4 @@ mod android {
 }
 
 #[cfg(target_os = "android")]
-pub use android::{poll, setup};
+pub use android::{hide_after_touch, poll, setup};

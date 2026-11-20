@@ -1,13 +1,22 @@
-# Waldwinkel 1.0
+# Waldwinkel 1.1
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
-![Der Hof und der auswählbare Eingang der Holzhütte](docs/hof.png)
+![Hof und Werkzeugleiste im Spiel](docs/11-hof.png)
 
 ## Installieren
 
 - Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://github.com/bthginfo/waldwinkel/releases/latest/download/Waldwinkel-Android.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
+
+## Neu in 1.1
+
+- **Das Licht der Wegglocken.** Sprich mit Juna in Eichenhafen, stimme die drei Klangsteine in Klamm, Weide und Moor und entzünde nach der letzten Dämmerglocke die Hafenleuchte.
+- **Wege mit eigenen Orten.** Ein Erzgleis und Werkplätze in der Kupferklamm, Flachsfelder und ein drehendes Mühlrad auf den Windweiden, Weiden und Seerosen im Nebelmoor. Die Landschaftsmodelle sind in sichtbare Bereiche unterteilt.
+- **Journal und Bedienung.** Das Journal zeigt Geschichte und Aufträge, markiert ein Ziel auf der Karte und nimmt Hofaufgaben ab. Die Werkzeugleiste fasst Karte, Journal, Saatgut und Tasche zusammen. Unter **Menü → Darstellung** kannst du die Oberfläche vergrößern.
+- **Kampf.** Die fünf Kapitel haben eigene Hüter und Raumfarben. Manche Gegner heilen sich oder treffen zweimal. Bei einem aufgeladenen Angriff kannst du zuerst die Rüstung brechen und damit den Schlag unterbrechen. Lebensbalken, Kraft und Zugstapel haben eigene Anzeigen.
+
+[Journal](docs/11-journal.png) · [Weltkarte](docs/11-karte.png) · [Kampf](docs/11-kampf.png) · [Kupferklamm](docs/11-klamm.png) · [Stand und Vergleich zu 1.0](docs/spielstand-1.1.md)
 
 ## Dämmergänge und Kartenkämpfe
 
@@ -76,14 +85,14 @@ Im Startmenü kannst du auf bis zu drei getrennten Plätzen ein **Neues Spiel** 
 | Hafenmarkt | Beim Saatgutstand jeweils drei Samen der gewählten Sorte kaufen. Beim Ankäufer wechselt die linke Auswahltaste zwischen den verfügbaren Waren. Obst, Gemüse, Fisch, Eier, Wolle, Silber und Kristalle bringen Münzen. |
 | Tiere | Baue das passende Gebäude am Hof und nimm ein Tier auf. Pflege und Ernte erfolgen am eigenen Stall. Futter kannst du an der Futterkiste auf der Tierweide nachkaufen. |
 | Mine | Kupfer und Silber liegen in den ersten Ebenen. Ab Tiefe 3 kommen Kristallnester und dunkles Gestein hinzu. Die Hafenschmiede kann die Spitzhacke für zwei Kupfer, zwei Holz und zwölf Münzen verbessern. Die verbesserte Hacke liefert zwei Erze pro Ader. |
-| Aufgaben | Am Brett oder links über **Aufgaben** öffnen. Die acht Aufgaben fördern Garten, Sammeln, Handel, Tiere und Mine. Für eine erfüllte Aufgabe gibt es Saatgut und Münzen. |
+| Aufgaben | Am Brett oder unter **Journal → Aufträge** öffnen. Die acht Hofaufgaben fördern Garten, Sammeln, Handel, Tiere und Mine. Für eine erfüllte Aufgabe gibt es Saatgut und Münzen. |
 | Haus, Wald und Steg | Möbel herstellen und versetzen, markierte Kiefern fällen, Stein abbauen und am Steg angeln. |
 
 ### Steuerung
 
 - **Touch.** Tippe auf Boden, Gegenstände oder Figuren. Drücke die rechte Aktionstaste, um den gewählten Gegenstand zu benutzen oder eine Figur anzusprechen.
-- **Android-Controller.** Der linke Stick bewegt den Tanuki. Der rechte Stick und das Steuerkreuz bewegen den Zeiger. **A** tippt, **X** führt die ausgewählte Aktion aus, **Y** öffnet die Karte. Die Schultertasten zoomen. **B** oder **Start** schließen ein Fenster oder öffnen das Pausenmenü.
-- **Tastatur und Maus.** WASD und Pfeiltasten bewegen den Tanuki. Tab wechselt das Beet, Leertaste führt die Aktion aus. Das Mausrad zoomt. M öffnet die Karte, E die Saatguttasche, Q die Aufgaben und I die Tasche. Im Kampf spielen die Ziffern 1–8 eine Karte aus. Leertaste oder Enter beenden den Zug. F10 blendet das HUD aus, F12 speichert ein Spielbild.
+- **Android-Controller.** Der linke Stick bewegt den Tanuki. Der rechte Stick steuert den Zeiger. In geöffneten Menüs springt das Steuerkreuz zwischen Schaltflächen. **A** wählt aus, **X** führt die ausgewählte Aktion aus und **Y** öffnet die Karte. Die Schultertasten zoomen. **B** oder **Start** schließen ein Fenster oder öffnen das Pausenmenü.
+- **Tastatur und Maus.** WASD und Pfeiltasten bewegen den Tanuki. Tab wechselt das Beet, Leertaste führt die Aktion aus. Das Mausrad zoomt. M öffnet die Karte, E die Saatguttasche, Q das Journal und I die Tasche. Im Kampf spielen die Ziffern 1–8 eine Karte aus. Leertaste oder Enter beenden den Zug. F10 blendet das HUD aus, F12 speichert ein Spielbild.
 
 ## Projekt ausführen und bauen
 
@@ -116,6 +125,6 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 ## Tests
 
-39 Rust-Tests decken unter anderem die Routen aller 25 Dämmergänge, die Kartenprogression bis zum letzten Hüter, Tageswechsel, Erntequalität, Tierpflege, Möbelbau, Küchenminispiele, Regionalwege und die Übernahme alter Spielstände ab. Die Android-Builds werden im Android-14-Emulator über die vorherige Installation geprüft. Die Aufnahmen stammen aus dem laufenden Bevy-Spiel.
+43 Rust-Tests decken unter anderem die Routen aller 25 Dämmergänge, die Kartenprogression bis zum letzten Hüter, Junas Geschichte, die Position der Bedienelemente sowie Hof, Herstellungsrezepte und die Übernahme alter Spielstände ab. Die Android-Builds werden im Android-14-Emulator über die vorherige Installation geprüft. Die Aufnahmen stammen aus dem laufenden Bevy-Spiel.
 
 Die Blender-Landschaften entstanden nach eigenen Bildreferenzen. [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)

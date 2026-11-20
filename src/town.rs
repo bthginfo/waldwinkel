@@ -376,6 +376,7 @@ pub enum DialogueButton {
     Deal,
     Back,
     Quest,
+    Story,
 }
 #[derive(Component)]
 pub struct DialogueLabel(DialogueButton);
@@ -433,6 +434,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                                 (DialogueButton::Pick, "Nächste Ware", 129.),
                                 (DialogueButton::Deal, "Kaufen", 129.),
                                 (DialogueButton::Quest, "Annehmen", 187.),
+                                (DialogueButton::Story, "Nachfragen", 161.),
                                 (DialogueButton::Back, "Zurück", 105.),
                                 (DialogueButton::Close, "Schließen", 103.),
                             ] {
@@ -512,6 +514,12 @@ pub fn input(
                 npc.quest().map(|quest| quest.advance(&mut garden))
             }
         }
+        DialogueButton::Story if npc == Npc::Juna && !garden.story.met_juna => {
+            garden.story.met_juna = true;
+            Some(Ok(
+                "Ins Journal geschrieben · Das Licht der Wegglocken".into()
+            ))
+        }
         _ => None,
     };
     if let Some(result) = result {
@@ -575,6 +583,16 @@ pub fn update(
             DialogueText::Greeting if quest_state == Some(QuestState::Done) => {
                 "Danke für deine Hilfe. Schau gern wieder vorbei!".into()
             }
+            DialogueText::Greeting if npc == Npc::Juna && garden.story.harbor_lit =>
+                "Hörst du das? Sogar die Fischer am anderen Ufer drehen sich nach unserem Lichtfest um.".into(),
+            DialogueText::Greeting if npc == Npc::Juna =>
+                "Vor Jahren stimmten unsere Leute ihre Glocken nach dem Klang der Küste. Als die letzte Dämmerglocke verstummte, erlosch auch das Licht im Hafen.".into(),
+            DialogueText::Greeting if npc == Npc::Runa && garden.story.tuned(Frontier::Copper) =>
+                "Das Gleis kenne ich noch von meiner Großmutter. Die Schmiede gab dort den Takt vor, damit alle Wagen sicher über die Brücke kamen.".into(),
+            DialogueText::Greeting if npc == Npc::Nele && garden.story.tuned(Frontier::Wind) =>
+                "Der Klang hinter der Mühle ist zurück. Meine Mutter sagte immer, wir könnten daran hören, wann der Flachs trocken wird.".into(),
+            DialogueText::Greeting if npc == Npc::Edda && garden.story.tuned(Frontier::Moor) =>
+                "Das Moor antwortet wieder. Folg dem alten Steinbogen, wenn du herausfinden willst, warum die Dämmerglocken so lange stumm waren.".into(),
             DialogueText::Greeting => npc.greeting().into(),
             DialogueText::Request if dialog.trading => {
                 trade.as_ref().map_or_else(String::new, |t| t.0.clone())
@@ -582,6 +600,12 @@ pub fn update(
             DialogueText::Request if region_quest.is_some() => region_quest
                 .as_ref()
                 .map_or_else(String::new, |value| value.0.clone()),
+            DialogueText::Request if npc == Npc::Juna && !garden.story.met_juna =>
+                "In der Klamm, auf der Weide und im Moor stehen noch die alten Klangsteine. Hilfst du mir, ihre Stimmen für das Lichtfest zu finden?".into(),
+            DialogueText::Request if npc == Npc::Juna && !garden.story.harbor_lit => format!(
+                "{}/3 Klangsteine gestimmt · Das Journal zeigt, wo du weitersuchen kannst.",
+                garden.story.voices()
+            ),
             DialogueText::Request => {
                 quest
                     .zip(quest_state)
@@ -640,6 +664,7 @@ pub fn update(
                     && (quest_state.is_some_and(|s| s != QuestState::Done)
                         || region_quest.as_ref().is_some_and(|entry| entry.2))
             }
+            DialogueButton::Story => npc == Npc::Juna && !garden.story.met_juna,
             DialogueButton::Close => true,
         };
         let next = if shown { Display::Flex } else { Display::None };
@@ -658,17 +683,40 @@ pub fn update(
     }
 }
 
-pub fn journal_summary(garden: &Garden) -> String {
-    let statuses = [Quest::Soup, Quest::Chime, Quest::Fountain].map(|q| {
-        let state = match garden.town.quests[q as usize] {
-            QuestState::Offered => "offen",
-            QuestState::Accepted if q.ready(garden) => "abgabebereit",
-            QuestState::Accepted => "angenommen",
-            QuestState::Done => "erfüllt",
-        };
-        format!("{} · {state}", q.name())
-    });
-    statuses.join("\n")
+pub fn order_name(npc: Npc) -> &'static str {
+    npc.quest().map_or(npc.name(), Quest::name)
+}
+
+pub fn order_done(npc: Npc, garden: &Garden) -> bool {
+    npc.quest()
+        .is_some_and(|q| garden.town.quests[q as usize] == QuestState::Done)
+}
+
+pub fn next_city_order(garden: &Garden) -> Option<Npc> {
+    [Npc::Mara, Npc::Fiete, Npc::Bo]
+        .into_iter()
+        .find(|&npc| !order_done(npc, garden))
+}
+
+pub fn order_detail(npc: Npc, garden: &Garden) -> String {
+    let Some(quest) = npc.quest() else {
+        return String::new();
+    };
+    if order_done(npc, garden) {
+        return format!("Erfüllt · {}", npc.name());
+    }
+    let state = match garden.town.quests[quest as usize] {
+        QuestState::Offered => "Offen",
+        QuestState::Accepted if quest.ready(garden) => "Abgabebereit",
+        _ => "Angenommen",
+    };
+    let supplies = quest
+        .requirements()
+        .iter()
+        .map(|item| item.progress(garden))
+        .collect::<Vec<_>>()
+        .join(" · ");
+    format!("{state} · {} · {supplies}", npc.name())
 }
 
 #[cfg(test)]

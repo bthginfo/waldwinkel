@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "art"))
 import landscape
 import frontier
+import route_details
 OUT = ROOT / "assets" / "models"
 RNG = random.Random(406)
 TAU = math.tau
@@ -1522,14 +1523,14 @@ def travel_gates():
     return [m]
 
 
-def fern(m,x,z,s):
+def fern(m,x,z,s,lift=0.):
     for i in range(6):
         angle=i*TAU/6+RNG.uniform(-.23,.23)
         dx,dz=math.cos(angle)*s,math.sin(angle)*s
-        m.pole((x,z,.01),(x+dx*.86,z+dz*.86,s*.36),s*.018,"6b8854",5,tip=s*.012)
+        m.pole((x,z,lift+.01),(x+dx*.86,z+dz*.86,lift+s*.36),s*.018,"6b8854",5,tip=s*.012)
         for j in range(1,5):
             t=j/5
-            xx,zz,y=x+t*dx,z+t*dz,s*(.20+.27*math.sin(t*2.0))
+            xx,zz,y=x+t*dx,z+t*dz,lift+s*(.20+.27*math.sin(t*2.0))
             for side in [-1,1]:
                 m.face([(xx,zz,y),(xx+dx*.20-dz*.30*side,zz+dz*.20+dx*.30*side,y+.067*s),
                         (xx+dx*.27,zz+dz*.27,y+.025*s)],
@@ -2220,6 +2221,29 @@ def build_object(model, bvh, material, collection, offset=Vector((0,0,0))):
     return obj
 
 
+def scenery_patches(model, width=24.0):
+    """Export spatial bounds small enough for the mobile renderer to cull distant scenery."""
+    if not model.asset.startswith("district_") or len(model.faces) < 2600:
+        yield model
+        return
+    patches={}
+    for face,color in zip(model.faces,model.colors):
+        key=tuple(math.floor(sum(model.vertices[v][axis] for v in face)/len(face)/width)
+                  for axis in (0,1))
+        if key not in patches:
+            patches[key]=(Model(f"{model.name} · {key[0]},{key[1]}",model.asset,model.casts),{})
+        patch,mapping=patches[key]
+        indices=[]
+        for source in face:
+            if source not in mapping:
+                mapping[source]=len(patch.vertices)
+                patch.vertices.append(model.vertices[source])
+            indices.append(mapping[source])
+        patch.faces.append(tuple(indices))
+        patch.colors.append(color)
+    yield from (patch for patch,_ in patches.values())
+
+
 def glb_unlit(path, alpha=None):
     """The Blender source uses diffuse vertex color for editing. Game uses the baked light."""
     with path.open("rb") as f:
@@ -2405,6 +2429,10 @@ def dungeon_assets():
         ("clay","duel_kiln","9c796b","d6a889","594b50"),
         ("owl","duel_owl","8b849e","c7bcd1","574b59"),
         ("keeper","duel_keeper","84718d","d1a985","564453"),
+        ("keeper","duel_keeper_clay","a17663","deaa82","644e4f"),
+        ("keeper","duel_keeper_mist","7d91a5","b4c8c3","514b62"),
+        ("keeper","duel_keeper_root","7f8c61","c2b38b","535843"),
+        ("keeper","duel_keeper_bell","88735e","e2ba84","5b4b50"),
     ]:
         m=Model(asset.replace("duel_",""),asset)
         big=1.33 if kind=="keeper" else 1.
@@ -2433,9 +2461,75 @@ def dungeon_assets():
         elif kind=="keeper":
             m.pole((0,-.06,1.09),(0,-.06,1.312),.235,"c39771",9,tip=.132)
             m.pole((0,-.06,1.08),(0,-.06,1.134),.258,"dab485",9)
+            if asset=="duel_keeper_clay":
+                for side in [-1,1]:
+                    m.box(side*.44,.10,.659,.208,.184,.273,"c39c77",.046,.2*side)
+                    m.box(side*.47,.22,.759,.141,.120,.155,"d0a886",.032)
+            elif asset=="duel_keeper_mist":
+                for side in [-1,1]:
+                    for j in range(3):
+                        m.ellipsoid(side*(.38+j*.055),-.21,.71+j*.16,.122,.19,.26,
+                                    ["9babbe","aaa9bd","bbc6c9"][j],8,4,angle=side*.45)
+            elif asset=="duel_keeper_root":
+                for side in [-1,1]:
+                    for j in range(4):
+                        m.ellipsoid(side*(.18+j*.071),-.12,1.15+j*.103,
+                                    .17,.115,.068,["9ca87a","afb183"][j%2],8,4,angle=side*.56)
+            elif asset=="duel_keeper_bell":
+                lantern(m,-.42,.16,.79)
+                lantern(m,.42,.16,.79)
+                m.pole((0,-.06,1.17),(0,-.06,1.56),.157,"deb877",9,tip=.059,mode="light")
         else:
             m.ellipsoid(0,.485,.515*big,.066,.048,.048,"bc8d6e",7,4)
         styles.append(m)
+    for theme, base, tiles, accent in [
+        ("clay","835e64",["a3786f","bb8b77","94706f","bd927a"],"c7a177"),
+        ("mist","536779",["7a8997","84969b","778598","8d9aa3"],"a1bfc3"),
+        ("root","665f55",["8c8469","979171","998970","858165"],"a3a16f"),
+        ("bell","6b626b",["938576","958587","ad9883","877d88"],"c8a974"),
+    ]:
+        floor=Model(f"Dämmergänge · {theme}",f"dusk_floor_{theme}")
+        floor.box(0,0,-.29,2.40,2.40,.57,base,.08)
+        for x in range(4):
+            for z in range(4):
+                u,v=(x-1.5)*.58,(z-1.5)*.58
+                floor.box(u,v,.006,.551,.551,.033,tiles[(x+2*z)%4],.058,rng.uniform(-.045,.045))
+                if (2*x+z)%5==0:
+                    floor.ellipsoid(u-.11,v+.11,.027,.16,.08,.024,accent,7,3,rough=.15)
+        styles.append(floor)
+    for theme,rock,accent in [
+        ("clay","95746d","c49a72"),("mist","627783","89b3bd"),
+        ("root","827962","a6a477"),("bell","817183","c2a276"),
+    ]:
+        wall=Model(f"Dämmergänge · Wand mit {theme}",f"dusk_wall_{theme}")
+        for i in range(5):
+            x=(i-2)*.45
+            wall.ellipsoid(x,0,.27+(i%3)*.07,.34,.37,.57+(i%3)*.13,
+                           rock,8,4,rough=.19)
+        if theme=="clay":
+            for x,z,s in [(-.65,.09,.31),(-.34,.03,.23),(.58,.07,.36)]:
+                wall.pole((x,z,.47),(x,z,.61),s,accent,9,tip=s*.91)
+                wall.pole((x,z,.60),(x,z,.84),s*.91,"b8866b",9,tip=s*.55)
+                wall.pole((x,z,.84),(x,z,.90),s*.60,"cc9f7f",9,tip=s*.55)
+        elif theme=="mist":
+            for x,z,h in [(-.71,.12,.89),(-.47,-.11,1.16),(-.31,.09,.84),(.63,.06,1.04)]:
+                wall.pole((x,z,.49),(x+.05,z,h),.13,accent,6,tip=.048)
+                wall.pole((x+.05,z,h),(x+.09,z,h+.16),.048,"b0d3ca",6,tip=.006,mode="light")
+        elif theme=="root":
+            for side in (-1,1):
+                wall.pole((side*.81,0,.14),(side*.49,0,.78),.15,"92775c",7,tip=.071)
+                wall.pole((side*.49,0,.78),(0,0,1.07),.086,"7f6c56",7,tip=.039)
+                for j in range(3):
+                    wall.ellipsoid(side*(.29+j*.20),.18,.62+j*.035,.17,.14,.064,
+                                   accent,7,4,rough=.16)
+            lantern(wall,0,0,.42)
+        else:
+            wall.box(0,0,.63,.61,.37,.24,"9f8b81",.051)
+            wall.pole((0,0,1.13),(0,0,.70),.125,accent,12,tip=.28,mode="light")
+            for side in (-1,1):
+                wall.pole((side*.49,.015,.52),(side*.43,.015,1.22),.07,"a88d73",7)
+            wall.pole((-.43,.015,1.22),(.43,.015,1.22),.055,"a88d73",7)
+        styles.append(wall)
     return styles
 
 def generate():
@@ -2455,6 +2549,7 @@ def generate():
     resources=resource_models()
     extra=[*garden(),*character(),*effects(),*furniture_models(),*resources,*new_game_models(),*farm_assets(),
            *deep_mine_assets(resources),*find_assets(),*npc_models(),*workshop_assets(),*regional_assets(),*dungeon_assets()]
+    extra.extend([route_details.windmill_sails(Model),*route_details.story_models(Model,lantern)])
     exterior=[*world,*districts,*terrain]
     exterior_assets={model.asset for model in exterior}
     offsets={asset:Vector(point(*location,0)) for asset,location in landscape.ORIGINS.items()}
@@ -2480,7 +2575,7 @@ def generate():
     master=bpy.context.scene.collection
     district_names={"district_forest":"03 · Farnwald","district_beach":"04 · Muschelbucht","district_town":"05 · Eichenhafen",
                     "district_copper":"06 · Kupferklamm","district_wind":"07 · Windweiden","district_moor":"08 · Nebelmoor"}
-    for m in [*exterior,*extra]:
+    for m in (patch for model in [*exterior,*extra] for patch in scenery_patches(model)):
         if m.asset not in collections:
             name="01 · Waldinsel" if m.asset=="island" else district_names.get(m.asset,m.name)
             coll=bpy.data.collections.new(name)
@@ -2524,7 +2619,12 @@ def generate():
     for asset,x,z,h in [("gardener",-.62,3.47,0),("tail",-.62,3.29,.58),("arm",-.864,3.47,.81),("arm",-.376,3.47,.81),
                          ("leg",-.732,3.47,.356),("leg",-.508,3.47,.356),
                          ("boot",-.732,3.484,.132),("boot",-.508,3.484,.132),("hoe",-.371,3.512,.548),
-                         ("cloud_1",-8.28,-6.64,3.72),("cloud_2",11.95,-4.03,2.62),("cloud_3",13.10,-2.99,2.21)]:
+                         ("cloud_1",-8.28,-6.64,3.72),("cloud_2",11.95,-4.03,2.62),("cloud_3",13.10,-2.99,2.21),
+                         ("windmill_sails",16.,124.31,landscape.height(16.,122.8)+4.94),
+                         ("resonance_klamm_idle",153.1,-4.65,landscape.height(153.1,-4.65)),
+                         ("resonance_weide_idle",34.,146.8,landscape.height(34.,146.8)),
+                         ("resonance_moor_idle",-154.,19.1,landscape.height(-154.,19.1)),
+                         ("resonance_hafen_idle",56.4,11.1,landscape.height(56.4,11.1))]:
         replica=objects[asset][0].copy()
         preview.objects.link(replica)
         replica.location=point(x,z,h)
