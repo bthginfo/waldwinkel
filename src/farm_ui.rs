@@ -1,15 +1,17 @@
 use bevy::prelude::*;
 
 use crate::{
-    Adventure, Controls, Notice,
-    adventure::commit,
+    Adventure, Controls, GardenFocus, Notice,
+    adventure::{Area, commit},
     furniture::{self, Blueprint, CATALOG},
     garden::{Crop, FERTILIZER_PRICE, Garden, SavePath},
     homestead::{Product, Village},
     input::Gesture,
     processing::{Dish, Method, Preparation},
-    session::Session,
+    regions::Bell,
+    session::{Checkpoint, Session},
     ui::{self, UiFonts},
+    world::Gardener,
 };
 
 const PAGE_SIZE: usize = 6;
@@ -23,6 +25,8 @@ pub enum FarmPage {
     BlueprintShop,
     Furnish,
     Kitchen,
+    Travel(Bell),
+    Inventory,
 }
 
 #[derive(Resource, Default)]
@@ -56,7 +60,14 @@ impl FarmMenu {
             FarmPage::Seeds | FarmPage::SeedShop => {
                 Crop::ALL.into_iter().map(Entry::Seed).collect()
             }
-            FarmPage::Sale => Product::stocked(garden).map(Entry::Stock).collect(),
+            FarmPage::Sale | FarmPage::Inventory => {
+                Product::stocked(garden).map(Entry::Stock).collect()
+            }
+            FarmPage::Travel(from) => Bell::ALL
+                .into_iter()
+                .filter(|&bell| bell != from && bell.ready(garden))
+                .map(Entry::Destination)
+                .collect(),
             FarmPage::Workbench | FarmPage::BlueprintShop | FarmPage::Furnish => CATALOG
                 .iter()
                 .enumerate()
@@ -91,6 +102,7 @@ enum Entry {
     Design(usize),
     Dish(Dish),
     Step(&'static str),
+    Destination(Bell),
 }
 
 impl Entry {
@@ -101,6 +113,7 @@ impl Entry {
             Self::Design(i) => CATALOG[i].name.into(),
             Self::Dish(dish) => dish.name().into(),
             Self::Step(text) => text.into(),
+            Self::Destination(bell) => bell.name().into(),
         }
     }
 
@@ -139,6 +152,7 @@ impl Entry {
             Self::Design(i) => CATALOG[i].source(garden),
             Self::Dish(dish) => format!("{} · {}", dish.method().title(), dish.supplies(garden)),
             Self::Step(_) => String::new(),
+            Self::Destination(_) => "Wegglocke repariert".into(),
         }
     }
 
@@ -329,6 +343,8 @@ pub fn input(
     choices: Query<(&Choice, &Interaction), Changed<Interaction>>,
     mut menu: ResMut<FarmMenu>,
     mut adventure: ResMut<Adventure>,
+    mut focus: ResMut<GardenFocus>,
+    mut player: Single<(&mut Gardener, &mut Transform)>,
     mut garden: ResMut<Garden>,
     mut gesture: ResMut<Gesture>,
     mut controls: ResMut<Controls>,
@@ -385,6 +401,17 @@ pub fn input(
                             dish.supplies(&garden)
                         )))
                     }
+                }
+                Some(Entry::Destination(bell)) => {
+                    let destination = bell.arrival();
+                    let (player, transform) = &mut *player;
+                    adventure.enter(Area::Island, player, transform, destination);
+                    garden.checkpoint = Some(Checkpoint::new(Area::Island, destination));
+                    *focus = GardenFocus::default();
+                    *gesture = Gesture::default();
+                    *controls = Controls::default();
+                    menu.close();
+                    Some(Ok(format!("Angekommen · {}", bell.name())))
                 }
                 Some(Entry::Step(_)) => {
                     let visible_time = menu.visible_time;
@@ -521,6 +548,8 @@ pub fn update(
                 FarmPage::BlueprintShop => "Bauplanstand",
                 FarmPage::Furnish => "Deine Möbel",
                 FarmPage::Kitchen => "Hofküche",
+                FarmPage::Travel(_) => "Wegglocken",
+                FarmPage::Inventory => "Deine Tasche",
             }
             .into(),
             Field::Instruction if progress.is_some() => progress.unwrap().instructions(),
@@ -547,6 +576,14 @@ pub fn update(
                 FarmPage::Kitchen => {
                     "Wähle ein Rezept. Beim Fertigstellen werden die Zutaten verbraucht.".into()
                 }
+                FarmPage::Travel(_) if entries.is_empty() => {
+                    "Repariere eine weitere Wegglocke, um dorthin zu reisen.".into()
+                }
+                FarmPage::Travel(_) => "Wähle eine reparierte Wegglocke als Ziel.".into(),
+                FarmPage::Inventory => format!(
+                    "Holz {} · Stein {} · Kupfer {} · Dünger {} · Futter {}",
+                    garden.wood, garden.stone, garden.copper, garden.fertilizer, garden.farm.feed
+                ),
             },
             Field::Message if progress.is_some() => {
                 let game = progress.unwrap();

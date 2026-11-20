@@ -7,6 +7,7 @@ use crate::{
     garden::{Crop, Garden, SavePath},
     homestead::{Product, Village},
     input::Gesture,
+    regions::{self, Frontier},
     session::Session,
     travel::{District, FINDS},
     ui::{self, UiFonts},
@@ -20,16 +21,22 @@ pub enum Npc {
     Fiete,
     Bo,
     Juna,
+    Runa,
+    Nele,
+    Edda,
 }
 
 impl Npc {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 9] = [
         Self::Lina,
         Self::Miro,
         Self::Mara,
         Self::Fiete,
         Self::Bo,
         Self::Juna,
+        Self::Runa,
+        Self::Nele,
+        Self::Edda,
     ];
 
     pub fn name(self) -> &'static str {
@@ -40,6 +47,9 @@ impl Npc {
             Self::Fiete => "Fiete",
             Self::Bo => "Bo",
             Self::Juna => "Juna",
+            Self::Runa => "Runa",
+            Self::Nele => "Nele",
+            Self::Edda => "Edda",
         }
     }
     pub fn role(self) -> &'static str {
@@ -50,6 +60,9 @@ impl Npc {
             Self::Fiete => "Muschelsammler",
             Self::Bo => "Hafenmeister",
             Self::Juna => "Wegkundlerin",
+            Self::Runa => "Schmiedin der Kupferklamm",
+            Self::Nele => "Müllerin der Windweiden",
+            Self::Edda => "Wegwacht im Nebelmoor",
         }
     }
     pub fn model(self) -> &'static str {
@@ -60,10 +73,24 @@ impl Npc {
             Self::Fiete => "npc_fiete",
             Self::Bo => "npc_bo",
             Self::Juna => "npc_juna",
+            Self::Runa => "npc_runa",
+            Self::Nele => "npc_nele",
+            Self::Edda => "npc_edda",
         }
     }
+    pub fn frontier(self) -> Option<Frontier> {
+        match self {
+            Self::Runa => Some(Frontier::Copper),
+            Self::Nele => Some(Frontier::Wind),
+            Self::Edda => Some(Frontier::Moor),
+            _ => None,
+        }
+    }
+
     pub fn position(self) -> Vec2 {
-        District::Town.origin()
+        self.frontier()
+            .map_or(District::Town, Frontier::district)
+            .origin()
             + match self {
                 Self::Lina => Vec2::new(-5.50, -1.55),
                 Self::Miro => Vec2::new(5.81, -1.50),
@@ -71,6 +98,9 @@ impl Npc {
                 Self::Fiete => Vec2::new(3.80, 3.36),
                 Self::Bo => Vec2::new(1.41, -2.39),
                 Self::Juna => Vec2::new(7.26, 2.56),
+                Self::Runa => Vec2::new(-12.30, 10.65),
+                Self::Nele => Vec2::new(-12.90, -12.10),
+                Self::Edda => Vec2::new(-5.20, 6.95),
             }
     }
     fn greeting(self) -> &'static str {
@@ -91,7 +121,16 @@ impl Npc {
                 "Der Brunnen braucht neue Einfassungen. Mit ein paar Brettern und Steinen können wir ihn ausbessern."
             }
             Self::Juna => {
-                "Die alten Steine am Nordwestweg führen in den Farnwald. Zur Muschelbucht geht es über den südlichen Küstenpfad."
+                "Die Nordweststeine führen in den Farnwald. Folge für die neuen Wege den Schildern und hilf zuerst den Leuten in Eichenhafen."
+            }
+            Self::Runa => {
+                "Willkommen zwischen den Felsen! Wenn der Quarz in den Wänden leuchtet, finden auch unsere Bauleute den Heimweg."
+            }
+            Self::Nele => {
+                "Der Wind steht gut. Mit etwas Hilfe kann meine Mühle wieder die ganze Weide versorgen."
+            }
+            Self::Edda => {
+                "Geh auf den Holzstegen und lausche den Glocken. Im Nebel kennen sie jeden Weg."
             }
         }
     }
@@ -122,30 +161,36 @@ enum Quest {
 }
 
 #[derive(Clone, Copy)]
-enum Require {
+pub(crate) enum Require {
     Product(Product, u32),
     Wood(u32),
     Stone(u32),
+    Copper(u32),
 }
 
 impl Require {
-    fn available(self, garden: &Garden) -> u32 {
+    pub(crate) fn available(self, garden: &Garden) -> u32 {
         match self {
             Self::Product(product, _) => garden.stock(product),
             Self::Wood(_) => garden.wood,
             Self::Stone(_) => garden.stone,
+            Self::Copper(_) => garden.copper,
         }
     }
-    fn quantity(self) -> u32 {
+    pub(crate) fn quantity(self) -> u32 {
         match self {
-            Self::Product(_, quantity) | Self::Wood(quantity) | Self::Stone(quantity) => quantity,
+            Self::Product(_, quantity)
+            | Self::Wood(quantity)
+            | Self::Stone(quantity)
+            | Self::Copper(quantity) => quantity,
         }
     }
-    fn progress(self, garden: &Garden) -> String {
+    pub(crate) fn progress(self, garden: &Garden) -> String {
         let name = match self {
             Self::Product(product, _) => product.name(),
             Self::Wood(_) => "Holz",
             Self::Stone(_) => "Stein",
+            Self::Copper(_) => "Kupfer",
         };
         let quantity = self.quantity();
         format!(
@@ -154,13 +199,14 @@ impl Require {
             quantity
         )
     }
-    fn take(self, g: &mut Garden) {
+    pub(crate) fn take(self, g: &mut Garden) {
         match self {
             Self::Product(product, quantity) => {
                 g.take_stock(product, quantity);
             }
             Self::Wood(quantity) => g.wood -= quantity,
             Self::Stone(quantity) => g.stone -= quantity,
+            Self::Copper(quantity) => g.copper -= quantity,
         }
     }
 }
@@ -451,7 +497,11 @@ pub fn input(
                 .map(|merchant| merchant.work(&mut garden, crop, product))
         }
         DialogueButton::Quest if !dialog.trading => {
-            npc.quest().map(|quest| quest.advance(&mut garden))
+            if let Some(area) = npc.frontier() {
+                Some(regions::finish_story(area, &mut garden))
+            } else {
+                npc.quest().map(|quest| quest.advance(&mut garden))
+            }
         }
         _ => None,
     };
@@ -504,6 +554,7 @@ pub fn update(
     let trade =
         merchant.map(|merchant| merchant.describe(&garden, dialog.crop(), dialog.product(&garden)));
     let quest = npc.quest();
+    let region_quest = npc.frontier().map(|area| regions::story(area, &garden));
     let quest_state = quest.map(|q| garden.town.quests[q as usize]);
     for (field, mut text) in &mut fields {
         let value = match field {
@@ -519,6 +570,9 @@ pub fn update(
             DialogueText::Request if dialog.trading => {
                 trade.as_ref().map_or_else(String::new, |t| t.0.clone())
             }
+            DialogueText::Request if region_quest.is_some() => region_quest
+                .as_ref()
+                .map_or_else(String::new, |value| value.0.clone()),
             DialogueText::Request => {
                 quest
                     .zip(quest_state)
@@ -557,6 +611,7 @@ pub fn update(
         let caption = match label.0 {
             DialogueButton::Deal if npc == Npc::Miro => "Verkaufen",
             DialogueButton::Deal => "Saat kaufen",
+            DialogueButton::Quest if region_quest.is_some() => region_quest.as_ref().unwrap().1,
             DialogueButton::Quest if quest_state == Some(QuestState::Accepted) => "Auftrag abgeben",
             DialogueButton::Quest => "Auftrag annehmen",
             _ => continue,
@@ -570,7 +625,9 @@ pub fn update(
             DialogueButton::Trade => merchant.is_some() && !dialog.trading,
             DialogueButton::Pick | DialogueButton::Deal | DialogueButton::Back => dialog.trading,
             DialogueButton::Quest => {
-                !dialog.trading && quest_state.is_some_and(|s| s != QuestState::Done)
+                !dialog.trading
+                    && (quest_state.is_some_and(|s| s != QuestState::Done)
+                        || region_quest.as_ref().is_some_and(|entry| entry.2))
             }
             DialogueButton::Close => true,
         };

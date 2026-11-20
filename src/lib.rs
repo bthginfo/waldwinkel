@@ -6,6 +6,7 @@ mod garden;
 mod homestead;
 mod input;
 mod processing;
+mod regions;
 mod session;
 mod terrain;
 mod town;

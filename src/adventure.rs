@@ -4,6 +4,7 @@ use crate::{
     furniture::CATALOG,
     garden::{Crop, Garden, SavePath},
     homestead::{Animal, ORCHARD, Ore, Product, Village},
+    regions::{Bell, Frontier},
     session::Checkpoint,
     town::{Dialog, Npc},
     travel::{self, District, FINDS},
@@ -105,6 +106,8 @@ pub enum Target {
     Kitchen,
     PatternStall,
     FarmAnimal(Animal),
+    Gate(Frontier),
+    Bell(Bell),
     Tree(usize),
     Rock(usize),
     MineRock(u16),
@@ -163,6 +166,8 @@ impl Target {
             Self::Kitchen => "Hofküche",
             Self::PatternStall => "Bauplanstand",
             Self::FarmAnimal(kind) => kind.housing_name(),
+            Self::Gate(gate) => gate.district().name(),
+            Self::Bell(bell) => bell.name(),
             Self::Tree(_) => "Kiefer",
             Self::Rock(_) => "Steinblock",
             Self::MineRock(_) => "Kupferader",
@@ -187,6 +192,8 @@ impl Target {
             Self::Kitchen => "Küche öffnen",
             Self::PatternStall => "Baupläne ansehen",
             Self::FarmAnimal(_) => "Versorgen",
+            Self::Gate(_) => "Weg öffnen",
+            Self::Bell(_) => "Wegglocke",
             Self::Tree(_) => "Baum fällen",
             Self::Rock(_) => "Stein abbauen",
             Self::MineRock(_) => "Kupfer abbauen",
@@ -209,6 +216,7 @@ impl Target {
             Self::SaleChest => 0.53,
             Self::Kitchen | Self::PatternStall => 0.88,
             Self::FarmAnimal(_) => 0.51,
+            Self::Gate(_) | Self::Bell(_) => 0.93,
             Self::Tree(_) => 1.50,
             Self::Down | Self::Up => 0.65,
             Self::Village(target) => target.height(),
@@ -220,7 +228,7 @@ impl Target {
     }
 }
 
-pub const LANDMARKS: [(&str, Target); 7] = [
+pub const LANDMARKS: [(&str, Target); 10] = [
     ("Hafenmarkt", Target::Village(Village::Board)),
     ("Tierweide", Target::Village(Village::Feed)),
     ("Minenstollen", Target::Portal),
@@ -228,6 +236,9 @@ pub const LANDMARKS: [(&str, Target); 7] = [
     ("Farnwald", Target::Travel(District::Forest)),
     ("Muschelbucht", Target::Travel(District::Beach)),
     ("Eichenhafen", Target::Travel(District::Town)),
+    ("Kupferklamm", Target::Travel(District::Copper)),
+    ("Windweiden", Target::Travel(District::Wind)),
+    ("Nebelmoor", Target::Travel(District::Moor)),
 ];
 
 pub fn landmark_center(
@@ -248,7 +259,6 @@ pub struct Adventure {
     pub focus: Option<Target>,
     pub crop: Crop,
     pub furniture: usize,
-    pub inventory: bool,
     pub journal: bool,
     pub map: bool,
     pub zoom: f32,
@@ -383,6 +393,21 @@ impl Adventure {
         match self.area {
             Area::Island | Area::District(_) => {
                 world::walkable(point)
+                    && garden.regions.passage(point)
+                    && !Frontier::ALL.into_iter().any(|gate| {
+                        if gate.unlocked(garden) {
+                            return false;
+                        }
+                        let half = if gate == Frontier::Wind {
+                            Vec2::new(1.53, 0.26)
+                        } else {
+                            Vec2::new(0.26, 1.53)
+                        };
+                        inside(gate.position(), half)
+                    })
+                    && !Bell::ALL
+                        .into_iter()
+                        .any(|bell| within(bell.position(), 0.59))
                     && !within(SALE_CHEST, 0.70)
                     && !inside(KITCHEN, Vec2::new(1.15, 0.64))
                     && !inside(PATTERN_STALL, Vec2::new(0.85, 0.51))
@@ -438,6 +463,8 @@ impl Adventure {
             Target::SaleChest => 0.74,
             Target::Kitchen => 1.18,
             Target::PatternStall => 0.94,
+            Target::Gate(_) => 0.67,
+            Target::Bell(_) => 0.66,
             Target::Bed => 1.10,
             Target::Bench => 0.91,
             Target::Slot(i) => {
@@ -482,6 +509,8 @@ impl Adventure {
             Target::SaleChest => SALE_CHEST,
             Target::Kitchen => KITCHEN,
             Target::PatternStall => PATTERN_STALL,
+            Target::Gate(gate) => gate.position(),
+            Target::Bell(bell) => bell.position(),
             Target::FarmAnimal(kind) => kind.site() + Vec2::Y * 1.66,
             Target::Tree(i) => TREES[i],
             Target::Rock(i) => ROCKS[i],
@@ -511,9 +540,27 @@ impl Adventure {
             ]
             .into_iter()
             .chain(Animal::ALL.into_iter().map(Target::FarmAnimal))
-            .chain(District::ALL.into_iter().map(Target::Travel))
+            .chain(Frontier::ALL.into_iter().map(Target::Gate))
+            .chain(Bell::ALL.into_iter().map(Target::Bell))
+            .chain(
+                District::ALL
+                    .into_iter()
+                    .filter(|&district| {
+                        Frontier::for_district(district)
+                            .is_none_or(|frontier| frontier.unlocked(garden))
+                    })
+                    .map(Target::Travel),
+            )
             .chain(Village::all().map(Target::Village))
-            .chain(Npc::ALL.into_iter().map(Target::Person))
+            .chain(
+                Npc::ALL
+                    .into_iter()
+                    .filter(|npc| {
+                        npc.frontier()
+                            .is_none_or(|frontier| frontier.unlocked(garden))
+                    })
+                    .map(Target::Person),
+            )
             .chain(
                 FINDS
                     .iter()
@@ -570,6 +617,23 @@ impl Adventure {
                     },
                     "Einkaufen",
                     true,
+                );
+            }
+            let regional_action = match target {
+                Target::Gate(gate) => Some(gate.describe(garden)),
+                Target::Bell(bell) => Some(bell.describe(garden)),
+                _ => None,
+            };
+            if let Some((hint, action, enabled)) = regional_action {
+                return (
+                    target.name().into(),
+                    if walking {
+                        "Auf dem Weg …".into()
+                    } else {
+                        hint
+                    },
+                    action,
+                    enabled,
                 );
             }
             if let Target::FarmAnimal(kind) = target {
@@ -719,14 +783,19 @@ impl Adventure {
         }
     }
 
-    fn enter(&mut self, area: Area, player: &mut Gardener, transform: &mut Transform, from: Vec2) {
+    pub(crate) fn enter(
+        &mut self,
+        area: Area,
+        player: &mut Gardener,
+        transform: &mut Transform,
+        from: Vec2,
+    ) {
         self.area = area;
         self.focus = None;
         self.queued = None;
         self.strike = None;
         self.waiting = None;
         self.map = false;
-        self.inventory = false;
         self.journal = false;
         if let Area::Mine(depth) = area {
             self.layout = MineFloor::generate(depth);
@@ -841,6 +910,16 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
         }
         Target::Rock(_) | Target::MineRock(_) => hit(Vec2::splat(0.76), 0., 0.97),
         Target::SaleChest => hit(Vec2::new(0.64, 0.46), 0., 0.84),
+        Target::Gate(gate) => hit(
+            if gate == Frontier::Wind {
+                Vec2::new(1.66, 0.42)
+            } else {
+                Vec2::new(0.42, 1.66)
+            },
+            0.,
+            1.8,
+        ),
+        Target::Bell(_) => hit(Vec2::splat(0.67), 0., 1.95),
         Target::Kitchen | Target::PatternStall => hit(Vec2::new(0.96, 0.61), 0., 1.82),
         Target::FarmAnimal(_) => ray_box(
             ray,
@@ -912,7 +991,14 @@ pub fn select(
                 let center =
                     landmark_center(camera, view, adventure.position(target), layout.scale)?;
                 let delta = (at - center).abs() / layout.scale;
-                (delta.x <= 53. && delta.y <= 12.).then_some((target, delta.length_squared()))
+                let destination = if let Target::Travel(district) = target {
+                    Frontier::for_district(district)
+                        .filter(|gate| !gate.unlocked(&garden))
+                        .map_or(target, Target::Gate)
+                } else {
+                    target
+                };
+                (delta.x <= 53. && delta.y <= 12.).then_some((destination, delta.length_squared()))
             })
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(target, _)| target)
@@ -932,10 +1018,7 @@ pub fn select(
         if landmark.is_some() || matches!(target, Target::Travel(_)) {
             player.navigate(adventure.reach(target, &garden), &adventure, &garden);
         }
-    } else if let Some(point) = ray.and_then(|ray| {
-        let hit = ray.intersect_plane(Vec3::ZERO, InfinitePlane3d::new(Dir3::NEG_Y))?;
-        Some(ray.get_point(hit).xz())
-    }) {
+    } else if let Some(point) = ray.and_then(|ray| world::ground_point(ray, adventure.area)) {
         player.navigate(Reach::ground(point), &adventure, &garden);
     }
     adventure.map = false;
@@ -963,8 +1046,9 @@ pub fn interact(
         adventure.map = !adventure.map;
     }
     if controls.inventory {
-        adventure.inventory = !adventure.inventory;
         adventure.journal = false;
+        farm_menu.show(FarmPage::Inventory);
+        return;
     }
     if controls.choice {
         if adventure.area == Area::Home {
@@ -989,7 +1073,6 @@ pub fn interact(
     if controls.task {
         if adventure.area.outdoors() && District::at(player.0.position).is_some() {
             adventure.journal = !adventure.journal;
-            adventure.inventory = false;
         } else if garden.claim() {
             commit(
                 &garden,
@@ -1065,6 +1148,24 @@ pub fn interact(
     let mut persistent = true;
     let message = match target {
         Target::Travel(_) => return,
+        Target::Bell(bell) if bell.ready(&garden) => {
+            farm_menu.show(FarmPage::Travel(bell));
+            return;
+        }
+        Target::Gate(_) | Target::Bell(_) => {
+            let action = match target {
+                Target::Gate(gate) => gate.work(&mut garden),
+                Target::Bell(bell) => bell.work(&mut garden),
+                _ => unreachable!(),
+            };
+            match action {
+                Ok(message) => message,
+                Err(message) => {
+                    persistent = false;
+                    message
+                }
+            }
+        }
         Target::SaleChest
         | Target::Village(Village::Seeds)
         | Target::Bench
@@ -1274,6 +1375,8 @@ enum Stamp {
         fruit: [bool; 7],
         animals: [bool; 2],
         housing: [bool; 2],
+        gates: [bool; 3],
+        bells: [bool; 7],
         finds: [bool; FINDS.len()],
     },
     Home([u8; 6]),
@@ -1304,6 +1407,8 @@ pub fn draw(
             fruit: std::array::from_fn(|i| garden.farm.fruit_ready(i, garden.day)),
             animals: garden.farm.animals.map(|animal| animal.owned),
             housing: garden.farm.housing,
+            gates: Frontier::ALL.map(|gate| gate.unlocked(&garden)),
+            bells: Bell::ALL.map(|bell| bell.ready(&garden)),
             finds: std::array::from_fn(|i| FINDS[i].available(&garden, i)),
         },
         Area::Home => Stamp::Home(garden.furniture),
@@ -1343,6 +1448,8 @@ pub fn draw(
                 fruit,
                 animals,
                 housing,
+                gates,
+                bells,
                 finds,
             } => {
                 spawn(
@@ -1368,6 +1475,32 @@ pub fn draw(
                         },
                         site,
                         world::exterior_ground(site),
+                        0.,
+                    );
+                }
+                for gate in Frontier::ALL {
+                    let p = gate.position();
+                    spawn(
+                        if gates[gate as usize] {
+                            "frontier_open"
+                        } else {
+                            "frontier_gate"
+                        },
+                        p,
+                        world::exterior_ground(p),
+                        gate.angle(),
+                    );
+                }
+                for bell in Bell::ALL {
+                    let p = bell.position();
+                    spawn(
+                        if bells[bell as usize] {
+                            "waybell_lit"
+                        } else {
+                            "waybell"
+                        },
+                        p,
+                        world::exterior_ground(p),
                         0.,
                     );
                 }

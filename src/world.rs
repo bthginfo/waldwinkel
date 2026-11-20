@@ -342,6 +342,38 @@ pub fn click_plot(camera: &Camera, transform: &GlobalTransform, screen: Vec2) ->
         .position(|position| (hit - position).abs().cmple(Vec2::splat(0.755)).all())
 }
 
+pub fn ground_point(ray: Ray3d, area: Area) -> Option<Vec2> {
+    let plane = InfinitePlane3d::new(Dir3::NEG_Y);
+    if !area.outdoors() {
+        return Some(ray.get_point(ray.intersect_plane(Vec3::ZERO, plane)?).xz());
+    }
+    let first = ray.intersect_plane(Vec3::Y * 5., plane)?;
+    let last = ray.intersect_plane(Vec3::NEG_Y * 2., plane)?;
+    let below = |distance| {
+        let p = ray.get_point(distance);
+        p.y <= exterior_ground(p.xz())
+    };
+    let mut previous = first;
+    for i in 1..=20 {
+        let distance = first.lerp(last, i as f32 / 20.);
+        if below(distance) {
+            let mut top = previous;
+            let mut bottom = distance;
+            for _ in 0..6 {
+                let midpoint = (top + bottom) / 2.;
+                if below(midpoint) {
+                    bottom = midpoint;
+                } else {
+                    top = midpoint;
+                }
+            }
+            return Some(ray.get_point(bottom).xz());
+        }
+        previous = distance;
+    }
+    None
+}
+
 pub fn show_exterior(
     adventure: Res<Adventure>,
     mut entities: Query<&mut Visibility, With<Exterior>>,
@@ -362,7 +394,7 @@ pub fn show_exterior(
 }
 
 pub fn camera_offset(area: Area) -> Vec3 {
-    (CAMERA_AT - CAMERA_TARGET) * if area.outdoors() { 5.25 } else { 1. }
+    (CAMERA_AT - CAMERA_TARGET) * if area.outdoors() { 10.5 } else { 1. }
 }
 
 pub fn update_camera(
@@ -378,7 +410,7 @@ pub fn update_camera(
         return;
     };
     let (base, center) = match (adventure.area, adventure.map) {
-        (Area::Island | Area::District(_), true) => (108., Vec3::new(-4., 0.75, 15.5)),
+        (Area::Island | Area::District(_), true) => (252., Vec3::new(0., 0.75, 49.)),
         (Area::Island | Area::District(_), false) => (12.3, position3(player.position, 0.89)),
         (Area::Home, _) => (8.55, position3(adventure.area.origin(), 0.95)),
         (Area::Mine(_), true) => (21., position3(adventure.area.origin(), 0.38)),
@@ -390,7 +422,7 @@ pub fn update_camera(
         base * (-adventure.zoom).exp()
     };
     let width = if adventure.map && adventure.area.outdoors() {
-        179.0
+        430.0
     } else {
         height * 1.30
     };
@@ -1050,6 +1082,28 @@ mod tests {
                 previous = point;
             }
             assert!(previous.distance(pair[1]) < REACH);
+        }
+    }
+
+    #[test]
+    fn the_outer_regions_connect_to_walkable_routes_from_the_old_world() {
+        let garden: Garden = serde_json::from_str(r#"{"regions":{"gates":[2,2,2]}}"#).unwrap();
+        let adventure = Adventure::default();
+        let passable = |p| adventure.walkable(p, &garden);
+        for (start, district) in [
+            (District::Town.waypoint(), District::Copper),
+            (District::Beach.waypoint(), District::Wind),
+            (District::Forest.waypoint(), District::Moor),
+        ] {
+            let reach = Reach::ground(district.waypoint());
+            let route = approach(start, reach, Vec2::ZERO, passable);
+            let mut current = start;
+            assert!(!route.is_empty(), "{district:?}");
+            for point in route {
+                assert!(clear_walk(current, point, &passable), "{district:?}");
+                current = point;
+            }
+            assert!(reach.reached(current, &passable), "{district:?}");
         }
     }
 

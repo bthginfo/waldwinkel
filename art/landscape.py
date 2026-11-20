@@ -1,14 +1,19 @@
 """Exterior terrain and walkable surfaces shared by Blender and the game."""
 import math
+from contextlib import contextmanager
 import random
 import struct
+
+import frontier
 
 FOREST = (-51., -8.)
 BEACH = (4., 47.)
 TOWN = (49., 4.)
-ORIGINS = {'district_forest': FOREST, 'district_beach': BEACH, 'district_town': TOWN}
+ORIGINS = {'district_forest': FOREST, 'district_beach': BEACH, 'district_town': TOWN, **frontier.ORIGINS}
 LANDFORMS = [(0., -1., 31., 24.), (-50., -11., 34., 26.), (47., 3., 29., 24.),
            (1.5, 47., 29., 25.), (-26., 25., 25., 21.), (31., 29., 23., 19.)]
+BASE_LANDFORMS = LANDFORMS[:]
+LANDFORMS.extend(frontier.LANDFORMS)
 INLETS = [(5.8, 22.5, 6.45, 6.38), (22.5, 53.8, 13.7, 13.40)]
 SEA = -.79
 BRIDGES = [.81, -12.0, 12.6]  # Forest-local z coordinates.
@@ -33,6 +38,21 @@ ROADS = [
     [(-11., 32.), (-16.5, 37.4), (-20., 44.), (-20., 52.4)],
     [(57.3, 9.6), (57.7, 14.1), (57.8, 20.5), (58., 24.)],
 ]
+
+BASE_ROADS = ROADS[:]
+ROADS.extend(frontier.ROADS)
+
+
+@contextmanager
+def original_layout():
+    """Keep the models of the original districts on their authored terrain."""
+    global LANDFORMS, ROADS
+    real_forms,real_roads=LANDFORMS,ROADS
+    LANDFORMS,ROADS=BASE_LANDFORMS,BASE_ROADS
+    try:
+        yield
+    finally:
+        LANDFORMS,ROADS=real_forms,real_roads
 
 TOWN_BUILDINGS = [
     (-14.2, -.9, 3.48, 2.75, 'e2c7a5', 'a47362', .04, 'dormer'),
@@ -101,7 +121,7 @@ def height(x,z):
     # A wider, shallower shelf along the sand and an abrupt bank in the hills.
     shoreline = 4.1 + sand*2.2
     bank=-1.43+1.43*smooth((d+shoreline-1.12)/shoreline)
-    return bank - channel(x,z)*.61
+    return frontier.relief(x,z,bank - channel(x,z)*.61,d,smooth)
 
 
 def deck_height(x,z):
@@ -113,7 +133,7 @@ def deck_height(x,z):
         return .188
     if 10.1<x<15.56 and 47.8<z<49.05:
         return .181
-    return None
+    return frontier.deck(x,z)
 
 
 def beach_mix(x,z):
@@ -166,8 +186,8 @@ def prepare_collisions():
 
 def bake_heightmap(root):
     """Pack a 0.25 m heightfield with a blocked bit in every sample."""
-    ox,oz,step=-87.,-43.,.25
-    cols,rows=681,487
+    ox,oz,step=-207.,-79.,.25
+    cols,rows=1665,1125
     samples=[]
     for j in range(rows):
         z=oz+j*step
@@ -204,24 +224,25 @@ def terrain_models(api):
         v=clamp(.54-z*.004+.13*math.cos(x*.06+z*.13))
         return blend('53aeb3','92d7ca',v)
 
-    for x in range(-202,203,12):
-        for z in range(-140,173,12):
+    for x in range(-286,287,12):
+        for z in range(-162,287,12):
             poly=[(x,z,SEA),(x+12,z,SEA),(x+12,z+12,SEA),(x,z+12,SEA)]
             sea.gradient(poly,[water_color(a,b) for a,b,_ in poly])
-    for _ in range(450):
-        x,z=rng.uniform(-100,100),rng.uniform(-66,93)
+    for _ in range(910):
+        x,z=rng.uniform(-221,221),rng.uniform(-78,206)
         if height(x,z)>SEA-.12:
             continue
         l,w=rng.uniform(.16,1.02),rng.uniform(.014,.065)
         sea.face([(x-l,z,SEA+.013),(x,z-w,SEA+.013),(x+l,z,SEA+.013),(x,z+w,SEA+.013)],
                  blend('ceedda','73c1bc',rng.uniform(.25,.82)),'raw')
 
-    step=1.06
+    step=1.12
+    cols,rows=369,251
     verts={}
-    for iz in range(114):
-        for ix in range(162):
-            x,z=-86.+ix*step,-42.+iz*step
-            if (ix*iz)%3 and 0<ix<161 and 0<iz<113:
+    for iz in range(rows):
+        for ix in range(cols):
+            x,z=-206.+ix*step,-78.+iz*step
+            if (ix*iz)%3 and 0<ix<cols-1 and 0<iz<rows-1:
                 x+=rng.uniform(-.17,.17)
                 z+=rng.uniform(-.17,.17)
             verts[ix,iz]=(x,z,height(x,z))
@@ -232,7 +253,7 @@ def terrain_models(api):
         grain=.52+.22*math.sin(x*.16+z*.31)+.14*math.cos(z*.48-x*.62)+rng.uniform(-.09,.09)
         grass=blend(blend('9fac65','c3c479',grain),blend('758a5e','aab569',grain),forest)
         sand=blend('e4c088','f1dca1',grain)
-        tint=blend(grass,sand,beach_mix(x,z))
+        tint=frontier.tint(x,z,grain,blend(grass,sand,beach_mix(x,z)),blend)
         if h<-.09:
             rock=blend('b89572','a79581',grain)
             tint=blend(tint,rock,clamp((-h-.07)*1.46))
@@ -263,8 +284,8 @@ def terrain_models(api):
                   (bx+nx*(.12+w),bz+nz*(.12+w),SEA+.019),(ax+nx*(.12+w),az+nz*(.12+w),SEA+.019)]
             surf.face(foam,blend('c6e9d0','f1e7c3',beach_mix(mx,mz)),'raw')
 
-    for iz in range(113):
-        for ix in range(161):
+    for iz in range(rows-1):
+        for ix in range(cols-1):
             a,b,c,d=[verts[x,z] for x,z in [(ix,iz),(ix+1,iz),(ix+1,iz+1),(ix,iz+1)]]
             if max(v[2] for v in (a,b,c,d))<SEA-.28:
                 continue

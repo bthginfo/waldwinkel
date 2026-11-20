@@ -3,9 +3,10 @@ use bevy::{prelude::*, window::PrimaryWindow};
 use crate::{
     GardenFocus, Notice, Ready,
     adventure::{Adventure, Area, LANDMARKS, Target, landmark_center},
-    garden::{Action, Crop, Garden, Stage},
-    homestead::{self, Product},
+    garden::{Action, Garden, Stage},
+    homestead,
     input::Gesture,
+    regions::Frontier,
     session::Session,
     town::{self, Dialog},
     travel::District,
@@ -186,13 +187,7 @@ pub fn resize(
     mut scale: ResMut<UiScale>,
 ) {
     let size = Vec2::new(window.width(), window.height());
-    let context_height = if adventure.inventory {
-        166.
-    } else if adventure.journal {
-        109.
-    } else {
-        65.
-    };
+    let context_height = if adventure.journal { 109. } else { 65. };
     let fertilizer =
         focus.selected.is_some_and(|i| garden.fertilizable(i)) && !garden.clock.night();
     if size != layout.size
@@ -889,35 +884,21 @@ pub fn update(
     if (notice.index.is_none() || notice.index == focus.selected) && now < notice.until {
         panel.detail.clone_from(&notice.message);
     }
-    if adventure.inventory {
-        panel.title = "Tasche".into();
-        panel.detail = format!(
-            "Holz {} · Stein {} · Kupfer {}\nFutter {} · Dünger {}\nMöhren {} · Rüben {} · Kürbisse {}\nErdbeeren {} · Tomaten {} · Sonnenblumen {}\nÄpfel {} · Beeren {} · Eier {} · Wolle {}\nFisch {} · Silber {} · Kristalle {}\nPilze {} · Haselnüsse {} · Muscheln {}",
-            garden.wood,
-            garden.stone,
-            garden.copper,
-            garden.farm.feed,
-            garden.fertilizer,
-            garden.crop_total(Crop::Carrot),
-            garden.crop_total(Crop::Turnip),
-            garden.crop_total(Crop::Pumpkin),
-            garden.crop_total(Crop::Strawberry),
-            garden.crop_total(Crop::Tomato),
-            garden.crop_total(Crop::Sunflower),
-            garden.stock(Product::Apple),
-            garden.stock(Product::Berry),
-            garden.stock(Product::Egg),
-            garden.stock(Product::Wool),
-            garden.fish,
-            garden.stock(Product::Silver),
-            garden.stock(Product::Crystal),
-            garden.stock(Product::Mushroom),
-            garden.stock(Product::Hazel),
-            garden.stock(Product::Shell),
-        );
-    } else if adventure.journal {
-        panel.title = "Stadtaufträge".into();
-        panel.detail = town::journal_summary(&garden);
+    if adventure.journal {
+        if let Some(region) = District::at(player.position).and_then(Frontier::for_district) {
+            panel.title = region.district().name().into();
+            panel.detail = format!(
+                "{} von 3 Aufträgen erfüllt\n{}",
+                garden.regions.story_steps(region),
+                garden
+                    .regions
+                    .next_order(region)
+                    .unwrap_or("Alle Aufträge erledigt.")
+            );
+        } else {
+            panel.title = "Stadtaufträge".into();
+            panel.detail = town::journal_summary(&garden);
+        }
     }
     for (utility, mut label) in &mut labels {
         let next = match utility.0 {
@@ -928,6 +909,13 @@ pub fn update(
             }
             Utility::Task if adventure.journal => "Schließen",
             Utility::Task
+                if District::at(player.position)
+                    .and_then(Frontier::for_district)
+                    .is_some() =>
+            {
+                "Aufträge"
+            }
+            Utility::Task
                 if adventure.area.outdoors() && District::at(player.position).is_some() =>
             {
                 "Stadtaufträge"
@@ -937,7 +925,6 @@ pub fn update(
             Utility::Map if adventure.map => "Nahansicht",
             Utility::Map if adventure.area.outdoors() => "Weltkarte",
             Utility::Map => "Übersicht",
-            Utility::Inventory if adventure.inventory => "Schließen",
             Utility::Inventory => "Tasche",
             _ => continue,
         };

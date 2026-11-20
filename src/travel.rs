@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     garden::{Crop, Garden},
     homestead::Product,
+    regions::Material,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -11,16 +12,29 @@ pub enum District {
     Forest,
     Beach,
     Town,
+    Copper,
+    Wind,
+    Moor,
 }
 
 impl District {
-    pub const ALL: [Self; 3] = [Self::Forest, Self::Beach, Self::Town];
+    pub const ALL: [Self; 6] = [
+        Self::Forest,
+        Self::Beach,
+        Self::Town,
+        Self::Copper,
+        Self::Wind,
+        Self::Moor,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Forest => "Farnwald",
             Self::Beach => "Muschelbucht",
             Self::Town => "Eichenhafen",
+            Self::Copper => "Kupferklamm",
+            Self::Wind => "Windweiden",
+            Self::Moor => "Nebelmoor",
         }
     }
     pub fn model(self) -> &'static str {
@@ -28,6 +42,9 @@ impl District {
             Self::Forest => "district_forest",
             Self::Beach => "district_beach",
             Self::Town => "district_town",
+            Self::Copper => "district_copper",
+            Self::Wind => "district_wind",
+            Self::Moor => "district_moor",
         }
     }
     pub fn origin(self) -> Vec2 {
@@ -35,6 +52,9 @@ impl District {
             Self::Forest => Vec2::new(-51., -8.),
             Self::Beach => Vec2::new(4., 47.),
             Self::Town => Vec2::new(49., 4.),
+            Self::Copper => Vec2::new(137., -5.),
+            Self::Wind => Vec2::new(28., 130.),
+            Self::Moor => Vec2::new(-137., -13.),
         }
     }
 
@@ -48,11 +68,20 @@ impl District {
                 Self::Forest => Vec2::new(9.60, 2.45),
                 Self::Beach => Vec2::new(-2.30, 0.51),
                 Self::Town => Vec2::new(0.0, 5.57),
+                Self::Copper => Vec2::new(-12., 13.),
+                Self::Wind => Vec2::new(-11., -14.),
+                Self::Moor => Vec2::new(-7., 5.),
             }
     }
 
     pub fn at(point: Vec2) -> Option<Self> {
-        if point.x < -27. && point.y < 19. {
+        if point.x >= 78. && point.y < 70. {
+            Some(Self::Copper)
+        } else if point.y >= 76. {
+            Some(Self::Wind)
+        } else if point.x <= -87. {
+            Some(Self::Moor)
+        } else if point.x < -27. && point.y < 19. {
             Some(Self::Forest)
         } else if point.y > 33. && point.x < 29. {
             Some(Self::Beach)
@@ -68,6 +97,9 @@ impl District {
             Self::Forest => "Pilze und Haselnüsse wachsen an beiden Bachufern.",
             Self::Beach => "Suche im Sand nach Muscheln und Treibholz.",
             Self::Town => "Tippe eine Figur an, um zu ihr zu gehen.",
+            Self::Copper => "Brücken führen zu Quarz, Werkhöfen und Runas Schmiede.",
+            Self::Wind => "Folge den Wiesenwegen zu Nele, der Mühle und den Flachsfeldern.",
+            Self::Moor => "Sammle Nebelminze an den trockenen Ufern und sprich mit Edda.",
         }
     }
 }
@@ -97,6 +129,7 @@ impl Find {
             FindLoot::Product(Product::Mushroom) => "Pilze",
             FindLoot::Product(Product::Hazel) => "Haselnüsse",
             FindLoot::Product(Product::Shell) => "Muscheln",
+            FindLoot::Product(Product::Regional(material)) => material.name(),
             FindLoot::Seeds(_) => "Wildes Saatgut",
             FindLoot::Blueprint(_) => "Möbelbauplan",
             _ => "Treibholz",
@@ -107,6 +140,7 @@ impl Find {
             FindLoot::Product(Product::Mushroom) => "find_mushroom",
             FindLoot::Product(Product::Hazel) => "find_hazel",
             FindLoot::Product(Product::Shell) => "find_shell",
+            FindLoot::Product(Product::Regional(material)) => material.model(),
             FindLoot::Seeds(_) => "find_seeds",
             FindLoot::Blueprint(_) => "find_blueprint",
             _ => "find_driftwood",
@@ -138,7 +172,7 @@ impl Find {
     }
 }
 
-pub const FINDS: [Find; 31] = [
+pub const FINDS: [Find; 49] = [
     Find {
         district: District::Forest,
         local: Vec2::new(-6.8, 2.4),
@@ -324,6 +358,114 @@ pub const FINDS: [Find; 31] = [
         local: Vec2::new(-14.8, 13.18),
         loot: FindLoot::Blueprint(crate::furniture::CUSHION_BENCH),
         quantity: 1,
+    },
+    Find {
+        district: District::Copper,
+        local: Vec2::new(-8.0, 9.0),
+        loot: FindLoot::Product(Product::Regional(Material::GorgeQuartz)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Copper,
+        local: Vec2::new(-21.0, 14.0),
+        loot: FindLoot::Product(Product::Regional(Material::GorgeQuartz)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Copper,
+        local: Vec2::new(-7.0, -14.0),
+        loot: FindLoot::Product(Product::Regional(Material::GorgeQuartz)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Copper,
+        local: Vec2::new(11.0, 7.0),
+        loot: FindLoot::Product(Product::Regional(Material::GorgeQuartz)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Copper,
+        local: Vec2::new(19.0, -4.0),
+        loot: FindLoot::Product(Product::Regional(Material::GorgeQuartz)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Copper,
+        local: Vec2::new(21.0, 21.0),
+        loot: FindLoot::Product(Product::Regional(Material::GorgeQuartz)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Wind,
+        local: Vec2::new(-15.0, -12.0),
+        loot: FindLoot::Product(Product::Regional(Material::MeadowFlax)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Wind,
+        local: Vec2::new(-23.0, -15.0),
+        loot: FindLoot::Product(Product::Regional(Material::MeadowFlax)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Wind,
+        local: Vec2::new(-3.0, -9.0),
+        loot: FindLoot::Product(Product::Regional(Material::MeadowFlax)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Wind,
+        local: Vec2::new(8.0, 4.0),
+        loot: FindLoot::Product(Product::Regional(Material::MeadowFlax)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Wind,
+        local: Vec2::new(17.0, 18.0),
+        loot: FindLoot::Product(Product::Regional(Material::MeadowFlax)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Wind,
+        local: Vec2::new(-12.0, 17.0),
+        loot: FindLoot::Product(Product::Regional(Material::MeadowFlax)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Moor,
+        local: Vec2::new(-6.0, 4.0),
+        loot: FindLoot::Product(Product::Regional(Material::MarshHerb)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Moor,
+        local: Vec2::new(-8.0, -3.0),
+        loot: FindLoot::Product(Product::Regional(Material::MarshHerb)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Moor,
+        local: Vec2::new(-22.0, 8.0),
+        loot: FindLoot::Product(Product::Regional(Material::MarshHerb)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Moor,
+        local: Vec2::new(0.5, -16.0),
+        loot: FindLoot::Product(Product::Regional(Material::MarshHerb)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Moor,
+        local: Vec2::new(14.0, -8.0),
+        loot: FindLoot::Product(Product::Regional(Material::MarshHerb)),
+        quantity: 2,
+    },
+    Find {
+        district: District::Moor,
+        local: Vec2::new(22.0, 9.0),
+        loot: FindLoot::Product(Product::Regional(Material::MarshHerb)),
+        quantity: 2,
     },
 ];
 

@@ -18,6 +18,7 @@ from mathutils.bvhtree import BVHTree
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "art"))
 import landscape
+import frontier
 OUT = ROOT / "assets" / "models"
 RNG = random.Random(406)
 TAU = math.tau
@@ -2028,9 +2029,15 @@ def npc_models():
         ("npc_fiete","squirrel","b77951","bd9158","f0cda2","805a44"),
         ("npc_bo","badger","726e6a","6a867a","e1d0b4","595a56"),
         ("npc_juna","cat","ad907a","b68464","e4c7a7","846254"),
+        ("npc_runa","badger","8b7874","ad6d54","ecd2b3","69534d"),
+        ("npc_nele","rabbit","b39d86","8b9e81","f0dcbc","78604d"),
+        ("npc_edda","fox","a98283","738d80","e1c8b5","715c63"),
     ]
     models=[]
+    legacy_rng=None
     for asset,species,fur,cloth,light,dark in specs:
+        if asset=="npc_runa":
+            legacy_rng=RNG.getstate()
         m=Model(asset,asset)
         for side in [-1,1]:
             m.ellipsoid(side*.114,.012,.275,.089,.106,.226,fur,8,4)
@@ -2083,7 +2090,71 @@ def npc_models():
                 for i in range(9):m.pole(ring[i],ring[(i+1)%9],.012,"775e4e",5)
             m.pole((-.029,.238,1.188),(.029,.238,1.188),.010,"775e4e",5)
         models.append(m)
+    if legacy_rng is not None:
+        RNG.setstate(legacy_rng)
     return models
+
+
+def regional_assets():
+    assets=[]
+    for lit in [False,True]:
+        bell=Model("Wegglocke" if not lit else "Reparierte Wegglocke","waybell_lit" if lit else "waybell")
+        bell.pole((0,0,-.08),(0,0,.08),.62,"a59881",12,tip=.52)
+        for x in [-.45,.45]:
+            bell.box(x,0,.72,.17,.19,1.33,"8d6950",.028)
+            bell.box(x,0,.13,.26,.26,.17,"a89c83",.04)
+        bell.box(0,0,1.37,1.22,.24,.151,"b4845e",.041)
+        for side in [-1,1]:
+            bell.pole((0,0,1.64),(side*.63,0,1.309),.089,"a47452",5)
+        bell.pole((0,0,1.36),(0,0,1.24),.042,"635d56",7)
+        bell.pole((0,0,1.02),(0,0,1.24),.18,"caac65" if lit else "a29262",9,tip=.117)
+        bell.pole((0,0,.96),(0,0,1.03),.23,"deba78" if lit else "9c8762",9,tip=.183)
+        bell.pole((0,0,.88),(0,0,1.02),.027,"796d50",6)
+        bell.ellipsoid(0,0,.883,.057,.055,.049,"ccab6a",7,4)
+        if lit:
+            lantern(bell,.51,.14,1.071)
+            bell.box(0,.106,.31,.25,.040,.17,"90a989",.021)
+        else:
+            bell.box(0,.106,.31,.25,.040,.17,"b59d7c",.021)
+        assets.append(bell)
+    for opened in [False,True]:
+        gate=Model("Freier Weg" if opened else "Wegschranke","frontier_open" if opened else "frontier_gate")
+        for x in [-1.43,1.43]:
+            gate.box(x,0,.81,.222,.27,1.62,"8b684e",.044)
+            gate.box(x,0,.13,.38,.38,.26,"998c7a",.049)
+            gate.box(x,0,1.60,.29,.31,.11,"c19a6c",.028)
+            lantern(gate,x,.12,1.29)
+        if not opened:
+            for y in [.46,1.00]:
+                gate.box(0,0,y,2.81,.147,.19,"a98359",.023)
+            gate.pole((-1.28,.07,.31),(1.30,.07,1.13),.075,"c5a17a",5)
+            gate.box(0,.13,.72,.51,.08,.34,"947552",.039)
+            gate.box(0,.178,.74,.27,.014,.105,"d8b98c",.014)
+        assets.append(gate)
+
+    quartz=Model("Klammquarz · helle Kristalle und Kupferader","find_gorge_quartz")
+    quartz.ellipsoid(0,0,.17,.46,.39,.27,"a48077",9,4,rough=.17)
+    for x,z,h,r in [(-.14,.12,.52,.102),(.09,.09,.65,.133),(.19,-.09,.41,.094),(-.02,-.18,.47,.083)]:
+        quartz.pole((x,z,.24),(x+.065,z,h),r,"d4a18a",5,tip=r*.68)
+        quartz.pole((x+.065,z,h),(x+.089,z-.01,h+.137),r*.68,"e5ba9e",5,tip=.008)
+    flax=Model("Wiesenflachs · violettblaue Blüten","find_meadow_flax")
+    herb=Model("Nebelminze · türkise Blattspitzen","find_marsh_herb")
+    for i in range(9):
+        a=i*TAU/9
+        x,z=.21*math.cos(a),.21*math.sin(a)
+        height=.37+.22*(i%3)/2
+        flax.pole((x,z,0),(x+.075,z, height),.022,"719467",5,tip=.014)
+        for j in range(5):
+            t=j*TAU/5
+            flax.ellipsoid(x+.075+.045*math.cos(t),z+.045*math.sin(t),height+.023,
+                           .045,.038,.025,"9ba8d0" if i%2 else "af9cca",6,3)
+        flax.ellipsoid(x+.075,z,height+.046,.027,.027,.021,"e5c47f",6,3)
+        dx,dz=.53*math.cos(a),.53*math.sin(a)
+        herb.face([(x/2,z/2,.022),(x+dx*.50-dz*.15,z+dz*.50+dx*.15,height*.5),
+                   (dx,dz,height*.79),(x+dx*.53+dz*.16,z+dz*.53-dx*.16,height*.53)],
+                  ["75a593","8ab392","669381"][i%3],"leaf")
+        herb.pole((x/2,z/2,.043),(dx*.91,dz*.91,height*.75),.017,"aec2a0",5,tip=.005)
+    return assets+[quartz,flax,herb]
 
 
 def effects():
@@ -2191,13 +2262,19 @@ def generate():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     OUT.mkdir(parents=True,exist_ok=True)
     landscape.prepare_collisions()
-    world=[*cabin(),*woods(),*grounds(),*expansion(),*homestead_models(),*travel_gates()]
-    districts=[*farnwald(),*muschelbucht(),*eichenhafen(),*mainland_details()]
+    with landscape.original_layout():
+        world=[*cabin(),*woods(),*grounds(),*expansion(),*homestead_models(),*travel_gates()]
+        districts=[*farnwald(),*muschelbucht(),*eichenhafen(),*mainland_details()]
+    existing_rng=RNG.getstate()
+    districts.extend(frontier.models(SimpleNamespace(Model=Model,blend=blend,landscape=landscape,
+                                                     city_house=city_house,pine=pine,barrel=barrel,lantern=lantern,
+                                                     window=window,flowers=flowers,fern=fern,grass=grass)))
+    RNG.setstate(existing_rng)
     terrain=landscape.terrain_models(SimpleNamespace(Model=Model, blend=blend))
     landscape.bake_heightmap(ROOT)
     resources=resource_models()
     extra=[*garden(),*character(),*effects(),*furniture_models(),*resources,*new_game_models(),*farm_assets(),
-           *deep_mine_assets(resources),*find_assets(),*npc_models(),*workshop_assets()]
+           *deep_mine_assets(resources),*find_assets(),*npc_models(),*workshop_assets(),*regional_assets()]
     exterior=[*world,*districts,*terrain]
     exterior_assets={model.asset for model in exterior}
     offsets={asset:Vector(point(*location,0)) for asset,location in landscape.ORIGINS.items()}
@@ -2221,7 +2298,8 @@ def generate():
     collections={}
     objects={}
     master=bpy.context.scene.collection
-    district_names={"district_forest":"03 · Farnwald","district_beach":"04 · Muschelbucht","district_town":"05 · Eichenhafen"}
+    district_names={"district_forest":"03 · Farnwald","district_beach":"04 · Muschelbucht","district_town":"05 · Eichenhafen",
+                    "district_copper":"06 · Kupferklamm","district_wind":"07 · Windweiden","district_moor":"08 · Nebelmoor"}
     for m in [*exterior,*extra]:
         if m.asset not in collections:
             name="01 · Waldinsel" if m.asset=="island" else district_names.get(m.asset,m.name)
@@ -2273,7 +2351,7 @@ def generate():
         replica.hide_set(False)
     bpy.ops.object.select_all(action="DESELECT")
     bpy.context.scene.name="Waldwinkel · Zusammenhängende Welt"
-    setup_preview(bpy.context.scene,180.,(-5.,16.,0.65))
+    setup_preview(bpy.context.scene,445.,(0.,49.,0.65))
     for screen in bpy.data.screens:
         for area in screen.areas:
             if area.type=="VIEW_3D":

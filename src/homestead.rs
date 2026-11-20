@@ -5,6 +5,7 @@ use crate::{
     adventure::{Area, Target},
     garden::{Crop, Garden, Quality},
     processing::Dish,
+    regions::Material,
 };
 
 pub const SEED_SHOP: Vec2 = Vec2::new(16.15, 3.02);
@@ -413,6 +414,7 @@ pub struct AnimalState {
 pub enum Product {
     Crop(Crop, Quality),
     Prepared(Dish),
+    Regional(Material),
     Fish,
     Apple,
     Berry,
@@ -442,6 +444,7 @@ impl Product {
         match self {
             Self::Crop(crop, _) => crop.name(),
             Self::Prepared(dish) => dish.name(),
+            Self::Regional(material) => material.name(),
             Self::Fish => "Fisch",
             Self::Apple => "Äpfel",
             Self::Berry => "Waldbeeren",
@@ -472,6 +475,7 @@ impl Product {
         match self {
             Self::Crop(crop, quality) => quality.price(crop.price().div_ceil(2)),
             Self::Prepared(dish) => dish.value(),
+            Self::Regional(material) => material.value(),
             Self::Fish | Self::Egg => 5,
             Self::Apple | Self::Berry => 2,
             Self::Wool => 8,
@@ -488,6 +492,7 @@ impl Product {
             .flat_map(|crop| Quality::ALL.map(move |quality| Self::Crop(crop, quality)))
             .chain(Self::GATHERED)
             .chain(Dish::ALL.map(Self::Prepared))
+            .chain(Material::ALL.map(Self::Regional))
             .filter(|&item| garden.stock(item) > 0)
     }
 

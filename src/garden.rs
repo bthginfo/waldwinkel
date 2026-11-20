@@ -2,6 +2,7 @@ use crate::{
     day::FarmClock,
     furniture::{self, CATALOG},
     homestead::{Homestead, Product},
+    regions::RegionProgress,
     session::Checkpoint,
     town::Journal,
     weather::Sky,
@@ -17,7 +18,7 @@ use std::{
 pub const PLOT_COUNT: usize = 12;
 pub const FERTILIZER_PRICE: u32 = 4;
 const FERTILIZER_PACK: u32 = 2;
-const SAVE_VERSION: u8 = 7;
+const SAVE_VERSION: u8 = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Quality {
@@ -194,6 +195,7 @@ pub struct Garden {
     pub farm: Homestead,
     pub checkpoint: Option<Checkpoint>,
     pub town: Journal,
+    pub regions: RegionProgress,
 }
 
 impl Default for Garden {
@@ -228,6 +230,7 @@ impl Default for Garden {
             farm: Homestead::default(),
             checkpoint: None,
             town: Journal::default(),
+            regions: RegionProgress::default(),
         }
     }
 }
@@ -266,6 +269,7 @@ impl Garden {
                 &mut self.fine_yields[crop as usize][quality as usize - 1]
             }
             Product::Prepared(dish) => &mut self.prepared[dish as usize],
+            Product::Regional(material) => &mut self.regions.goods[material as usize],
             Product::Fish => &mut self.fish,
             Product::Mushroom => &mut self.town.goods[0],
             Product::Hazel => &mut self.town.goods[1],
@@ -282,6 +286,7 @@ impl Garden {
             Product::Crop(crop, Quality::Normal) => self.farm.yields[crop as usize - 3],
             Product::Crop(crop, quality) => self.fine_yields[crop as usize][quality as usize - 1],
             Product::Prepared(dish) => self.prepared[dish as usize],
+            Product::Regional(material) => self.regions.goods[material as usize],
             Product::Fish => self.fish,
             Product::Mushroom => self.town.goods[0],
             Product::Hazel => self.town.goods[1],
