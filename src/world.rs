@@ -37,7 +37,9 @@ pub const PLOTS: [Vec2; 12] = [
     Vec2::new(9.90, 5.52),
 ];
 const REACH: f32 = 1.30;
-const SPEED: f32 = 2.75;
+const SPEED: f32 = 3.85;
+const ACCELERATION: f32 = 23.0;
+const BRAKING: f32 = 37.0;
 const ANKLE: f32 = 0.224;
 const CAMERA_TARGET: Vec3 = Vec3::new(0.28, 1.24, 0.03);
 const CAMERA_AT: Vec3 = Vec3::new(-8.50, 17.50, 22.80);
@@ -55,6 +57,13 @@ pub struct Gardener {
     route: VecDeque<Vec2>,
     phase: f32,
     gait: f32,
+}
+
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tool {
+    Hoe,
+    Axe,
+    Pickaxe,
 }
 
 #[derive(Component)]
@@ -108,7 +117,7 @@ pub struct Models {
     arm: Handle<Scene>,
     leg: Handle<Scene>,
     boot: Handle<Scene>,
-    hoe: Handle<Scene>,
+    tools: [(Tool, Handle<Scene>); 3],
     clouds: [Handle<Scene>; 3],
     selection: Handle<Scene>,
     shadow: Handle<Scene>,
@@ -142,7 +151,11 @@ impl FromWorld for Models {
             arm: get("arm"),
             leg: get("leg"),
             boot: get("boot"),
-            hoe: get("hoe"),
+            tools: [
+                (Tool::Hoe, get("hoe")),
+                (Tool::Axe, get("axe")),
+                (Tool::Pickaxe, get("pickaxe")),
+            ],
             clouds: [get("cloud_1"), get("cloud_2"), get("cloud_3")],
             selection: get("selection"),
             shadow: get("shadow"),
@@ -256,10 +269,20 @@ pub fn setup(mut commands: Commands, models: Res<Models>, assets: Res<AssetServe
                         SceneRoot(model.clone()),
                     ));
                     if is_arm && side > 0.0 {
-                        limb.with_child((
-                            SceneRoot(models.hoe.clone()),
-                            Transform::from_xyz(0.007, -0.263, 0.042),
-                        ));
+                        limb.with_children(|hand| {
+                            for (tool, scene) in &models.tools {
+                                hand.spawn((
+                                    *tool,
+                                    SceneRoot(scene.clone()),
+                                    Transform::from_xyz(0.007, -0.263, 0.042),
+                                    if *tool == Tool::Hoe {
+                                        Visibility::Inherited
+                                    } else {
+                                        Visibility::Hidden
+                                    },
+                                ));
+                            }
+                        });
                     } else if !is_arm {
                         limb.with_child((
                             Boot(side),
@@ -453,9 +476,10 @@ pub fn anticipate_walk(
     mut focus: ResMut<GardenFocus>,
     mut player: Single<&mut Gardener>,
     adventure: Res<Adventure>,
+    garden: Res<Garden>,
 ) {
     if let Some(index) = focus.approach.take() {
-        player.navigate(PLOTS[index], &adventure);
+        player.navigate(Reach::ground(PLOTS[index]), &adventure, &garden);
     }
 }
 
@@ -463,76 +487,104 @@ pub fn advance_player(
     time: Res<Time>,
     controls: Res<Controls>,
     adventure: Res<Adventure>,
+    garden: Res<Garden>,
     camera: Single<&Transform, (With<IslandCamera>, Without<Gardener>)>,
     mut player: Single<(&mut Gardener, &mut Transform)>,
 ) {
     let (player, transform) = &mut *player;
-    let delta = time.delta_secs().min(0.06);
+    let delta = time.delta_secs();
     if delta == 0.0 {
         return;
     }
-    let desired = if controls.move_axis.length_squared() > 0.006 {
+    let manual = controls.move_axis != Vec2::ZERO;
+    let desired = if manual {
         player.route.clear();
         let right = camera.right().xz().normalize_or_zero();
         let forward = camera.forward().xz().normalize_or_zero();
-        (right * controls.move_axis.x + forward * controls.move_axis.y) * SPEED
+        (right * controls.move_axis.x + forward * controls.move_axis.y).clamp_length_max(1.) * SPEED
     } else {
+        Vec2::ZERO
+    };
+    let old = player.position;
+    let steps = (delta * 120.).ceil() as u32;
+    let step_time = delta / steps as f32;
+    let passable = |p| adventure.walkable(p, &garden);
+    for _ in 0..steps {
         while player
             .route
             .front()
-            .is_some_and(|point| point.distance(player.position) < 0.035)
+            .is_some_and(|point| point.distance_squared(player.position) < 0.0001)
         {
             player.route.pop_front();
-        }
-        player.route.front().map_or(Vec2::ZERO, |point| {
-            let diff = *point - player.position;
-            diff.normalize_or_zero() * SPEED.min(diff.length() / delta)
-        })
-    };
-    player.velocity = if player.route.is_empty() {
-        player.velocity.lerp(desired, (delta * 15.0).min(1.0))
-    } else {
-        desired
-    };
-    let old = player.position;
-    let step = player.velocity * delta;
-    let mut moved = old + step;
-    if !adventure.walkable(moved) {
-        moved = Vec2::new(old.x + step.x, old.y);
-        if !adventure.walkable(moved) {
-            moved = Vec2::new(old.x, old.y + step.y);
-            if !adventure.walkable(moved) {
-                moved = old;
+            if player.route.is_empty() {
+                player.velocity = Vec2::ZERO;
             }
         }
+        if let Some(point) = player.route.front() {
+            let diff = *point - player.position;
+            let speed = (player.velocity.length() + ACCELERATION * step_time)
+                .min(SPEED)
+                .min(diff.length() / step_time);
+            player.velocity = diff.normalize_or_zero() * speed;
+        } else {
+            let rate = if desired.length_squared() < player.velocity.length_squared() {
+                BRAKING
+            } else {
+                ACCELERATION
+            };
+            player.velocity =
+                player.velocity + (desired - player.velocity).clamp_length_max(rate * step_time);
+        }
+        let advance = player.velocity * step_time;
+        let moved = slide(player.position, advance, &passable);
+        if moved == player.position && advance != Vec2::ZERO && !manual {
+            player.route.clear();
+            player.velocity = Vec2::ZERO;
+        }
+        player.position = moved;
     }
-    player.position = moved;
+    let moved = player.position;
     let distance = old.distance(moved);
     player.phase = (player.phase + distance / 0.92).fract();
     player.gait = player.gait.lerp(
         (distance / (SPEED * delta)).clamp(0.0, 1.0),
-        (delta * 11.0).min(1.0),
+        1.0 - (-delta * 13.0).exp(),
     );
     if distance > 0.0004 {
         let direction = moved - old;
         let angle = direction.x.atan2(direction.y);
         transform.rotation = transform
             .rotation
-            .slerp(Quat::from_rotation_y(angle), (delta * 11.5).min(1.0));
+            .slerp(Quat::from_rotation_y(angle), 1.0 - (-delta * 16.0).exp());
     }
     let height = transform.translation.y.lerp(
         match adventure.area {
             Area::Island | Area::District(_) => exterior_ground(moved),
             _ => 0.0,
         },
-        (delta * 16.0).min(1.0),
+        1.0 - (-delta * 20.0).exp(),
     );
     transform.translation = position3(moved, height);
+}
+
+fn slide(point: Vec2, step: Vec2, passable: &impl Fn(Vec2) -> bool) -> Vec2 {
+    let next = point + step;
+    if passable(next) {
+        return next;
+    }
+    let horizontal = Vec2::new(next.x, point.y);
+    if horizontal != point && passable(horizontal) {
+        return horizontal;
+    }
+    let vertical = Vec2::new(point.x, next.y);
+    if passable(vertical) { vertical } else { point }
 }
 
 pub fn animate_gardener(
     time: Res<Time>,
     notice: Res<Notice>,
+    adventure: Res<Adventure>,
+    mut tools: Query<(&Tool, &mut Visibility)>,
     player: Single<(&Gardener, &Transform)>,
     mut joints: Query<
         (&Joint, &mut Transform),
@@ -573,8 +625,20 @@ pub fn animate_gardener(
             wave * 0.25 * player.gait + 0.08 * (time.elapsed_secs() * 2.).sin(),
         );
     }
-    let work_time = Notice::DURATION + time.elapsed_secs() - notice.until;
-    let work = if notice.action.is_some() && (0.0..0.55).contains(&work_time) {
+    let now = time.elapsed_secs();
+    let swing = adventure.swing(now);
+    let held = swing.map_or_else(|| adventure.held_tool(), |(tool, _)| tool);
+    for (&tool, mut visibility) in &mut tools {
+        visibility.set_if_neq(if held == tool {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+    }
+    let work_time = Notice::DURATION + now - notice.until;
+    let work = if let Some((_, elapsed)) = swing {
+        (elapsed / 0.52 * std::f32::consts::PI).sin()
+    } else if notice.action.is_some() && (0.0..0.55).contains(&work_time) {
         (work_time / 0.55 * std::f32::consts::PI).sin() * (1.0 - player.gait)
     } else {
         0.0
@@ -586,7 +650,9 @@ pub fn animate_gardener(
     for (joint, mut transform) in &mut joints {
         let phase = step_phase(player.phase, joint.side);
         let pitch = if joint.is_arm {
-            let reach = if notice.action == Some(Action::Till) && joint.side > 0.0 {
+            let reach = if joint.side > 0.0 && swing.is_some() {
+                1.65
+            } else if notice.action == Some(Action::Till) && joint.side > 0.0 {
                 1.12
             } else {
                 0.62
@@ -647,7 +713,7 @@ pub fn exterior_ground(p: Vec2) -> f32 {
         let step = ((p.y - 16.0) / 0.27).round().max(0.0);
         return 0.17 - (step - 5.0).max(0.0) * 0.043;
     }
-    if (-2.77..=-1.39).contains(&p.x) && (0.58..1.28).contains(&p.y) {
+    if (-2.77..=-1.39).contains(&p.x) && (-0.53..1.28).contains(&p.y) {
         return if p.y < 0.70 {
             0.47
         } else if p.y < 0.91 {
@@ -673,47 +739,56 @@ pub fn walkable(p: Vec2) -> bool {
     if on_dock(p) {
         return true;
     }
-    if !terrain::walkable(p)
-        || rect(p, (-4.93, -0.37), (-4.05, -0.53))
-        || rect(p, (-5.22, -0.08), (-0.55, 0.80)) && !(-2.77..=-1.39).contains(&p.x)
-        || ((p - Vec2::new(-4.77, 2.54)) / Vec2::new(1.66, 1.18)).length_squared() < 1.0
-        || rect(p, (0.79, 5.99), (-0.72, -0.19))
-        || rect(p, (5.73, 6.17), (-0.35, 1.95))
-    {
-        return false;
-    }
-    const TRUNKS_AND_ROCKS: &[(f32, f32, f32)] = &[
-        (-6.39, -2.23, 0.53),
-        (-5.45, -3.92, 0.46),
-        (-3.46, -4.92, 0.57),
-        (-1.32, -5.22, 0.58),
-        (0.43, -4.89, 0.49),
-        (2.02, -4.35, 0.55),
-        (3.86, -3.51, 0.51),
-        (5.25, -2.49, 0.49),
-        (6.48, -1.48, 0.43),
-        (6.72, 1.74, 0.33),
-        (-6.74, -0.36, 0.39),
-        (-5.36, 0.06, 0.62),
-        (-6.88, -1.06, 0.43),
-        (-5.27, -3.42, 0.61),
-        (1.84, -3.71, 0.59),
-        (0.16, -3.04, 0.41),
-        (4.72, -2.78, 0.43),
-        (5.8, -0.90, 0.50),
-    ];
-    !TRUNKS_AND_ROCKS
-        .iter()
-        .any(|&(x, z, r)| p.distance_squared(Vec2::new(x, z)) < r * r)
+    terrain::walkable(p)
+        && !rect(p, (-4.93, -0.37), (-4.05, -0.53))
+        && (!rect(p, (-5.22, -0.08), (-0.55, 0.80)) || (-2.77..=-1.39).contains(&p.x))
+        && ((p - Vec2::new(-4.77, 2.54)) / Vec2::new(1.66, 1.18)).length_squared() >= 1.0
 }
 
 fn clear_walk(a: Vec2, b: Vec2, passable: &impl Fn(Vec2) -> bool) -> bool {
-    let steps = (a.distance(b) / 0.12).ceil().max(1.) as usize;
+    let steps = (a.distance(b) / 0.08).ceil().max(1.) as usize;
     (1..=steps).all(|i| passable(a.lerp(b, i as f32 / steps as f32)))
 }
 
-pub fn can_work(player: Vec2, plot: Vec2) -> bool {
-    player.distance_squared(plot) < REACH * REACH && clear_walk(player, plot, &walkable)
+pub fn can_work(player: Vec2, plot: Vec2, adventure: &Adventure, garden: &Garden) -> bool {
+    Reach::ground(plot).reached(player, &|p| adventure.walkable(p, garden))
+}
+
+#[derive(Clone, Copy)]
+pub struct Reach {
+    point: Vec2,
+    clearance: f32,
+    limit: f32,
+}
+
+impl Reach {
+    pub fn ground(point: Vec2) -> Self {
+        Self {
+            point,
+            clearance: 0.,
+            limit: REACH,
+        }
+    }
+
+    pub fn target(point: Vec2, clearance: f32, limit: f32) -> Self {
+        Self {
+            point,
+            clearance,
+            limit,
+        }
+    }
+
+    pub fn reached(self, from: Vec2, passable: &impl Fn(Vec2) -> bool) -> bool {
+        let offset = from - self.point;
+        let distance = offset.length();
+        distance >= self.clearance
+            && distance < self.limit
+            && clear_walk(
+                from,
+                self.point + offset.normalize_or_zero() * self.clearance,
+                passable,
+            )
+    }
 }
 
 impl Gardener {
@@ -723,29 +798,43 @@ impl Gardener {
         self.route.clear();
     }
 
-    pub fn navigate(&mut self, p: Vec2, adventure: &Adventure) {
-        self.route = approach(self.position, p, adventure.area.origin(), |p| {
-            adventure.walkable(p)
+    pub fn navigate(&mut self, reach: Reach, adventure: &Adventure, garden: &Garden) -> bool {
+        self.route = approach(self.position, reach, adventure.area.origin(), |p| {
+            adventure.walkable(p, garden)
         });
+        !self.route.is_empty()
+    }
+
+    pub fn approaching(&self) -> bool {
+        !self.route.is_empty()
     }
 }
 
 fn approach(
     start: Vec2,
-    target: Vec2,
+    reach: Reach,
     origin: Vec2,
     passable: impl Fn(Vec2) -> bool,
 ) -> VecDeque<Vec2> {
-    let near =
-        |p: Vec2| p.distance_squared(target) < 1.23f32.powi(2) && clear_walk(p, target, &passable);
+    let target = reach.point;
+    let near = |p: Vec2| reach.reached(p, &passable);
     if near(start) {
         return VecDeque::new();
     }
-    let direct = target + (start - target).normalize_or_zero() * 0.94;
+    let radius = (reach.clearance + 0.22).max(0.94).min(reach.limit - 0.08);
+    let direct = target + (start - target).normalize_or_zero() * radius;
     if near(direct) && clear_walk(start, direct, &passable) {
         return VecDeque::from([direct]);
     }
-    if !passable(target) {
+    let reachable = if reach.clearance == 0. {
+        passable(target)
+    } else {
+        (0..24).any(|i| {
+            let stand = target + Vec2::from_angle(i as f32 * TAU / 24.) * (reach.limit - 0.06);
+            near(stand)
+        })
+    };
+    if !reachable {
         return VecDeque::new();
     }
     const STEP: f32 = 0.32;
@@ -778,7 +867,7 @@ fn approach(
         let delta = (goal - c).abs();
         let diagonal = delta.min_element() as u32;
         let straight = (delta.max_element() - delta.min_element()) as u32;
-        (diagonal * 1414 + straight * 1000).saturating_sub(3850)
+        (diagonal * 1414 + straight * 1000).saturating_sub((reach.limit / STEP * 1100.) as u32)
     };
     let h = estimate(first);
     let mut open = BinaryHeap::from([Reverse((h, h, 0, first.x, first.y))]);
@@ -843,14 +932,14 @@ mod tests {
         let target = PLOTS[1];
         assert!(walkable(start));
         assert!(!clear_walk(start, target, &walkable));
-        let route = approach(start, target, Vec2::ZERO, walkable);
+        let route = approach(start, Reach::ground(target), Vec2::ZERO, walkable);
         assert!(!route.is_empty());
         let mut from = start;
         for point in route {
             assert!(clear_walk(from, point, &walkable));
             from = point;
         }
-        assert!(can_work(from, target));
+        assert!(Reach::ground(target).reached(from, &walkable));
     }
 
     #[test]
@@ -863,15 +952,33 @@ mod tests {
             SPAWN,
         ];
         for pair in landmarks.windows(2) {
-            let route = approach(pair[0], pair[1], Vec2::ZERO, walkable);
+            let route = approach(pair[0], Reach::ground(pair[1]), Vec2::ZERO, walkable);
             assert!(!route.is_empty(), "{} to {}", pair[0], pair[1]);
             let mut previous = pair[0];
             for point in route {
                 assert!(clear_walk(previous, point, &walkable));
                 previous = point;
             }
-            assert!(previous.distance(pair[1]) < 1.3);
+            assert!(previous.distance(pair[1]) < REACH);
         }
+    }
+
+    #[test]
+    fn routes_end_at_the_reachable_side_of_an_obstacle() {
+        let target = Vec2::ZERO;
+        let reach = Reach::target(target, 0.9, 1.49);
+        let wall = |p: Vec2| (-2.8..=-1.04).contains(&p.x) && p.y.abs() < 0.85;
+        let passable = |p: Vec2| p.length_squared() >= 0.8_f32.powi(2) && !wall(p);
+        let start = Vec2::new(-4., 0.);
+        let route = approach(start, reach, Vec2::ZERO, passable);
+        assert!(!route.is_empty());
+        let mut from = start;
+        for point in route {
+            assert!(clear_walk(from, point, &passable));
+            from = point;
+        }
+        assert!(reach.reached(from, &passable));
+        assert!(!passable(target));
     }
 
     #[test]

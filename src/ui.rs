@@ -756,7 +756,7 @@ pub fn update(
         let plot = garden.plots[index];
         let stage = plot.stage();
         panel.action = garden.action(index, adventure.crop);
-        let nearby = can_work(player.position, PLOTS[index]);
+        let nearby = can_work(player.position, PLOTS[index], &adventure, &garden);
         panel.enabled = !nearby || panel.action.is_some();
         let label = match stage {
             Stage::Grass => "Wiesenplatz",

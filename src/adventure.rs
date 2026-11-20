@@ -5,7 +5,7 @@ use crate::{
     session::Checkpoint,
     town::{Dialog, Npc},
     travel::{self, District, FINDS},
-    world::{self, Gardener, IslandCamera},
+    world::{self, Gardener, IslandCamera, Reach, Tool},
 };
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -19,8 +19,19 @@ const MARKER: &str = "selection";
 const TILE: f32 = 2.4;
 const GRID: i16 = 9;
 const START: u16 = 40;
+const STUMP_RADIUS: f32 = 0.42;
+const TREE_RADIUS: f32 = 0.46;
+const ROCK_RADIUS: f32 = 0.78;
+const ORE_RADIUS: f32 = 0.71;
+const BED_HALF_SIZE: Vec2 = Vec2::new(0.78, 1.04);
+const BENCH_HALF_SIZE: Vec2 = Vec2::new(0.71, 0.56);
+const FURNITURE_HALF_SIZES: [Vec2; 3] = [
+    Vec2::splat(0.77),
+    Vec2::new(0.73, 0.47),
+    Vec2::new(0.47, 0.48),
+];
 
-const TREES: [Vec2; 10] = [
+const TREES: [Vec2; 12] = [
     Vec2::new(-16.88, 6.9),
     Vec2::new(-16.60, 10.18),
     Vec2::new(-15., 3.),
@@ -31,8 +42,10 @@ const TREES: [Vec2; 10] = [
     Vec2::new(15., -7.),
     Vec2::new(12.38, 6.41),
     Vec2::new(15.2, 11.4),
+    Vec2::new(-5.8, 5.05),
+    Vec2::new(8.24, -2.31),
 ];
-const ROCKS: [Vec2; 7] = [
+const ROCKS: [Vec2; 8] = [
     Vec2::new(-11., 4.),
     Vec2::new(-12., -5.),
     Vec2::new(-17., -1.),
@@ -40,6 +53,7 @@ const ROCKS: [Vec2; 7] = [
     Vec2::new(12., 12.),
     Vec2::new(10., 9.),
     Vec2::new(-4., 10.),
+    Vec2::new(-3.23, 6.20),
 ];
 const SLOTS: [Vec2; 6] = [
     Vec2::new(1.59, 0.77),
@@ -106,6 +120,14 @@ pub enum Target {
 }
 
 impl Target {
+    fn tool(self) -> Tool {
+        match self {
+            Self::Tree(_) => Tool::Axe,
+            Self::Rock(_) | Self::MineRock(_) => Tool::Pickaxe,
+            _ => Tool::Hoe,
+        }
+    }
+
     fn name(self) -> &'static str {
         match self {
             Self::Door | Self::Exit => "Holzhütte",
@@ -194,6 +216,8 @@ pub struct Adventure {
     pub map: bool,
     pub zoom: f32,
     waiting: Option<(f32, f32)>,
+    queued: Option<Target>,
+    strike: Option<(Tool, f32)>,
     pub layout: MineFloor,
     sale: usize,
 }
@@ -306,15 +330,105 @@ impl Adventure {
     pub fn furniture_name(&self) -> &'static str {
         FURNITURE[self.furniture]
     }
-    pub fn walkable(&self, point: Vec2) -> bool {
+    pub fn held_tool(&self) -> Tool {
+        self.focus.map_or(Tool::Hoe, Target::tool)
+    }
+
+    pub fn swing(&self, now: f32) -> Option<(Tool, f32)> {
+        self.strike
+            .map(|(tool, start)| (tool, now - start))
+            .filter(|(_, elapsed)| *elapsed < 0.52)
+    }
+
+    pub fn walkable(&self, point: Vec2, garden: &Garden) -> bool {
+        let within = |center: Vec2, radius: f32| point.distance_squared(center) < radius * radius;
         match self.area {
-            Area::Island | Area::District(_) => world::walkable(point),
+            Area::Island | Area::District(_) => {
+                world::walkable(point)
+                    && !TREES.iter().enumerate().any(|(i, &tree)| {
+                        let radius = if garden.felled.contains(&i) {
+                            STUMP_RADIUS
+                        } else {
+                            TREE_RADIUS
+                        };
+                        within(tree, radius)
+                    })
+                    && !ROCKS
+                        .iter()
+                        .enumerate()
+                        .any(|(i, &rock)| within(rock, ROCK_RADIUS) && !garden.broken.contains(&i))
+            }
             Area::Home => {
                 let p = point - HOME;
-                p.x.abs() < 3.35 && p.y > -2.65 && p.y < 2.93
+                let inside = |center: Vec2, half: Vec2| {
+                    let offset = (point - center).abs();
+                    offset.x < half.x && offset.y < half.y
+                };
+                p.x.abs() < 3.35
+                    && p.y > -2.65
+                    && p.y < 2.93
+                    && !inside(self.position(Target::Bed), BED_HALF_SIZE)
+                    && !inside(self.position(Target::Bench), BENCH_HALF_SIZE)
+                    && !inside(HOME + Vec2::new(-3.04, -2.34), Vec2::splat(0.34))
+                    && !inside(HOME + Vec2::new(3.02, 2.37), Vec2::splat(0.34))
+                    && !garden.furniture.iter().enumerate().any(|(i, &kind)| {
+                        kind.checked_sub(1)
+                            .and_then(|kind| FURNITURE_HALF_SIZES.get(kind as usize))
+                            .is_some_and(|&half| inside(HOME + SLOTS[i], half))
+                    })
             }
-            Area::Mine(_) => self.layout.contains(point),
+            Area::Mine(depth) => {
+                self.layout.contains(point)
+                    && !self.layout.ores.iter().any(|&cell| {
+                        within(self.position(Target::MineRock(cell)), ORE_RADIUS)
+                            && !garden.mined.contains(&(depth, cell))
+                    })
+            }
         }
+    }
+
+    fn reach(&self, target: Target, garden: &Garden) -> Reach {
+        if target == Target::Door {
+            return Reach::target(Vec2::new(DOOR.x, -0.11), 0., 0.68);
+        }
+        let clearance = match target {
+            Target::Tree(_) => TREE_RADIUS + 0.06,
+            Target::Rock(_) => ROCK_RADIUS + 0.06,
+            Target::MineRock(_) => ORE_RADIUS + 0.06,
+            Target::Bed => 1.10,
+            Target::Bench => 0.91,
+            Target::Slot(i) => {
+                let kind = garden.furniture[i]
+                    .checked_sub(1)
+                    .map_or(self.furniture, usize::from);
+                FURNITURE_HALF_SIZES
+                    .get(kind)
+                    .map_or(0., |half| half.length() + 0.03)
+            }
+            Target::Village(Village::Orchard(i)) => {
+                if i < 4 {
+                    0.46
+                } else {
+                    0.76
+                }
+            }
+            Target::Village(Village::Feed | Village::Animal(_)) => 0.78,
+            Target::Village(Village::Seeds | Village::Sell | Village::Board | Village::Smith) => {
+                1.04
+            }
+            _ => 0.,
+        };
+        let limit = match target.tool() {
+            Tool::Axe => 1.08,
+            Tool::Pickaxe => 1.20,
+            Tool::Hoe => 1.49,
+        };
+        Reach::target(self.position(target), clearance, limit)
+    }
+
+    fn can_reach(&self, target: Target, player: Vec2, garden: &Garden) -> bool {
+        self.reach(target, garden)
+            .reached(player, &|p| self.walkable(p, garden))
     }
 
     pub fn position(&self, target: Target) -> Vec2 {
@@ -387,39 +501,34 @@ impl Adventure {
         now: f32,
     ) -> (String, String, &'static str, bool) {
         if let Some(target) = self.focus {
-            let near = player.distance(self.position(target)) < 1.58;
+            let walking = self.queued == Some(target);
             if let Target::Village(location) = target {
                 let (detail, action, enabled) =
                     location.describe(garden, self.crop, self.offer(garden));
-                return if near {
-                    (target.name().into(), detail, action, enabled)
-                } else {
-                    (
-                        target.name().into(),
-                        "Geh näher heran.".into(),
-                        "Hingehen",
-                        true,
-                    )
-                };
+                return (
+                    target.name().into(),
+                    if walking {
+                        "Auf dem Weg …".into()
+                    } else {
+                        detail
+                    },
+                    action,
+                    enabled,
+                );
             }
             if let (Target::MineRock(cell), Area::Mine(depth)) = (target, self.area) {
                 let ore = Ore::at(depth, cell);
                 let amount = if garden.farm.pickaxe { 2 } else { 1 };
-                return if near {
-                    (
-                        ore.title().into(),
-                        format!("+{amount} {} · +1 Stein", ore.name()),
-                        "Abbauen",
-                        true,
-                    )
-                } else {
-                    (
-                        ore.title().into(),
-                        "Geh näher heran.".into(),
-                        "Hingehen",
-                        true,
-                    )
-                };
+                return (
+                    ore.title().into(),
+                    if walking {
+                        "Auf dem Weg zur Ader …".into()
+                    } else {
+                        format!("Spitzhacke · +{amount} {} und 1 Stein", ore.name())
+                    },
+                    "Erz abbauen",
+                    true,
+                );
             }
             let (hint, action) = match target {
                 Target::Slot(i) => {
@@ -457,28 +566,32 @@ impl Adventure {
                     "Ein neuer Tag beginnt. Gegossene Pflanzen wachsen.".into(),
                     "Schlafen",
                 ),
-                Target::Tree(_) => ("Die Kiefer liefert 3 Holz.".into(), "Baum fällen"),
-                Target::Rock(_) => ("Der Block liefert 2 Stein.".into(), "Stein abbauen"),
-                Target::Travel(district) => (district.hint().into(), target.label()),
+                Target::Door => ("Über die Veranda gelangst du hinein.".into(), "Eintreten"),
+                Target::Tree(_) => ("Axt · +3 Holz".into(), "Baum fällen"),
+                Target::Rock(_) => ("Spitzhacke · +2 Stein".into(), "Stein abbauen"),
+                Target::Travel(district) => {
+                    let near = self.can_reach(target, player, garden);
+                    (
+                        district.hint().into(),
+                        if near { "Angekommen" } else { "Hingehen" },
+                    )
+                }
                 Target::Person(person) => (person.role().into(), target.label()),
                 Target::Find(i) => (
                     format!("+{} {}", FINDS[i].quantity, FINDS[i].name()),
                     target.label(),
                 ),
-                _ => (
-                    "Tippe rechts, wenn du nah genug bist.".into(),
-                    target.label(),
-                ),
+                _ => (String::new(), target.label()),
             };
             return (
                 target.name().into(),
-                if near {
-                    hint
+                if walking {
+                    "Auf dem Weg …".into()
                 } else {
-                    "Geh näher heran.".into()
+                    hint
                 },
-                if near { action } else { "Hingehen" },
-                !(near && matches!(target, Target::Travel(_))),
+                action,
+                action != "Angekommen",
             );
         }
         match self.area {
@@ -518,6 +631,8 @@ impl Adventure {
     fn enter(&mut self, area: Area, player: &mut Gardener, transform: &mut Transform, from: Vec2) {
         self.area = area;
         self.focus = None;
+        self.queued = None;
+        self.strike = None;
         self.waiting = None;
         self.map = false;
         self.inventory = false;
@@ -534,34 +649,117 @@ impl Adventure {
         checkpoint: Option<Checkpoint>,
         player: &mut Gardener,
         transform: &mut Transform,
+        garden: &Garden,
     ) {
         *self = Self::default();
         if let Some(checkpoint) = checkpoint.filter(|point| point.area != Area::Mine(0)) {
             let position = Vec2::from_array(checkpoint.position);
-            self.enter(checkpoint.area, player, transform, position);
             if position.is_finite() {
-                if self.walkable(position) {
+                self.enter(checkpoint.area, player, transform, position);
+                if self.walkable(position, garden) {
                     return;
                 }
-                if self.area.outdoors() {
-                    for radius in [0.55, 1.0, 1.8, 2.8] {
-                        if let Some(nearby) = (0..16)
-                            .map(|i| {
-                                let angle = i as f32 * std::f32::consts::TAU / 16.;
-                                position + Vec2::from_angle(angle) * radius
-                            })
-                            .find(|&p| self.walkable(p))
-                        {
-                            player.teleport(nearby);
-                            transform.translation =
-                                Vec3::new(nearby.x, world::exterior_ground(nearby), nearby.y);
-                            return;
-                        }
+                for radius in [0.35, 0.6, 1.0, 1.6, 2.4, 3.2] {
+                    if let Some(nearby) = (0..16)
+                        .map(|i| {
+                            position
+                                + Vec2::from_angle(i as f32 * std::f32::consts::TAU / 16.) * radius
+                        })
+                        .find(|&p| self.walkable(p, garden))
+                    {
+                        player.teleport(nearby);
+                        let y = if self.area.outdoors() {
+                            world::exterior_ground(nearby)
+                        } else {
+                            0.
+                        };
+                        transform.translation = Vec3::new(nearby.x, y, nearby.y);
+                        return;
                     }
                 }
+                let landing = match self.area {
+                    Area::Home => HOME + Vec2::new(0., 2.23),
+                    Area::Mine(_) => MINE + Vec2::new(0.42, 0.38),
+                    Area::District(district) => district.waypoint(),
+                    Area::Island => world::SPAWN,
+                };
+                self.enter(checkpoint.area, player, transform, landing);
+                return;
             }
         }
         self.enter(Area::Island, player, transform, world::SPAWN);
+    }
+}
+
+fn ray_box(ray: Ray3d, min: Vec3, max: Vec3) -> Option<f32> {
+    let mut enter = 0.0_f32;
+    let mut exit = f32::INFINITY;
+    for axis in 0..3 {
+        let speed = ray.direction[axis];
+        let origin = ray.origin[axis];
+        if speed.abs() < 0.00001 {
+            if origin < min[axis] || origin > max[axis] {
+                return None;
+            }
+        } else {
+            let a = (min[axis] - origin) / speed;
+            let b = (max[axis] - origin) / speed;
+            enter = enter.max(a.min(b));
+            exit = exit.min(a.max(b));
+        }
+    }
+    (enter <= exit).then_some(enter)
+}
+
+fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option<f32> {
+    let hit = |half: Vec2, bottom, top| {
+        ray_box(
+            ray,
+            base + Vec3::new(-half.x, bottom, -half.y),
+            base + Vec3::new(half.x, top, half.y),
+        )
+    };
+    match target {
+        Target::Door => [
+            ray_box(
+                ray,
+                Vec3::new(-5.20, 0., -4.36),
+                Vec3::new(-0.10, 3.51, 0.78),
+            ),
+            ray_box(
+                ray,
+                Vec3::new(-4.44, 3.51, -4.38),
+                Vec3::new(-0.88, 4.17, -0.46),
+            ),
+            ray_box(
+                ray,
+                Vec3::new(-3.73, 4.17, -4.27),
+                Vec3::new(-1.59, 4.76, -0.54),
+            ),
+            ray_box(
+                ray,
+                Vec3::new(-4.30, 3.40, -3.43),
+                Vec3::new(-3.56, 5.27, -2.61),
+            ),
+        ]
+        .into_iter()
+        .flatten()
+        .min_by(f32::total_cmp),
+        Target::Tree(_) => {
+            hit(Vec2::splat(0.96), 1.0, 4.36).or_else(|| hit(Vec2::splat(0.49), 0., 1.0))
+        }
+        Target::Rock(_) | Target::MineRock(_) => hit(Vec2::splat(0.76), 0., 0.97),
+        Target::Bed => hit(BED_HALF_SIZE, 0., 1.03),
+        Target::Bench => hit(BENCH_HALF_SIZE, 0., 1.1),
+        Target::Slot(i) => {
+            let kind = garden.furniture[i].checked_sub(1)? as usize;
+            hit(
+                *FURNITURE_HALF_SIZES.get(kind)?,
+                0.,
+                [1.36, 1.78, 1.99][kind],
+            )
+        }
+        _ => None,
     }
 }
 
@@ -578,9 +776,13 @@ pub fn select(
     let Some(at) = controls.pick_at else {
         if controls.cycle && adventure.area.outdoors() {
             adventure.focus = None;
+            adventure.queued = None;
         }
         return;
     };
+    adventure.queued = None;
+    let ray = camera.viewport_to_world(view, at).ok();
+    let mut volume = None;
     let mut best = (f32::MAX, None);
     for target in adventure.targets(&garden) {
         let point = adventure.position(target);
@@ -589,7 +791,13 @@ pub fn select(
         } else {
             0.
         };
-        let world = Vec3::new(point.x, y + target.height(), point.y);
+        let base = Vec3::new(point.x, y, point.y);
+        if let Some(depth) = ray.and_then(|ray| hit_volume(ray, target, base, &garden)) {
+            if volume.is_none_or(|(closest, _)| depth < closest) {
+                volume = Some((depth, target));
+            }
+        }
+        let world = base + Vec3::Y * target.height();
         let Ok(projected) = camera.world_to_viewport(view, world) else {
             continue;
         };
@@ -621,28 +829,23 @@ pub fn select(
         adventure.focus = None;
         return;
     }
-    adventure.focus = landmark.or(best.1);
+    adventure.focus = landmark.or(volume.map(|(_, target)| target)).or(best.1);
     adventure.sale = 0;
-    let destination = adventure
-        .focus
-        .map(|target| adventure.position(target))
-        .or_else(|| {
-            // The same controls can select a place on the ground.
-            if !adventure.area.outdoors() {
-                return None;
-            }
-            let ray = camera.viewport_to_world(view, at).ok()?;
-            let down = Dir3::NEG_Y;
-            let hit = ray.intersect_plane(Vec3::ZERO, InfinitePlane3d::new(down))?;
-            let point = ray.get_point(hit).xz();
-            world::walkable(point).then_some(point)
-        });
-    if let Some(destination) = destination {
-        focus.selected = None;
-        focus.approach = None;
-        adventure.map = false;
-        player.navigate(destination, &adventure);
+    let position = player.position;
+    player.teleport(position);
+    if let Some(target) = adventure.focus {
+        if landmark.is_some() || matches!(target, Target::Travel(_)) {
+            player.navigate(adventure.reach(target, &garden), &adventure, &garden);
+        }
+    } else if let Some(point) = ray.and_then(|ray| {
+        let hit = ray.intersect_plane(Vec3::ZERO, InfinitePlane3d::new(Dir3::NEG_Y))?;
+        Some(ray.get_point(hit).xz())
+    }) {
+        player.navigate(Reach::ground(point), &adventure, &garden);
     }
+    adventure.map = false;
+    focus.selected = None;
+    focus.approach = None;
 }
 
 pub fn interact(
@@ -704,7 +907,11 @@ pub fn interact(
             };
         }
     }
-    if !controls.act || focus.selected.is_some() {
+    if controls.move_axis != Vec2::ZERO || focus.selected.is_some() {
+        adventure.queued = None;
+        return;
+    }
+    if !controls.act && adventure.queued.is_none() {
         return;
     }
     let (player, transform) = &mut *player;
@@ -715,15 +922,34 @@ pub fn interact(
                 .distance_squared(adventure.position(a))
                 .total_cmp(&player.position.distance_squared(adventure.position(b)))
         });
-        if let Some(target) = adventure.focus {
-            player.navigate(adventure.position(target), &adventure);
-        }
+        adventure.queued = None;
         return;
     };
-    if player.position.distance(adventure.position(target)) >= 1.58 {
+    if !adventure.can_reach(target, player.position, &garden) {
+        if adventure.queued == Some(target) && player.approaching() {
+            return;
+        }
         adventure.map = false;
-        player.navigate(adventure.position(target), &adventure);
+        if controls.act && player.navigate(adventure.reach(target, &garden), &adventure, &garden) {
+            adventure.queued = Some(target);
+        } else {
+            adventure.queued = None;
+            *notice = Notice {
+                message: "Hier komme ich gerade nicht hin.".into(),
+                until: now + Notice::DURATION,
+                ..default()
+            };
+        }
         return;
+    }
+    adventure.queued = None;
+    let position = player.position;
+    player.teleport(position);
+    let tool = target.tool();
+    if tool != Tool::Hoe {
+        let direction = adventure.position(target) - position;
+        transform.rotation = Quat::from_rotation_y(direction.x.atan2(direction.y));
+        adventure.strike = Some((tool, now));
     }
     let mut persistent = true;
     let message = match target {
@@ -1229,6 +1455,60 @@ pub fn animate_animals(time: Res<Time>, mut animals: Query<(&Critter, &mut Trans
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resources_block_the_player_until_collected_and_remain_reachable() {
+        let mut garden = Garden::default();
+        let mut adventure = Adventure::default();
+        let tree = Target::Tree(10);
+        let rock = Target::Rock(7);
+        for target in [tree, rock] {
+            let center = adventure.position(target);
+            assert!(!adventure.walkable(center, &garden));
+            assert!(adventure.can_reach(target, center + Vec2::Y, &garden));
+        }
+        garden.felled.push(10);
+        garden.broken.push(7);
+        assert!(!adventure.walkable(adventure.position(tree), &garden));
+        assert!(adventure.walkable(adventure.position(rock), &garden));
+
+        adventure.area = Area::Mine(1);
+        adventure.layout = MineFloor::generate(1);
+        let cell = adventure.layout.ores[0];
+        let point = adventure.position(Target::MineRock(cell));
+        assert!(!adventure.walkable(point, &garden));
+        garden.mined.insert((1, cell));
+        assert!(adventure.walkable(point, &garden));
+    }
+
+    #[test]
+    fn furniture_collides_and_the_entry_stays_clear() {
+        let mut garden = Garden::default();
+        let adventure = Adventure {
+            area: Area::Home,
+            ..default()
+        };
+        assert!(!adventure.walkable(adventure.position(Target::Bed), &garden));
+        assert!(!adventure.walkable(adventure.position(Target::Bench), &garden));
+        let slot = adventure.position(Target::Slot(0));
+        assert!(adventure.walkable(slot, &garden));
+        garden.furniture[0] = 1;
+        assert!(!adventure.walkable(slot, &garden));
+        assert!(adventure.walkable(HOME + Vec2::new(0., 2.23), &garden));
+        assert!(adventure.can_reach(Target::Exit, HOME + Vec2::new(0., 2.23), &garden));
+    }
+
+    #[test]
+    fn selecting_the_roof_picks_the_door() {
+        let garden = Garden::default();
+        let camera = Vec3::new(-0.62, 0.89, 3.47) + world::camera_offset(Area::Island);
+        let roof = Vec3::new(-3.0, 4.36, -2.44);
+        let ray = Ray3d::new(camera, Dir3::new(roof - camera).unwrap());
+        assert!(hit_volume(ray, Target::Door, Vec3::ZERO, &garden).is_some());
+        let outside = Vec3::new(3.0, 0.0, 1.4);
+        let ray = Ray3d::new(camera, Dir3::new(outside - camera).unwrap());
+        assert!(hit_volume(ray, Target::Door, Vec3::ZERO, &garden).is_none());
+    }
 
     #[test]
     fn layers_have_reachable_exit_and_distinct_deterministic_layouts() {

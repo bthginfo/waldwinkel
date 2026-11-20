@@ -161,7 +161,7 @@ fn select_plot(
     if adventure.area != Area::Island {
         return;
     }
-    if controls.move_axis.length_squared() > 0.006
+    if controls.move_axis != Vec2::ZERO
         && focus
             .selected
             .is_some_and(|index| PLOTS[index].distance(player.position) > 5.)
@@ -212,7 +212,7 @@ fn act(
         focus.approach = closest;
         return;
     };
-    if !world::can_work(player.position, PLOTS[index]) {
+    if !world::can_work(player.position, PLOTS[index], &adventure, &garden) {
         focus.approach = Some(index);
         return;
     }

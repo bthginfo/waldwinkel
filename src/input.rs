@@ -198,7 +198,8 @@ pub fn collect(
     }
     let axis = gesture.stick.map_or(Vec2::ZERO, |(_, pos)| {
         let direction = (pos - layout.stick_center()) / (44.0 * layout.scale);
-        Vec2::new(direction.x, -direction.y).clamp_length_max(1.0)
+        let magnitude = ((direction.length() - 0.10) / 0.90).clamp(0., 1.);
+        Vec2::new(direction.x, -direction.y).normalize_or_zero() * magnitude.powf(1.24)
     });
     gesture.stick_axis = axis;
     let right = keys.any_pressed([KeyCode::KeyD, KeyCode::ArrowRight]);

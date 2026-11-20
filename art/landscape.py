@@ -13,6 +13,7 @@ INLETS = [(5.8, 22.5, 6.45, 6.38), (22.5, 53.8, 13.7, 13.40)]
 SEA = -.79
 BRIDGES = [.81, -12.0, 12.6]  # Forest-local z coordinates.
 BLOCKERS = []
+PLAYER_CLEARANCE = .14
 
 ROADS = [
     [(-4., 4.), (-9., 4.), (-15.5, 1.4), (-22.5, -2.), (-29.5, -3.4),
@@ -130,11 +131,20 @@ def road_distance(x,z):
 
 
 def block_circle(x,z,r):
+    r += PLAYER_CLEARANCE
     BLOCKERS.append((x-r,z-r,x+r,z+r,(x,z,r)))
 
 
 def block_rect(x,z,w,l):
-    BLOCKERS.append((x-w/2,z-l/2,x+w/2,z+l/2,None))
+    half_w,half_l = w/2+PLAYER_CLEARANCE,l/2+PLAYER_CLEARANCE
+    BLOCKERS.append((x-half_w,z-half_l,x+half_w,z+half_l,None))
+
+
+def block_segment(x,z,xx,zz,r):
+    steps = max(1,math.ceil(math.hypot(xx-x,zz-z)/.12))
+    for i in range(steps+1):
+        t = i/steps
+        block_circle(x+(xx-x)*t,z+(zz-z)*t,r)
 
 
 def is_gathering_spot(x,z):
@@ -155,9 +165,9 @@ def prepare_collisions():
 
 
 def bake_heightmap(root):
-    """Pack a 0.4 m heightfield with a blocked bit in every sample."""
-    ox,oz,step=-87.,-43.,.4
-    cols,rows=426,305
+    """Pack a 0.25 m heightfield with a blocked bit in every sample."""
+    ox,oz,step=-87.,-43.,.25
+    cols,rows=681,487
     samples=[]
     for j in range(rows):
         z=oz+j*step

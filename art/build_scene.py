@@ -61,6 +61,18 @@ class Model:
         self.faces = []
         self.colors = []
 
+    def obstacle_circle(self,x,z,r):
+        ox,oz=landscape.ORIGINS.get(self.asset,(0,0))
+        landscape.block_circle(ox+x,oz+z,r)
+
+    def obstacle_rect(self,x,z,w,d):
+        ox,oz=landscape.ORIGINS.get(self.asset,(0,0))
+        landscape.block_rect(ox+x,oz+z,w,d)
+
+    def obstacle_rail(self,x,z,xx,zz,r=.075):
+        ox,oz=landscape.ORIGINS.get(self.asset,(0,0))
+        landscape.block_segment(ox+x,oz+z,ox+xx,oz+zz,r)
+
     def add(self, verts, faces, colors, mode="lit"):
         offset = len(self.vertices)
         self.vertices.extend(point(*v) for v in verts)
@@ -315,6 +327,7 @@ def cabin():
 
 
 def barrel(model,x,z,y,s):
+    model.obstacle_circle(x,z,.276*s)
     rings = []
     for h,r in [(0,.21),(.13,.253),(.35,.275),(.59,.236)]:
         rings.append([(x+r*s*math.cos(t),z+r*s*math.sin(t),y+h*s)
@@ -360,6 +373,8 @@ def flowers(m,x,z,y,s,color):
 def pine(m,x,z,h,s,index):
     phase=RNG.uniform(0,TAU)
     r=.32*s
+    if m.asset != "wood_tree":
+        m.obstacle_circle(x,z,r)
     m.pole((x,z,h-.05),(x+.07*s,z-.07*s,h+2.77*s),r,"7d593e",8,tip=.14*s)
     for i in range(5):
         a=i*TAU/5+phase
@@ -395,6 +410,7 @@ def woods():
               (.16,-3.04,.52),(4.72,-2.78,.52),(5.8,-.47,.59),(-2.90,4.69,.31),
               (7.07,1.87,.40),(5.95,2.91,.37),(2.48,4.61,.34),(-4.3,4.19,.39)]
     for i,(x,z,s) in enumerate(boulders):
+        stone.obstacle_circle(x,z,s*.86)
         tint=["969084","8c8a84","a29688","a0998e"][i%4]
         stone.ellipsoid(x,z,s*.21,s,s*.78,s*.64,tint,8,4,angle=RNG.random(),rough=.19)
         stone.ellipsoid(x+.86*s,z+.54*s,.13,s*.43,s*.35,s*.33,tint,7,4,rough=.15)
@@ -459,12 +475,14 @@ def grounds():
         fences.box(x,z,.43,.175,.181,.85,"9e754e",.028,RNG.uniform(-.16,.16))
         fences.box(x,z,.85,.202,.207,.064,"c39b67",.019)
     for (x,z),(nx,nz) in zip(path,path[1:]):
+        fences.obstacle_rail(x,z,nx,nz)
         angle=math.atan2(nz-z,nx-x)
         length=math.hypot(nx-x,nz-z)+.025
         for h,tint in [(.31,"a68256"),(.64,"bb925e")]:
             fences.box((nx+x)/2,(nz+z)/2,h,length,.095,.14,tint,.022,angle)
     for j in range(2):
         x,z=5.55-.31*j,-.70-.34*j
+        fences.obstacle_rect(x,z,.51,.49)
         fences.box(x,z,.18,.51,.49,.35,"a8784e",.033,angle=.18+j*.13)
         for k in range(3):
             fences.box(x+(k-1)*.16,z,.358,.151,.49,.037,"c09263",.011,.12)
@@ -647,6 +665,7 @@ def expansion():
         pine(forest,x,z,0,s,RNG.randrange(6))
     for x,z,s in [(-7.76,4.42,1.0),(-6.42,9.9,.90),(5,9,.94),(11,9,.82),(15,-2,.91),(-5,-9,.98),
                    (3,-10,.76),(-17,-5,.9),(18,-4.3,1),(-6.9,12.2,.72)]:
+        forest.obstacle_circle(x,z,.24*s)
         forest.pole((x,z,0),(x+.1,z,2.18*s),.24*s,"856445",8,tip=.13*s)
         for dx,dz,h,sc in [(-.48,.05,2.23,.72),(.42,-.21,2.55,1),(.03,.6,2.39,.72),(0,0,3.0,.76)]:
             forest.ellipsoid(x+dx*s,z+dz*s,h*s,sc*s,sc*.85*s,sc*.75*s,
@@ -663,6 +682,8 @@ def expansion():
         for _ in range(4):
             xx,zz=x+RNG.uniform(-1.4,1.4),z+RNG.uniform(-1.4,1.4)
             s=RNG.uniform(.20,.49)
+            if s>.34:
+                coast.obstacle_circle(xx,zz,s*.80)
             coast.ellipsoid(xx,zz,s*.1,s,s*.8,s*.6,"aaa398",8,4,rough=.18)
     for i in range(14):
         z=16.0+i*.27
@@ -681,7 +702,9 @@ def expansion():
                         ["897482","a38c94","8a7e88"][i%3],8,4,rough=.23)
     coast.box(9,-9.85,1.11,2.18,.31,2.18,"493847",.115)
     for x in [7.90,10.1]:
+        coast.obstacle_rect(x,-9.65,.36,.45)
         coast.box(x,-9.65,1.14,.32,.40,2.34,"8d6246",.051)
+    coast.obstacle_rect(9,-10.56,3.35,.91)
     coast.box(9,-9.64,2.33,2.65,.42,.40,"b38a57",.068)
     lantern(coast,7.84,-9.38,1.74)
     lantern(coast,10.15,-9.38,1.74)
@@ -783,6 +806,7 @@ def furniture_models():
 def resource_models():
     tree=Model("Fällbare Kiefer","wood_tree")
     pine(tree,0,0,0,.89,1)
+    tree.pole((.013,-.017,.32),(.016,-.019,.43),.276,"c07854",8,tip=.268)
     tree.box(.38,.39,.22,.08,.082,.43,"9c774e",.013)
     tree.box(.38,.41,.40,.23,.102,.16,"d9b779",.018)
     stump=Model("Baumstumpf","wood_stump")
@@ -841,7 +865,26 @@ def resource_models():
     bobber.ellipsoid(0,0,.02,.103,.103,.089,"c97862",9,5)
     bobber.pole((0,0,.055),(0,0,.103),.083,"faead0",9,tip=.041)
     bobber.pole((0,0,.087),(0,0,.144),.019,"b35740",7,tip=.011)
-    return [tree,stump,rock,copper,tile,wall,ladder,support,bobber,turnip,pumpkin]
+    axe=Model("Axt · Eschengriff, Stahlblatt und Nieten","axe")
+    axe.pole((0,-.018,.13),(0,.026,-.45),.027,"c39260",8,tip=.023)
+    for i in range(4):
+        h=.074-i*.028
+        axe.pole((0,-.015,h),(0,-.014,h+.013),.031,"6f7859",7,tip=.031)
+    axe.box(0,.027,-.365,.089,.11,.143,"727e7b",.015)
+    axe.box(0,.109,-.375,.072,.105,.194,"8b9b96",.017,.05)
+    axe.box(0,.185,-.371,.053,.078,.225,"a6b5a8",.017,.08)
+    axe.box(0,.221,-.370,.037,.023,.200,"dbe0c1",.008,.08)
+    for side in [-1,1]:
+        axe.ellipsoid(side*.047,.027,-.366,.011,.023,.018,"e2bc77",7,3)
+
+    pick=Model("Spitzhacke · Stahlspitzen und Messingkragen","pickaxe")
+    pick.pole((0,-.028,.16),(0,.010,-.493),.025,"b58054",8,tip=.023)
+    pick.pole((0,-.026,-.04),(0,-.023,.083),.031,"80654d",8)
+    pick.box(0,.013,-.412,.083,.109,.137,"c2aa6b",.014)
+    for side in [-1,1]:
+        pick.pole((0,0,-.443),(0,side*.175,-.426),.056,"768c92",6,tip=.042)
+        pick.pole((0,side*.175,-.426),(0,side*.290,-.343),.042,"9aa9a7",6,tip=.008)
+    return [tree,stump,rock,copper,tile,wall,ladder,support,bobber,turnip,pumpkin,axe,pick]
 
 
 ORCHARD_POINTS = [
@@ -857,6 +900,7 @@ def fence(model, points, height=.79):
         model.box(x,z,height*.49,.163,.168,height,"a7764e",.025)
         model.box(x,z,height+.005,.185,.181,.064,"ca9c63",.016)
     for (x,z),(xx,zz) in zip(points,points[1:]):
+        model.obstacle_rail(x,z,xx,zz)
         width=math.hypot(xx-x,zz-z)
         for h in [.29,.59]:
             model.box((x+xx)/2,(z+zz)/2,h,width,.113,.116,
@@ -864,6 +908,8 @@ def fence(model, points, height=.79):
 
 
 def produce_crate(model,x,z,h,color):
+    if h == 0:
+        model.obstacle_rect(x,z,.55,.42)
     model.box(x,z,h+.095,.55,.42,.19,"b28456",.024)
     for side in [-1,1]:
         for dx in [-.24,.24]:
@@ -873,6 +919,7 @@ def produce_crate(model,x,z,h,color):
 
 
 def booth(model,x,z,kind):
+    model.obstacle_rect(x,z,3.10,2.53)
     wood=["bc8858","ae7952","c59161","b58050"]
     for j in range(10):
         model.box(x,z-1.16,.38+j*.195,2.86,.15,.184,wood[j%4],.015)
@@ -963,6 +1010,7 @@ def homestead_models():
     for dx,h in [(-.31,1.18),(.05,1.09),(.30,1.19)]:
         market.box(16.05+dx,6.287,h,.246,.023,.277,"e9d8a4",.011,RNG.uniform(-.10,.10))
     market.box(20.02,6.34,.44,1.30,.75,.86,"a87952",.04)
+    market.obstacle_rect(20.02,6.34,1.45,.82)
     market.box(20.02,6.34,.892,1.45,.82,.133,"c49362",.029)
     market.box(20.02,6.34,1.05,.37,.29,.22,"696778",.027)
     market.box(20.02,6.34,1.20,.72,.34,.12,"797c83",.038)
@@ -1006,6 +1054,7 @@ def homestead_models():
                     (-7.12,-7.28),(-8.58,-7.28),(-9.35,-7.28)])
     fence(meadow,[(-14.8,-7.4),(-13.33,-7.39),(-11.85,-7.31),(-11.36,-7.29)])
     for x,z,w,d,h in [(-12.9,-10.72,2.40,1.62,1.43),(-7.52,-10.82,2.44,1.67,1.20)]:
+        meadow.obstacle_rect(x,z,w,d)
         for dx in [-w/2,w/2]:
             for dz in [-d/2,d/2]:
                 meadow.box(x+dx,z+dz,.65,.146,.16,1.30,"926645",.025)
@@ -1028,6 +1077,7 @@ def homestead_models():
         meadow.pole((x,z-1.14,2.18),(x,z+1.17,2.18),.14,"dc9f68",9)
         lantern(meadow,x+.81,z+d/2+.25,1.33)
     for x,z in [(-10.35,-8.37),(-7.63,-9.27),(-13.19,-8.98)]:
+        meadow.obstacle_rect(x,z,.95,.47)
         meadow.box(x,z,.23,.95,.47,.40,"ac8155",.046)
         meadow.box(x,z,.433,.868,.42,.088,"d9b368",.025)
         for i in range(9):
@@ -1039,6 +1089,7 @@ def homestead_models():
         for i in range(3):
             flowers(meadow,x+.15*i,z+.067*i,0,.80,["f5ebcc","d7a3b5","e9c779"][i])
     for i,(x,z) in enumerate(ORCHARD_POINTS):
+        orchard.obstacle_circle(x,z,.25 if i<4 else .54)
         if i<4:
             orchard.pole((x,z,0),(x+.10,z,2.00),.245,"9a694a",9,tip=.12)
             for dx,dz,h,r in [(-.61,.08,1.85,.65),(.48,.27,2.08,.78),(.00,.35,2.38,.88),(-.29,-.46,2.22,.63),
@@ -1213,6 +1264,7 @@ def farnwald():
             for z in [.15,1.47]:
                 trail.box(x,z,.46,.139,.139,.85,"986847",.026)
     for z in [.15,1.47]:
+        trail.obstacle_rail(-2.48,z,.80,z)
         trail.pole((-2.48,z,.70),(.80,z,.70),.045,"c4a87c",6)
     path_stones(trail,[(-6.75,4.6),(-5.7,3.2),(-6.6,1.7),(-5.15,.9),(-2.53,.81)])
     path_stones(trail,[(.98,.81),(3.3,1.0),(5.75,1.79),(7.10,2.85),(7.1,-.5),(5.1,-3.9),(3.4,-3.0),(2.2,-4.7)])
@@ -1224,11 +1276,13 @@ def farnwald():
           (-7.2,-3.2,.71),(3.1,4.23,.61),(5.91,4.96,.64),(-4.5,5.8,.58),(-2.83,-3.18,.62)]):
         pine(forest,x,z,0,s,i)
     for i,(x,z,sc) in enumerate([(-7.69,2.05,1.0),(-5.75,-4.5,.95),(.5,-4.9,1.12),(5.2,-2.5,.91),(6.2,3.9,.73),(-3.8,3.6,.79)]):
+        forest.obstacle_circle(x,z,.27*sc)
         forest.pole((x,z,0),(x+.11,z,2.24*sc),.27*sc,"8b6449",9,tip=.142)
         for dx,dz,h,r in [(-.61,.14,2.13,.79),(.49,.1,2.47,.79),(.12,-.40,2.67,.88),(0,.24,3.0,.71)]:
             forest.ellipsoid(x+dx*sc,z+dz*sc,h*sc,r*sc,r*.87*sc,r*.70*sc,
                              ["c9a752","dbb35b","b9a057","e2bf71"][(i+int(h*10))%4],9,4,rough=.17)
     for i,(x,z,h) in enumerate([(-3.35,-6.74,.82),(-1.84,-7.02,1.20),(-.6,-7.16,1.44),(.78,-6.85,1.11),(-1.29,-5.95,.67)]):
+        trail.obstacle_circle(x,z,.72)
         trail.ellipsoid(x,z,.14+h*.36,.93,.7,h,"969892",8,4,rough=.21)
     for _ in range(94):
         x,z=RNG.uniform(-10.3,10.1),RNG.uniform(-6.49,6.49)
@@ -1239,7 +1293,9 @@ def farnwald():
     xx,zz=-7.52,-4.66
     for dx in [-.96,.96]:
         for dz in [-.65,.65]:
+            trail.obstacle_circle(xx+dx,zz+dz,.11)
             trail.box(xx+dx,zz+dz,.93,.15,.16,1.87,"9c7350",.025)
+    trail.obstacle_rail(xx-.96,zz-.67,xx+.96,zz-.67)
     for j in range(5):
         trail.box(xx,zz-.67,.30+j*.183,1.94,.12,.171,"ab815b",.022)
     for j in range(8):
@@ -1427,6 +1483,7 @@ def eichenhafen():
     for x,z in [(-1.11,6.58),(2.51,5.72),(-8.11,2.65)]:
         barrel(town,x,z,.08,.68)
     for x,z in [(-8.86,2.59),(8.91,2.94)]:
+        court.obstacle_circle(x,z,.46)
         court.pole((x,z,.05),(x,z,.42),.43,"ae8767",10,tip=.51)
         court.pole((x,z,.391),(x,z,.415),.44,"777153",10)
         court.pole((x,z,.40),(x+.04,z,1.55),.092,"977153",8,tip=.07)
@@ -1510,6 +1567,7 @@ def mainland_details():
                 for dz in [-.71,.71]:
                     bank.box(xx,z+dz,.43,.142,.136,.78,"a37853",.021)
         for dz in [-.71,.71]:
+            bank.obstacle_rail(x-1.71,z+dz,x+1.71,z+dz)
             bank.pole((x-1.71,z+dz,.65),(x+1.71,z+dz,.65),.047,"c5a37a",6)
         for dx in [-1.97,1.97]:
             bank.box(x+dx,z,.066,.41,1.52,.16,"b9956f",.028)

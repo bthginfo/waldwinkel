@@ -1,13 +1,21 @@
-# Waldwinkel 0.5.0
+# Waldwinkel
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Hof, Farnwald, Muschelbucht und Eichenhafen liegen auf einer zusammenhängenden Küstenlandschaft von rund 160 × 110 Spielmetern. Alle Außenbereiche sind zu Fuß erreichbar. Der Tanuki, die sechs Stadtfiguren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
-![Die zusammenhängende Welt von Waldwinkel](docs/weltkarte.png)
+![Der Hof und der auswählbare Eingang der Holzhütte](docs/hof.png)
 
 ## Installieren
 
-- Melde dich bei GitHub an und lade die signierte APK aus **Assets** herunter. Öffne sie auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://github.com/bthginfo/waldwinkel/releases/latest/download/Waldwinkel-Android.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
-- Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System. Das Spiel läuft offline. Installiere das Update über die vorherige Version. Waldwinkel verwendet dieselbe App-ID und denselben Testschlüssel wie die Vorgänger. Vorhandene Spielstände bleiben erhalten. Aufenthaltsorte in den früheren Gebieten, im Haus und in der Mine werden in die neue Welt übernommen.
+- Lade die signierte APK herunter und öffne sie auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://github.com/bthginfo/waldwinkel/releases/latest/download/Waldwinkel-Android.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
+- Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
+
+## Neu in 0.6.0
+
+- **Haus.** Tippe das Dach, die Fassade oder die Veranda an und drücke **Eintreten**. Der Tanuki läuft zur Tür. Drinnen findest du **Hinausgehen** an der Treppe.
+- **Bewegung.** Das Lauftempo ist um 40 % gestiegen. Der Touch-Stick erlaubt langsames Gehen mit kurzem Ausschlag. Beim Anlaufen, Drehen und Bremsen geht der Tanuki fließend in die nächste Bewegung über. Häuser, Zäune, Baumstämme, Felsen und Möbel blockieren den Weg.
+- **Axt und Spitzhacke.** Markierte Kiefern, große Steinblöcke und Erzadern zeigen die passende Aktion. Einmal drücken genügt. Der Tanuki sucht eine Stelle neben dem Ziel, benutzt sein Werkzeug und legt die Ausbeute in die Tasche. Zwei fällbare Kiefern und ein zusätzlicher Steinblock liegen jetzt näher am Hof.
+
+[Innenansicht der Holzhütte](docs/holzhuette.png) · [Weltkarte](docs/weltkarte.png)
 
 ## Spielstände
 
@@ -20,7 +28,7 @@ Im Startmenü kannst du auf bis zu drei getrennten Plätzen ein **Neues Spiel** 
 | Ort | So funktioniert es |
 | :-- | :-- |
 | Außenwelt | Links ist der Touch-Stick. Pinch oder **−/+** ändert die Zoomstufe. Auf der **Weltkarte** siehst du die zusammenhängende Landschaft. |
-| Wege | Laufe selbst oder tippe in der **Weltkarte** auf einen beschrifteten Ort oder direkt auf begehbares Gelände. Dein Tanuki läuft dorthin. Mit dem Stick kannst du unterwegs übernehmen. |
+| Wege | Laufe selbst oder tippe auf begehbaren Boden. Ziele auf der **Weltkarte** kannst du direkt anwählen. Mit dem Stick kannst du unterwegs übernehmen. |
 | Farnwald | Sammle Pilze und Haselnüsse auf beiden Seiten des Baches. Drei Holzbrücken verbinden die Ufer. Weitere Sammelstellen liegen an den Lichtungen und Fernwegen. |
 | Muschelbucht | Suche am Strand und hinter den Dünen nach Muscheln und Treibholz. Sammelstellen im Farnwald und an der Bucht füllen sich nach zwei Spieltagen wieder. |
 | Eichenhafen | Tippe auf eine Figur und dann auf **Ansprechen**. Lina verkauft Saatgut und Miro kauft Erzeugnisse und Funde. Mara, Fiete und Bo geben Aufträge. Juna erzählt dir, wohin die Wege führen. |
@@ -65,10 +73,11 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 - **Blender Modeling, Animation und Export** für modellierte Kanten, Drehpunkte und die Prüfung des GLB-Exports. [Modeling](https://skills.sh/roble3/cc-blender-skill/blender-modeling), [Animation](https://skills.sh/roble3/cc-blender-skill/blender-animation), [Export](https://skills.sh/roble3/cc-blender-skill/blender-export)
 - **Blender Motion State Inspection** und **Character Rigging** für Achsen, Gelenkpunkte und Fußkontakt. **Blender Weather FX** ist eine Referenz für spätere Wetter-Looks und Oberflächenmasken. [Motion State Inspection](https://skills.sh/affaan-m/ecc/blender-motion-state-inspection), [Character Rigging](https://skills.sh/el4cteo/blender-skills/blender-character-rigging), [Weather FX](https://skills.sh/el4cteo/blender-skills/blender-weather-fx)
 
-## Bildvergleich und Tests
+## Tests und nächste Etappen
 
-Vor dem Modellieren entstand eine gemeinsame Bildreferenz für Wald, Hof, Bucht und Stadt. Im Bildvergleich in Bevy habe ich die Farbe und Kurven der Wege sowie die Übergänge durch Wiesen und Baumgruppen nachgearbeitet. Die Aufnahmen zeigen das laufende Spiel.
+22 Rust-Tests decken unter anderem zusammenhängende Fußwege, Zugriff auf feste Objekte, Kollisionen, Bachquerungen, Speichern und die Übernahme alter Aufenthaltsorte ab. Der Einstieg per Touch und das Update von 0.5.0 wurden im Android-14-Emulator geprüft. Die Aufnahmen stammen aus dem laufenden Bevy-Spiel.
 
-18 Rust-Tests decken unter anderem zusammenhängende Fußwege, Sammelstellen, Bachquerungen, das Speichern und die Umrechnung alter Aufenthaltsorte ab.
-
-Im laufenden Bevy-Spiel ist derselbe Tanuki vom Hof zum Farnwald, zur Muschelbucht und nach Eichenhafen gelaufen. Jeder Abschnitt blieb Teil derselben Außenwelt. Im Android-14-Emulator wurde das Update über 0.4 installiert. Der Aufenthalt in Eichenhafen und ein dort angenommener Auftrag blieben erhalten. Ein Test auf einem physischen Gerät steht noch aus.
+1. **Hofalltag und Ernte.** Zeitgesteuerter Tagesablauf mit Schlafen, besserer Saat- und Gießablauf, Saatgut aus Handel, Funden, Aufträgen und zufälligen Erntedrops, Qualitätsstufen, Dünger und eine optionale Verkaufstruhe am Hof.
+2. **Ausbau und Verarbeitung.** Tiergebäude und Tierhaltung auf dem eigenen Hof, sammelbare Möbelrezepte für die Werkbank sowie Koch- und Verarbeitungsminispiele.
+3. **Neue Regionen.** Verbundene Gebiete in der Größenordnung der bisherigen Welt, eigene Materialien und Figuren, mehrstufige Questketten und je ein über eine Quest freischaltbarer Schnellreisepunkt. Pro Region entsteht vor den Blender-Modellen eine Bildreferenz.
+4. **Kartenkämpfe.** Prozedurale Ebenen mit ansteigender Schwierigkeit und Rückkehr zu freigeschalteten Ruheplätzen. Karten kommen etwa aus Erkundung, Aufträgen, Handel und Kämpfen. Ein Deck umfasst zwölf Karten und wird am Kartenbinder daheim zusammengestellt. Kampftalente verbessern Werte wie Gesundheit und Resistenzen.

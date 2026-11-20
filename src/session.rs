@@ -383,7 +383,7 @@ pub fn input(
                 let checkpoint = garden.checkpoint;
                 *g = garden;
                 path.0.clone_from(&slots.files[index]);
-                adventure.restore(checkpoint, player, transform);
+                adventure.restore(checkpoint, player, transform, &g);
                 *gesture = Gesture::default();
                 *controls = Controls::default();
                 *focus = GardenFocus::default();
