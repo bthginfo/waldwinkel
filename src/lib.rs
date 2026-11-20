@@ -108,25 +108,30 @@ pub fn main() {
             RenderPlugin,
             settings::{RenderCreation, WgpuSettings, WgpuSettingsPriority},
         };
-        // Keep startup on the portable Vulkan path. Some Android drivers
-        // advertise optional GPU preprocessing capabilities that fail during
-        // pipeline creation.
-        plugins
-            .set(RenderPlugin {
-                render_creation: RenderCreation::Automatic(WgpuSettings {
-                    priority: WgpuSettingsPriority::Compatibility,
-                    ..default()
-                }),
-                synchronous_pipeline_compilation: true,
+        plugins.set(RenderPlugin {
+            render_creation: RenderCreation::Automatic(WgpuSettings {
+                priority: WgpuSettingsPriority::Compatibility,
                 ..default()
-            })
-            .set(bevy::pbr::PbrPlugin {
-                use_gpu_instance_buffer_builder: false,
-                ..default()
-            })
+            }),
+            synchronous_pipeline_compilation: true,
+            ..default()
+        })
     };
-    app.add_plugins(plugins)
-        .insert_resource(ClearColor(Color::srgb_u8(132, 204, 201)))
+    app.add_plugins(plugins);
+    #[cfg(target_os = "android")]
+    {
+        use bevy::render::{
+            RenderApp,
+            batching::gpu_preprocessing::{GpuPreprocessingMode, GpuPreprocessingSupport},
+        };
+        // Set this before the render plugins finish so both the mesh batch
+        // builder and the camera and shadow render phases use CPU preparation.
+        app.sub_app_mut(RenderApp)
+            .insert_resource(GpuPreprocessingSupport {
+                max_supported_mode: GpuPreprocessingMode::None,
+            });
+    }
+    app.insert_resource(ClearColor(Color::srgb_u8(132, 204, 201)))
         .init_resource::<Garden>()
         .insert_resource(path)
         .insert_resource(slots)

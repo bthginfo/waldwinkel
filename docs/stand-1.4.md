@@ -17,13 +17,13 @@ Die 1.3.1 hatte bereits einen funktionierenden Hof, eine große Insel, vier Jahr
 
 - Die neue Modellgruppe beansprucht rund 3 MB als GLB und umfasst fünf Bauwerke, Wegzeichen, Leuchten, den Webrahmen und die Wegwachtlampe.
 - Im Tablet-Emulator wurde ein virtuelles Eingabegerät mit dem Xbox-One-S-Profil erkannt. Im laufenden Spiel funktionierten D-Pad und A bei der Spielstandwahl, der linke Analogstick beim Laufen, View und LT für Tasche und Saatgut, B zum Schließen, die Menütaste zum Pausieren und Y für die Karte. Das Firmwareverhalten eines physischen Xbox-Controllers über Bluetooth bleibt als Geräteprüfung offen. [Android-Belegung](https://developer.android.com/training/game-controllers/controller-input)
-
-
 - Die Kampagnenpfade bieten 37 Begegnungen mit steigender Schwierigkeit über Dämmergänge und Wachtprüfungen. Die ersten Ziele eignen sich für kurze Sitzungen, spätere Werkzeuge, Anbauten und Feste für mehrere Spieltage. Die Dauer eines vollständigen Durchlaufs bleibt als Langzeitmessung offen.
 - Im Spiel wurden Wegzeichen, Reparatur der Werkbank, Fertigung von sechs Brettern, Reparatur der Farnwacht, ein Duell mit Proviant und die Übergabe bei Juna mit Testspielständen geprüft. Die Stufen und Belohnungen stehen danach im Spielstand. [Farnwacht](14-farnwacht.jpg) · [Wegwachten](14-wegwachten.jpg) · [Fertigung](14-materialien.jpg) · [Duell](14-proviant.jpg)
 - Die Tests decken alle zwölf Wachtprüfungen mit einem ausgebauten Deck, den ersten Wachtkampf mit dem Startdeck, die fünf Wege, die Handwerksschritte, den Wechsel der Aufträge, das Ernten über mehrere Tage, die Proviantregeln und das einmalige Auszahlen der Belohnungen ab.
 - Die Referenz zeigt die angestrebten Formen und Materialien. Die Modelle stammen aus der Blender-Datei und dem Exportskript des Projekts. [Bildreferenz der fünf Wachten](../art/references/wegwachten.jpg)
 
-## Android 1.4.1
+## Android 1.4.2
 
-Ein Kaltstart unter dem Android-Emulator hat bei der Erstellung eines Shaders abgebrochen. Der Android-Build verwendet deshalb das Vulkan-Kompatibilitätsprofil, bereitet Instanzen auf der CPU vor und erstellt die Grafikpipelines synchron.
+Ein Kaltstart unter dem Android-Emulator hat bei der Erstellung eines Shaders abgebrochen. Der Android-Build verwendet das Vulkan-Kompatibilitätsprofil und erstellt die Grafikpipelines synchron. Kamera, Schatten und Meshes verwenden dieselbe CPU-Vorbereitung für Instanzen.
+
+Im Tabletformat (1280 × 800) lädt die App beim Kaltstart bis zur Spielstandwahl und zeigt nach dem Fortsetzen den Hof mit Figur, Gelände, Gebäuden und HUD. Beim Update blieben alle drei Testspielstände bytegenau erhalten. [Hof im Android-Build 1.4.2](14-tablet.jpg)
