@@ -1195,6 +1195,12 @@ pub fn update(
             "Tippe einen Namen an, um zur Figur zu laufen.".into()
         };
         progress_value = None;
+    } else if player.finding_route() {
+        panel.detail = if panel.pad {
+            "Weg wird gesucht … · B bricht ab".into()
+        } else {
+            "Weg wird gesucht …".into()
+        };
     }
     for (utility, mut label) in &mut labels {
         let next = match utility.0 {

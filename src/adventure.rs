@@ -1612,7 +1612,7 @@ pub fn select(
                 adventure.map = false;
                 adventure.focus = Some(target);
                 player.stop();
-                player.navigate(adventure.reach(target, &garden), &adventure, &garden);
+                player.navigate_over_time(adventure.reach(target, &garden), &adventure, &garden);
             }
             controls.act = false;
             return;
@@ -1781,7 +1781,7 @@ pub fn select(
     if let Some(target) = landmark {
         adventure.focus = Some(target);
         if was_map {
-            player.navigate(adventure.reach(target, &garden), &adventure, &garden);
+            player.navigate_over_time(adventure.reach(target, &garden), &adventure, &garden);
         }
         return;
     }
@@ -1850,7 +1850,7 @@ pub fn select(
         Some(PadTarget::Place(target)) => {
             adventure.focus = Some(target);
             if matches!(target, Target::Travel(_)) {
-                player.navigate(adventure.reach(target, &garden), &adventure, &garden);
+                player.navigate_over_time(adventure.reach(target, &garden), &adventure, &garden);
             }
         }
         None => {
@@ -1862,9 +1862,9 @@ pub fn select(
                 }) {
                     let target = Target::Gate(gate);
                     adventure.focus = Some(target);
-                    player.navigate(adventure.reach(target, &garden), &adventure, &garden);
+                    player.navigate_over_time(adventure.reach(target, &garden), &adventure, &garden);
                 } else {
-                    player.navigate(Reach::walk(point), &adventure, &garden);
+                    player.navigate_over_time(Reach::walk(point), &adventure, &garden);
                 }
             }
         }
@@ -1944,7 +1944,7 @@ pub fn interact(
     {
         player
             .0
-            .navigate(adventure.reach(target, &garden), &adventure, &garden);
+            .navigate_over_time(adventure.reach(target, &garden), &adventure, &garden);
     }
     if !controls.act && adventure.queued.is_none() {
         return;

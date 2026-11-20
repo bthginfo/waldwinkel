@@ -1,4 +1,4 @@
-# Waldwinkel 1.9.1
+# Waldwinkel 1.9.2
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
@@ -6,8 +6,12 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 
 ## Installieren
 
-- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://raw.githubusercontent.com/bthginfo/waldwinkel/5bd8798f204e9e7aca415675a0bb556599368565/Waldwinkel-1.9.1.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
+- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://raw.githubusercontent.com/bthginfo/waldwinkel/3ea80d0a486f9db497c4b3bec01efb4a72263d6a/Waldwinkel-1.9.2.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
+
+## Neu in 1.9.2
+
+- Die Wegsuche verteilt längere Routen über mehrere Bilder. Währenddessen zeigt das Spiel „Weg wird gesucht“. Am Xbox-Controller bricht **B** ab.
 
 ## Neu in 1.9.1
 
@@ -234,7 +238,7 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 ## Tests
 
-90 Rust-Tests prüfen den Prolog bis zum Start der Geschichte, die Wegverbindungen, das Speichern, die Menünavigation und die Systeme für Hof, Handwerk und Kampf. Dazu kommen Prüfungen der 226 GLB-Dateien und Aufnahmen aus dem laufenden Spiel. Beim Update im Android-14-Emulator blieben drei vorhandene Testspielstände erhalten. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen aus.
+91 Rust-Tests prüfen den Prolog bis zum Start der Geschichte, die Wegverbindungen, das Speichern, die Menünavigation und die Systeme für Hof, Handwerk und Kampf. Dazu kommen Prüfungen der 226 GLB-Dateien und Aufnahmen aus dem laufenden Spiel. Beim Update im Android-14-Emulator blieben drei vorhandene Testspielstände erhalten. Ein Update auf 1.9.2 erhielt zwei weitere Testspielstände auf Android 16 bytegenau. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen aus.
 
 Die Blender-Landschaften entstanden nach eigenen Bildreferenzen. [Insel und Pässe](art/references/insel.jpg) · [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)
 

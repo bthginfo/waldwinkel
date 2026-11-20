@@ -2,6 +2,7 @@ use std::f32::consts::TAU;
 use std::{
     cmp::Reverse,
     collections::{BinaryHeap, HashMap, VecDeque},
+    time::{Duration, Instant},
 };
 
 use bevy::{
@@ -46,6 +47,7 @@ const ACCELERATION: f32 = 36.;
 const BRAKING: f32 = 64.;
 const STEERING: f32 = 56.;
 const MAX_STEP: f32 = 1.0 / 120.0;
+const ROUTE_TIME_PER_FRAME: Duration = Duration::from_millis(3);
 const ANKLE: f32 = 0.224;
 const CAMERA_TARGET: Vec3 = Vec3::new(0.28, 1.24, 0.03);
 const CAMERA_AT: Vec3 = Vec3::new(-8.50, 17.50, 22.80);
@@ -70,6 +72,7 @@ pub struct Gardener {
     velocity: Vec2,
     route: VecDeque<Vec2>,
     route_goal: Option<Reach>,
+    route_search: Option<RouteSearch>,
     phase: f32,
     gait: f32,
 }
@@ -741,6 +744,7 @@ pub fn advance_player(
     let desired = if manual {
         player.route.clear();
         player.route_goal = None;
+        player.route_search = None;
         let right = camera.right().xz().normalize_or_zero();
         let forward = camera.forward().xz().normalize_or_zero();
         (right * controls.move_axis.x + forward * controls.move_axis.y).clamp_length_max(1.) * SPEED
@@ -752,6 +756,16 @@ pub fn advance_player(
     let steps = (delta / MAX_STEP).ceil() as u32;
     let step_time = delta / steps as f32;
     let passable = |p| adventure.walkable(p, &garden);
+    let deadline = Instant::now() + ROUTE_TIME_PER_FRAME;
+    if let Some(search) = &mut player.route_search
+        && let Some(route) = search.poll(&passable, || Instant::now() < deadline)
+    {
+        player.route_search = None;
+        player.route = route;
+        if player.route.is_empty() {
+            player.route_goal = None;
+        }
+    }
     for _ in 0..steps {
         if let Some((&corner, &next)) = player.route.front().zip(player.route.get(1))
             && player.route_goal.is_some()
@@ -792,18 +806,16 @@ pub fn advance_player(
         if (actual - advance).length_squared() > 1e-8 {
             player.velocity = actual / step_time;
             if actual == Vec2::ZERO && !manual {
-                player.route = player
-                    .route_goal
-                    .take()
-                    .map_or_else(VecDeque::new, |reach| {
-                        search_route(
-                            player.position,
-                            reach,
-                            adventure.area.origin(),
-                            &passable,
-                            false,
-                        )
-                    });
+                player.route.clear();
+                if let Some(reach) = player.route_goal.take() {
+                    player.route_search = Some(RouteSearch::new(
+                        player.position,
+                        reach,
+                        adventure.area.origin(),
+                        &passable,
+                        false,
+                    ));
+                }
                 break;
             }
         }
@@ -1236,6 +1248,7 @@ impl Gardener {
             velocity: Vec2::ZERO,
             route: VecDeque::new(),
             route_goal: None,
+            route_search: None,
             phase: 0.,
             gait: 0.,
         }
@@ -1250,9 +1263,11 @@ impl Gardener {
         self.velocity = Vec2::ZERO;
         self.route.clear();
         self.route_goal = None;
+        self.route_search = None;
     }
 
     pub fn navigate(&mut self, reach: Reach, adventure: &Adventure, garden: &Garden) -> bool {
+        self.route_search = None;
         self.route = approach(self.position, reach, adventure.area.origin(), |p| {
             adventure.walkable(p, garden)
         });
@@ -1260,13 +1275,31 @@ impl Gardener {
         !self.route.is_empty()
     }
 
+    pub fn navigate_over_time(&mut self, reach: Reach, adventure: &Adventure, garden: &Garden) {
+        self.route.clear();
+        self.route_goal = Some(reach);
+        self.route_search = Some(RouteSearch::new(
+            self.position,
+            reach,
+            adventure.area.origin(),
+            &|p| adventure.walkable(p, garden),
+            true,
+        ));
+    }
+
+    pub fn finding_route(&self) -> bool {
+        self.route_search.is_some()
+    }
+
     pub fn approaching(&self) -> bool {
-        !self.route.is_empty()
+        self.finding_route() || !self.route.is_empty()
     }
 
     pub(crate) fn destination_moved(&self, point: Vec2) -> bool {
-        self.route_goal
-            .is_some_and(|goal| goal.point.distance_squared(point) > 1.35_f32.powi(2))
+        !self.finding_route()
+            && self
+                .route_goal
+                .is_some_and(|goal| goal.point.distance_squared(point) > 1.35_f32.powi(2))
     }
 }
 
@@ -1276,125 +1309,172 @@ fn approach(
     origin: Vec2,
     passable: impl Fn(Vec2) -> bool,
 ) -> VecDeque<Vec2> {
-    search_route(start, reach, origin, passable, true)
+    RouteSearch::new(start, reach, origin, &passable, true)
+        .poll(&passable, || true)
+        .unwrap_or_default()
 }
 
-fn search_route(
+const ROUTE_GRID: f32 = 0.32;
+const ROUTE_DIRECTIONS: [IVec2; 8] = [
+    IVec2::X,
+    IVec2::NEG_X,
+    IVec2::Y,
+    IVec2::NEG_Y,
+    IVec2::ONE,
+    IVec2::NEG_ONE,
+    IVec2::new(1, -1),
+    IVec2::new(-1, 1),
+];
+
+struct RouteSearch {
     start: Vec2,
     reach: Reach,
     origin: Vec2,
-    passable: impl Fn(Vec2) -> bool,
     shortcuts: bool,
-) -> VecDeque<Vec2> {
-    let target = reach.point;
-    if reach.reached(start, &passable) {
-        return VecDeque::new();
+    target_cell: IVec2,
+    direct: Option<Vec2>,
+    // Total estimated cost, remaining estimate, distance so far, and cell coordinates.
+    open: BinaryHeap<Reverse<(u32, u32, u32, i32, i32)>>,
+    visited: HashMap<IVec2, (u32, IVec2)>,
+}
+
+impl RouteSearch {
+    fn new(
+        start: Vec2,
+        reach: Reach,
+        origin: Vec2,
+        passable: &impl Fn(Vec2) -> bool,
+        shortcuts: bool,
+    ) -> Self {
+        let mut search = Self {
+            start,
+            reach,
+            origin,
+            shortcuts,
+            target_cell: ((reach.point - origin) / ROUTE_GRID).round().as_ivec2(),
+            direct: None,
+            open: BinaryHeap::new(),
+            visited: HashMap::new(),
+        };
+        if reach.reached(start, passable) {
+            return search;
+        }
+        let radius = (reach.clearance + 0.22).max(0.94).min(reach.limit - 0.08);
+        let direct = reach.point + (start - reach.point).normalize_or_zero() * radius;
+        if shortcuts && search.near(direct, passable) && clear_walk(start, direct, passable) {
+            search.direct = Some(direct);
+            return search;
+        }
+        let reachable = if reach.clearance == 0. {
+            passable(reach.point)
+        } else {
+            (0..24).any(|i| {
+                let direction = Vec2::from_angle(i as f32 * TAU / 24.);
+                search.near(reach.point + direction * (reach.limit - 0.06), passable)
+            })
+        };
+        if !reachable {
+            return search;
+        }
+        let base = ((start - origin) / ROUTE_GRID).round().as_ivec2();
+        for cell in (-2..=2).flat_map(|x| (-2..=2).map(move |z| base + IVec2::new(x, z))) {
+            let point = search.position(cell);
+            if clear_walk(start, point, passable) {
+                let cost = (start.distance(point) / ROUTE_GRID * 1000.).round() as u32;
+                search.visit(cell, cell, cost);
+            }
+        }
+        search
     }
-    // Finish inside interaction range even when movement stops just short of a waypoint.
-    let goal = Reach {
-        limit: reach.limit - 0.025,
-        ..reach
-    };
-    let near = |p: Vec2| goal.reached(p, &passable);
-    let radius = (reach.clearance + 0.22).max(0.94).min(reach.limit - 0.08);
-    let direct = target + (start - target).normalize_or_zero() * radius;
-    if shortcuts && near(direct) && clear_walk(start, direct, &passable) {
-        return VecDeque::from([direct]);
+
+    fn position(&self, cell: IVec2) -> Vec2 {
+        self.origin + cell.as_vec2() * ROUTE_GRID
     }
-    let reachable = if reach.clearance == 0. {
-        passable(target)
-    } else {
-        (0..24).any(|i| {
-            let stand = target + Vec2::from_angle(i as f32 * TAU / 24.) * (reach.limit - 0.06);
-            near(stand)
-        })
-    };
-    if !reachable {
-        return VecDeque::new();
+
+    fn near(&self, point: Vec2, passable: &impl Fn(Vec2) -> bool) -> bool {
+        // Stay inside interaction range if movement stops just short of the waypoint.
+        let goal = Reach {
+            limit: self.reach.limit - 0.025,
+            ..self.reach
+        };
+        goal.reached(point, passable)
     }
-    const STEP: f32 = 0.32;
-    const DIRECTIONS: [IVec2; 8] = [
-        IVec2::X,
-        IVec2::NEG_X,
-        IVec2::Y,
-        IVec2::NEG_Y,
-        IVec2::ONE,
-        IVec2::NEG_ONE,
-        IVec2::new(1, -1),
-        IVec2::new(-1, 1),
-    ];
-    let position = |cell: IVec2| origin + cell.as_vec2() * STEP;
-    let cell = |p: Vec2| ((p - origin) / STEP).round().as_ivec2();
-    let base = cell(start);
-    let goal = cell(target);
-    let estimate = |c: IVec2| {
-        let delta = (goal - c).abs();
+
+    fn visit(&mut self, cell: IVec2, previous: IVec2, cost: u32) {
+        let delta = (self.target_cell - cell).abs();
         let diagonal = delta.min_element() as u32;
         let straight = (delta.max_element() - delta.min_element()) as u32;
-        (diagonal * 1414 + straight * 1000).saturating_sub((reach.limit / STEP * 1100.) as u32)
-    };
-    let mut open = BinaryHeap::new();
-    let mut visited = HashMap::new();
-    for cell in (-2..=2).flat_map(|x| (-2..=2).map(move |z| base + IVec2::new(x, z))) {
-        let point = position(cell);
-        if clear_walk(start, point, &passable) {
-            let cost = (start.distance(point) / STEP * 1000.).round() as u32;
-            let h = estimate(cell);
-            visited.insert(cell, (cost, cell));
-            open.push(Reverse((cost + h, h, cost, cell.x, cell.y)));
-        }
+        let estimate = (diagonal * 1414 + straight * 1000)
+            .saturating_sub((self.reach.limit / ROUTE_GRID * 1100.) as u32);
+        self.visited.insert(cell, (cost, previous));
+        self.open.push(Reverse((cost + estimate, estimate, cost, cell.x, cell.y)));
     }
-    while let Some(Reverse((_, _, cost, x, z))) = open.pop() {
-        let at = IVec2::new(x, z);
-        if visited[&at].0 != cost {
-            continue;
+
+    fn poll(
+        &mut self,
+        passable: &impl Fn(Vec2) -> bool,
+        mut time_left: impl FnMut() -> bool,
+    ) -> Option<VecDeque<Vec2>> {
+        if let Some(point) = self.direct.take() {
+            return Some(VecDeque::from([point]));
         }
-        let from = position(at);
-        if near(from) {
-            let mut trail = vec![from];
-            let mut cursor = at;
-            while visited[&cursor].1 != cursor {
-                cursor = visited[&cursor].1;
-                trail.push(position(cursor));
-            }
-            trail.reverse();
-            if !shortcuts {
-                return trail.into();
-            }
-            let mut route = VecDeque::new();
-            let mut next = 0;
-            let mut anchor = start;
-            while next < trail.len() {
-                let last = (next + 28).min(trail.len() - 1);
-                let until = (next..=last)
-                    .rev()
-                    .find(|&i| clear_walk(anchor, trail[i], &passable))
-                    .unwrap_or(next);
-                anchor = trail[until];
-                route.push_back(anchor);
-                next = until + 1;
-            }
-            return route;
-        }
-        for direction in DIRECTIONS {
-            let next = at + direction;
-            let weight = if direction.x != 0 && direction.y != 0 {
-                1414
-            } else {
-                1000
+        while time_left() {
+            let Some(Reverse((_, _, cost, x, z))) = self.open.pop() else {
+                return Some(VecDeque::new());
             };
-            let cost = cost + weight;
-            if visited.get(&next).is_some_and(|(best, _)| *best <= cost)
-                || !clear_walk(from, position(next), &passable)
-            {
+            let at = IVec2::new(x, z);
+            if self.visited[&at].0 != cost {
                 continue;
             }
-            visited.insert(next, (cost, at));
-            let h = estimate(next);
-            open.push(Reverse((cost + h, h, cost, next.x, next.y)));
+            let from = self.position(at);
+            if self.near(from, passable) {
+                return Some(self.trail(at, passable));
+            }
+            for direction in ROUTE_DIRECTIONS {
+                let next = at + direction;
+                let weight = if direction.x != 0 && direction.y != 0 {
+                    1414
+                } else {
+                    1000
+                };
+                let cost = cost + weight;
+                if self.visited.get(&next).is_some_and(|(best, _)| *best <= cost)
+                    || !clear_walk(from, self.position(next), passable)
+                {
+                    continue;
+                }
+                self.visit(next, at, cost);
+            }
         }
+        None
     }
-    VecDeque::new()
+
+    fn trail(&self, goal: IVec2, passable: &impl Fn(Vec2) -> bool) -> VecDeque<Vec2> {
+        let mut cursor = goal;
+        let mut trail = vec![self.position(cursor)];
+        while self.visited[&cursor].1 != cursor {
+            cursor = self.visited[&cursor].1;
+            trail.push(self.position(cursor));
+        }
+        trail.reverse();
+        if !self.shortcuts {
+            return trail.into();
+        }
+        let mut route = VecDeque::new();
+        let mut next = 0;
+        let mut anchor = self.start;
+        while next < trail.len() {
+            let last = (next + 28).min(trail.len() - 1);
+            let until = (next..=last)
+                .rev()
+                .find(|&i| clear_walk(anchor, trail[i], passable))
+                .unwrap_or(next);
+            anchor = trail[until];
+            route.push_back(anchor);
+            next = until + 1;
+        }
+        route
+    }
 }
 
 #[cfg(test)]
@@ -1581,6 +1661,33 @@ mod tests {
         }
         assert!(reach.reached(from, &passable));
         assert!(!passable(target));
+    }
+
+    #[test]
+    fn the_route_from_the_farm_to_edda_can_pause_and_finish() {
+        let garden: Garden =
+            serde_json::from_str(r#"{"regions":{"gates":[2,2,2]},"clock":618}"#).unwrap();
+        let adventure = Adventure::default();
+        let passable = |p| adventure.walkable(p, &garden);
+        let reach = Reach::target(Npc::Edda.position(&garden), 0.50, 1.49);
+        let mut search = RouteSearch::new(SPAWN, reach, Vec2::ZERO, &passable, true);
+        let mut remaining = 12;
+        assert!(
+            search
+                .poll(&passable, || {
+                    remaining -= 1;
+                    remaining > 0
+                })
+                .is_none()
+        );
+        let route = search.poll(&passable, || true).unwrap();
+        let mut from = SPAWN;
+        assert!(!route.is_empty());
+        for point in route {
+            assert!(clear_walk(from, point, &passable));
+            from = point;
+        }
+        assert!(reach.reached(from, &passable));
     }
 
     #[test]
