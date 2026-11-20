@@ -1,11 +1,9 @@
-use bevy::{prelude::*, render::camera::ScalingMode};
+use bevy::prelude::*;
 
 use crate::{
-    adventure::Area,
     farm_ui::{Choice, FarmMenu},
     session::Session,
     ui::{self, UiFonts},
-    world::{IslandCamera, camera_offset},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -61,7 +59,7 @@ impl Clip {
         }
     }
 
-    fn framing(self, time: f32) -> (Vec3, f32) {
+    pub(crate) fn framing(self, time: f32) -> (Vec3, f32) {
         let progress = (time / self.duration()).clamp(0., 1.);
         let t = progress * progress * (3. - 2. * progress);
         match self {
@@ -146,7 +144,6 @@ pub fn show(
     time: Res<Time>,
     mut pane: Single<&mut Node, With<SubtitlePane>>,
     mut subtitle: Single<&mut Text, With<Subtitle>>,
-    mut camera: Single<(&mut Projection, &mut Transform), With<IslandCamera>>,
 ) {
     let Some((clip, elapsed)) = menu.clip().filter(|_| session.playing()) else {
         pane.display = Display::None;
@@ -157,15 +154,5 @@ pub fn show(
     if subtitle.0 != caption {
         subtitle.0 = caption.into();
     }
-    let (center, height) = clip.framing(elapsed);
-    let (projection, pose) = &mut *camera;
-    if let Projection::Orthographic(ortho) = &mut **projection {
-        ortho.scaling_mode = ScalingMode::AutoMin {
-            min_width: height * 1.30,
-            min_height: height,
-        };
-    }
-    **pose = Transform::from_translation(center + camera_offset(Area::Island))
-        .looking_at(center, Vec3::Y);
     menu.advance_clip(time.delta_secs());
 }

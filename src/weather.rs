@@ -14,7 +14,7 @@ use crate::{
     garden::Garden,
     seasons::MEETING_POINT,
     terrain,
-    world::{IslandCamera, camera_offset, exterior_ground, surface_height},
+    world::{IslandCamera, ViewFrame, exterior_ground, surface_height},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -256,7 +256,7 @@ pub fn precipitation(
     garden: Res<Garden>,
     adventure: Res<Adventure>,
     time: Res<Time>,
-    camera: Single<(&Transform, &Projection), (With<IslandCamera>, Without<Particle>)>,
+    camera: Single<&ViewFrame, With<IslandCamera>>,
     mut particles: Query<(&mut Particle, &mut Transform, &mut Visibility), Without<Splash>>,
     mut splashes: Query<
         (&mut Splash, &mut Transform, &mut Visibility),
@@ -268,12 +268,8 @@ pub fn precipitation(
     let dt = time.delta_secs().min(0.09);
     let elapsed = time.elapsed_secs();
     let gust = wind(sky, elapsed);
-    let (camera, projection) = *camera;
-    let center = (camera.translation - camera_offset(adventure.area)).xz();
-    let width = match projection {
-        Projection::Orthographic(ortho) => ortho.area.width().clamp(13., 46.),
-        _ => 22.,
-    };
+    let center = camera.focus.xz();
+    let width = camera.width.clamp(13., 46.);
     for (mut splash, mut transform, mut visible) in &mut splashes {
         splash.age = (splash.age + dt).min(1.);
         let active = outdoor && sky == Sky::Rain && splash.age < 0.30;
@@ -349,7 +345,7 @@ pub fn lighting(
     garden: Res<Garden>,
     adventure: Res<Adventure>,
     time: Res<Time>,
-    mut camera: Single<(&mut DistanceFog, &mut ColorGrading), With<IslandCamera>>,
+    mut camera: Single<(&mut DistanceFog, &mut ColorGrading, &ViewFrame), With<IslandCamera>>,
     lights: Res<NightMaterials>,
     gltfs: Res<Assets<Gltf>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -358,7 +354,7 @@ pub fn lighting(
     let outdoor = adventure.area.outdoors() && !adventure.map && menu.room_preview().is_none();
     let sky = Sky::at(garden.day);
     let season = Season::at(garden.day);
-    let (fog, grading) = &mut *camera;
+    let (fog, grading, view) = &mut *camera;
     let dusk = if outdoor { garden.clock.dusk() } else { 0. };
     let moon = ((dusk - 0.35) / 0.65).clamp(0., 1.).powf(0.83);
     let sunset = (1. - ((dusk - 0.41) / 0.41).abs()).max(0.);
@@ -388,9 +384,8 @@ pub fn lighting(
     grading.midtones.contrast = if outdoor { 1.04 } else { 1. };
     grading.highlights.gain = 1. + sunset * 0.075;
 
-    let distance = camera_offset(adventure.area).length();
     let (haze, near, far) = match sky {
-        Sky::Sun => (Color::srgba(0.66, 0.80, 0.84, 0.49), 8., 64.),
+        Sky::Sun => (Color::srgba(0.64, 0.78, 0.86, 0.71), 7., 70.),
         Sky::Mist => (Color::srgba(0.73, 0.84, 0.83, 0.83), -4., 31.),
         Sky::Rain => (Color::srgba(0.46, 0.62, 0.70, 0.62), -1., 42.),
         Sky::Snow => (Color::srgba(0.78, 0.88, 0.93, 0.64), -3., 36.),
@@ -402,8 +397,8 @@ pub fn lighting(
         Color::NONE
     };
     fog.falloff = FogFalloff::Linear {
-        start: distance + near,
-        end: distance + far,
+        start: (view.distance + near).max(0.),
+        end: view.distance + far,
     };
 
     let glow = ((dusk - 0.21) / 0.79).clamp(0., 1.);

@@ -1,4 +1,4 @@
-# Waldwinkel 1.7.0
+# Waldwinkel 1.8.0
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
@@ -8,6 +8,14 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 
 - Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://github.com/bthginfo/waldwinkel/releases/latest/download/Waldwinkel-Android.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
+
+## Neu in 1.8.0
+
+- **Tanuki und neun Bewohner.** Die Blender-Modelle haben überarbeitete Gesichter, Blinzeln und eigene Kleidung. Der Tanuki trägt einen geflochtenen Hutrand, ein Halstuch und eine Latzhose. Am Markt erkennt man Mara an ihrer Brille und Schürze und Bo an seiner Hafenmütze.
+- **Licht auf bewegten Figuren.** Gesichter und Kleidung bleiben auch beim Drehen gut zu lesen. Das Figurenlicht reagiert auf Tageszeit, Wetter und Deckung durch Dächer oder Baumkronen.
+- **Perspektive und Hanglandschaft.** Die Außenkamera wechselt beim Zoomen sanft den Abstand und Blickwinkel. Nördlich von Eichenhafen staffeln sich bepflanzte Kalksteinbänder und bewaldete Hänge hinter den Dächern. Dunst trennt nahe und entfernte Landschaftsebenen.
+
+[Tanuki in Nahansicht](docs/180-tanuki.jpg) · [Bewohner am Markt](docs/180-bewohner.jpg) · [Eichenhafen und die Nordhänge](docs/180-eichenhafen.jpg) · [Kalksteinhänge](docs/180-nordhang.jpg)
 
 ## Neu in 1.7.0
 

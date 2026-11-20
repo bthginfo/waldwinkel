@@ -53,6 +53,14 @@ const CAMERA_AT: Vec3 = Vec3::new(-8.50, 17.50, 22.80);
 #[derive(Component)]
 pub struct IslandCamera;
 
+#[derive(Component, Default)]
+pub struct ViewFrame {
+    pub focus: Vec3,
+    pub distance: f32,
+    pub width: f32,
+    height: f32,
+}
+
 #[derive(Component)]
 pub struct Exterior;
 
@@ -215,6 +223,7 @@ pub fn setup(
     ));
     commands.spawn((
         IslandCamera,
+        ViewFrame::default(),
         Camera3d::default(),
         Projection::from(OrthographicProjection {
             scaling_mode: ScalingMode::AutoMin {
@@ -275,6 +284,7 @@ pub fn setup(
                     .with_rotation(Quat::from_rotation_y(-0.48 + i as f32 * 0.13)),
             ))
             .observe(resident::bind_limbs)
+            .observe(crate::figure::bind)
             .with_child((
                 SceneRoot(models.shadow.clone()),
                 Transform::from_xyz(0., -0.010, 0.03).with_scale(Vec3::new(0.63, 1., 0.67)),
@@ -325,12 +335,16 @@ pub fn setup(
             Visibility::Inherited,
         ))
         .with_children(|player| {
-            player.spawn((Body, SceneRoot(models.body.clone())));
-            player.spawn((
-                Tail,
-                SceneRoot(models.tail.clone()),
-                Transform::from_xyz(0., 0.58, -0.18),
-            ));
+            player
+                .spawn((Body, SceneRoot(models.body.clone())))
+                .observe(crate::figure::bind);
+            player
+                .spawn((
+                    Tail,
+                    SceneRoot(models.tail.clone()),
+                    Transform::from_xyz(0., 0.58, -0.18),
+                ))
+                .observe(crate::figure::bind);
             for side in [-1.0, 1.0] {
                 for (top, model, is_arm) in [
                     (Vec3::new(side * 0.244, 0.813, 0.0), &models.arm, true),
@@ -341,6 +355,7 @@ pub fn setup(
                         Transform::from_translation(top),
                         SceneRoot(model.clone()),
                     ));
+                    limb.observe(crate::figure::bind);
                     if is_arm && side > 0.0 {
                         limb.with_children(|hand| {
                             for (tool, scene) in &models.tools {
@@ -357,11 +372,14 @@ pub fn setup(
                             }
                         });
                     } else if !is_arm {
-                        limb.with_child((
-                            Boot(side),
-                            SceneRoot(models.boot.clone()),
-                            Transform::from_xyz(0.0, -ANKLE, 0.006),
-                        ));
+                        limb.with_children(|foot| {
+                            foot.spawn((
+                                Boot(side),
+                                SceneRoot(models.boot.clone()),
+                                Transform::from_xyz(0.0, -ANKLE, 0.006),
+                            ))
+                            .observe(crate::figure::bind);
+                        });
                     }
                 }
             }
@@ -449,24 +467,21 @@ pub fn show_exterior(
     }
 }
 
-pub fn camera_offset(area: Area) -> Vec3 {
+fn camera_offset(area: Area) -> Vec3 {
     (CAMERA_AT - CAMERA_TARGET) * if area.outdoors() { 10.5 } else { 1. }
 }
 
 pub fn update_camera(
     window: Single<&Window, With<PrimaryWindow>>,
-    mut camera: Single<(&mut Projection, &mut Transform), With<IslandCamera>>,
+    mut camera: Single<(&mut Projection, &mut Transform, &mut ViewFrame), With<IslandCamera>>,
     player: Single<&Gardener>,
     adventure: Res<Adventure>,
     garden: Res<Garden>,
     menu: Res<crate::farm_ui::FarmMenu>,
     time: Res<Time>,
-    mut last: Local<Option<Area>>,
+    mut last: Local<Option<(Area, bool, bool)>>,
 ) {
-    let (projection, transform) = &mut *camera;
-    let Projection::Orthographic(ortho) = &mut **projection else {
-        return;
-    };
+    let (projection, transform, frame) = &mut *camera;
     let preview = menu.room_preview();
     let area = if preview.is_some() {
         Area::Home
@@ -474,6 +489,7 @@ pub fn update_camera(
         adventure.area
     };
     let map = preview.is_none() && adventure.map;
+    let clip = menu.clip().map(|(clip, elapsed)| clip.framing(elapsed));
     let town = area.outdoors() && !map && District::at(player.position) == Some(District::Town);
     let (base, center) = match (area, map) {
         (Area::Island | Area::District(_), true) => (258., Vec3::new(0., 3., 54.)),
@@ -504,7 +520,8 @@ pub fn update_camera(
         }
         (Area::Mine(_) | Area::Expedition(_), false) => (9.4, position3(player.position, 0.40)),
     };
-    let height = if map || preview.is_some() {
+    let (base, center) = clip.map_or((base, center), |(center, height)| (height, center));
+    let height = if map || preview.is_some() || clip.is_some() {
         base
     } else {
         base * (-adventure.zoom).exp()
@@ -514,46 +531,85 @@ pub fn update_camera(
     } else {
         height * 1.30
     };
-    let base_offset = camera_offset(area);
-    let mut offset = base_offset;
-    if town {
-        offset.y *= 0.78 - adventure.zoom.max(0.) * 0.05;
-        offset = offset.normalize() * base_offset.length();
-    }
+    let aspect = window.width().max(1.) / window.height().max(1.);
+    let perspective = area.outdoors() && !map && clip.is_none();
+    let offset = if perspective {
+        approach_camera(player.position, center.y, height, adventure.zoom, town)
+    } else {
+        camera_offset(area)
+    };
     let desired = center + offset;
-    let rotation = Transform::from_translation(desired)
-        .looking_at(center, Vec3::Y)
-        .rotation;
     let smooth = 1. - (-time.delta_secs() * if map { 11. } else { 15. }).exp();
-    let current = match ortho.scaling_mode {
-        ScalingMode::AutoMin { min_height, .. } => min_height,
-        _ => height,
-    };
-    let applied = if *last != Some(area) {
-        height
+    let shot = (area, map, clip.is_some());
+    if *last != Some(shot) {
+        frame.focus = center;
+        frame.height = height;
+        transform.translation = desired;
     } else {
-        current + (height - current) * smooth
-    };
-    ortho.scaling_mode = ScalingMode::AutoMin {
-        min_width: if window.width() > 0. {
-            width * applied / height
+        frame.focus = frame.focus.lerp(center, smooth);
+        frame.height = frame.height.lerp(height, smooth);
+        transform.translation = transform.translation.lerp(desired, smooth);
+    }
+    transform.look_at(frame.focus, Vec3::Y);
+    frame.distance = transform.translation.distance(frame.focus);
+    let min_width = width * frame.height / height;
+    frame.width = min_width.max(frame.height * aspect);
+    if perspective {
+        let fov = 2. * (frame.width / aspect / (2. * frame.distance)).atan();
+        let view = PerspectiveProjection {
+            fov,
+            aspect_ratio: aspect,
+            near: 0.08,
+            far: 520.,
+        };
+        if let Projection::Perspective(current) = &mut **projection {
+            *current = view;
         } else {
-            width
-        },
-        min_height: applied,
-    };
-    ortho.far = if map && area.outdoors() { 775. } else { 385. };
-    transform.translation = if *last != Some(area) {
-        desired
+            **projection = Projection::Perspective(view);
+        }
     } else {
-        transform.translation.lerp(desired, smooth)
-    };
-    transform.rotation = if *last != Some(area) {
-        rotation
+        let scaling_mode = ScalingMode::AutoMin {
+            min_width,
+            min_height: frame.height,
+        };
+        let far = if map && area.outdoors() { 775. } else { 385. };
+        if let Projection::Orthographic(current) = &mut **projection {
+            current.scaling_mode = scaling_mode;
+            current.far = far;
+        } else {
+            **projection = Projection::Orthographic(OrthographicProjection {
+                scaling_mode,
+                far,
+                near: 0.01,
+                ..OrthographicProjection::default_3d()
+            });
+        }
+    }
+    *last = Some(shot);
+}
+
+pub(crate) fn approach_camera(point: Vec2, eye: f32, height: f32, zoom: f32, town: bool) -> Vec3 {
+    let close = zoom.clamp(0., 1.);
+    let mut aim = CAMERA_AT - CAMERA_TARGET;
+    let pitch = if town {
+        0.79 - close * 0.22
     } else {
-        transform.rotation.slerp(rotation, smooth)
+        0.96 - close * 0.24
     };
-    *last = Some(area);
+    let toward = aim.xz().normalize();
+    let rise = aim.y * pitch / aim.xz().length();
+    let cover = [1.5, 2.5, 3.6, 5.1, 7.0]
+        .into_iter()
+        .fold(0_f32, |blocked, dist| {
+            let sample = point + toward * dist;
+            let surface = terrain::ground(sample).max(terrain::weather_cover(sample));
+            blocked.max(surface - eye - rise * dist - 0.24)
+        });
+    // Have the camera clear nearby ground or overhanging foliage at close zoom.
+    aim.y *= pitch.lerp(1.19, (cover * 0.61).clamp(0., 1.));
+    let distance =
+        (47. + height * 0.38).lerp(7.8 + height * 0.66, close * close * (3. - 2. * close));
+    aim.normalize() * distance
 }
 
 pub fn update_plots(
@@ -829,8 +885,12 @@ pub fn animate_gardener(
     let (player, root) = *player;
     let wave = (player.phase * TAU).sin();
     for mut tail in &mut tails {
-        tail.rotation = Quat::from_rotation_y(
-            wave * 0.25 * player.gait + 0.08 * (time.elapsed_secs() * 2.).sin(),
+        let breathing = (time.elapsed_secs() * 1.7).sin();
+        tail.rotation = Quat::from_euler(
+            EulerRot::YXZ,
+            wave * 0.26 * player.gait + 0.082 * breathing,
+            0.034 * breathing - (wave * 0.07 + 0.034) * player.gait,
+            wave * 0.055 * player.gait,
         );
     }
     let now = time.elapsed_secs();
@@ -936,7 +996,13 @@ pub fn animate_gardener(
     };
     let point = root.translation.xz() + direction * softness * 0.19;
     let ground = if outdoor {
-        surface_height(point, &garden)
+        let floor = surface_height(point, &garden);
+        let top = terrain::weather_cover(point);
+        if top < floor + 0.18 {
+            floor.max(top)
+        } else {
+            floor
+        }
     } else {
         0.
     };

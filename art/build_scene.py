@@ -27,6 +27,8 @@ import watch_art
 import market_art
 import surface_art
 import village_art
+import figure_art
+import depth_art
 from harvestable import Harvestables, LEAF
 from season_art import SeasonalArt, gathering_assets
 OUT = ROOT / "assets" / "models"
@@ -641,71 +643,17 @@ def character():
     arm=Model("Gärtnerfigur · Arm und Hand","arm")
     leg=Model("Gärtnerfigur · Hosenbein","leg")
     boot=Model("Gärtnerfigur · Stiefel","boot")
-    body.ellipsoid(0,0,.64,.243,.149,.271,"64866a",10,5)
-    body.box(0,.145,.663,.306,.056,.27,"789776",.049)
-    body.box(0,.183,.653,.135,.024,.087,"537965",.020)
-    for x in [-.137,.137]:
-        body.box(x,.115,.826,.062,.08,.195,"6e8d6c",.021)
-        body.box(x,.169,.796,.055,.025,.047,"b68c55",.011)
-        body.ellipsoid(x,.172,.768,.021,.015,.022,"e0b263",7,3)
-    for i in range(6):
-        body.box((i-2.5)*.022,.180,.683,.013,.026,.007,"a8ab82",.002)
-    body.ellipsoid(0,0,.884,.205,.152,.095,"bd6450",10,4)
-    body.pole((-.14,-.04,.900),(-.36,-.158,.775),.054,"b75a48",5,tip=.033)
-    body.pole((-.155,-.022,.882),(-.343,-.126,.715),.047,"d4775d",5,tip=.022)
-    body.ellipsoid(0,-.035,1.177,.298,.248,.281,"956344",13,6)
-    body.ellipsoid(0,.075,1.151,.267,.206,.221,"c49667",13,6)
-    for side in [-1,1]:
-        x=side*.225
-        body.ellipsoid(x,-.014,1.339,.088,.073,.10,"72513d",9,4)
-        body.ellipsoid(x,.032,1.343,.053,.035,.060,"c98770",8,4)
-        body.ellipsoid(side*.134,.228,1.162,.127,.070,.105,"5d4236",10,5,angle=side*.37)
-        body.ellipsoid(side*.095,.287,1.210,.050,.029,.060,"6b4d3e",12,5)
-        body.ellipsoid(side*.089,.309,1.211,.033,.017,.047,"302521",12,5,mode="raw")
-        body.ellipsoid(side*.089-.008,.325,1.229,.010,.006,.013,"fff0d2",7,3,mode="raw")
-        body.ellipsoid(side*.089+.009,.324,1.195,.006,.005,.007,"bca791",7,3,mode="raw")
-        body.ellipsoid(side*.082,.249,1.061,.114,.094,.075,"edcb98",9,5)
-    body.ellipsoid(0,.287,1.082,.111,.105,.081,"efd4a8",10,5)
-    body.ellipsoid(0,.365,1.118,.044,.029,.028,"49342d",8,4)
-    body.pole((-.045,.365,1.042),(0,.390,1.032),.006,"755143",5)
-    body.pole((0,.390,1.032),(.045,.365,1.042),.006,"755143",5)
     tail=Model("Tanuki · buschiger Schweif","tail")
-    tail.pole((0,0,0),(.09,-.20,.033),.085,"6c4a37",8,tip=.147)
-    tail.ellipsoid(.17,-.34,.095,.161,.35,.167,"a6734d",11,5,angle=.40)
-    tail.ellipsoid(.27,-.54,.122,.132,.182,.14,"73503d",10,4,angle=.40)
-    hat=[]
-    for y,r in [(1.371,.424),(1.413,.44),(1.428,.382),(1.453,.276),(1.593,.232),(1.619,.178)]:
-        hat.append([(r*math.cos(a),.857*r*math.sin(a)-.020,y+.042*math.cos(a+.62))
-                    for i in range(16) for a in [TAU*i/16]])
-    body.rings(hat,["bb8f53"]*16+["e4bc76"]*16+["edc984"]*16+["d7ab63"]*16+["e7bc73"]*16+["d9ab65","f0cc84"])
-    body.pole((0,-.02,1.455),(0,-.02,1.507),.276,"a87753",14,tip=.255)
-    body.pole((0,-.02,1.463),(0,-.02,1.494),.274,"698675",16,tip=.264)
-    body.ellipsoid(.123,.222,1.482,.051,.026,.045,"edc27d",8,4)
-    # A reed tucked through the band breaks up the silhouette.
-    body.pole((.207,.124,1.471),(.297,.069,1.616),.011,"749271",6,tip=.005)
-    body.face([(.252,.090,1.548),(.300,.036,1.583),(.308,.071,1.661),
-               (.293,.119,1.606)],"88a071","leaf")
-    for i in range(16):
-        a=i*TAU/16
-        x,z=.350*math.cos(a),.301*math.sin(a)-.020
-        y=1.433+.042*math.cos(a+.62)
-        body.pole((x,z,y),(x+.054*math.cos(a),z+.047*math.sin(a),y-.006),
-                  .006,"c39960",4)
-    body.box(0,-.167,.687,.282,.145,.31,"a97a53",.066)
-    body.box(0,-.243,.751,.24,.046,.139,"c69764",.041)
-    body.ellipsoid(0,-.273,.73,.03,.016,.025,"dda771",8,4)
-    # Thin belt ribbon, then the hem of the sleeve and hands.
-    arm.ellipsoid(0,.00,-.094,.085,.080,.135,"e3c79f",8,4)
-    arm.ellipsoid(0,.012,-.226,.065,.062,.104,"795741",8,5)
-    leg.ellipsoid(0,0,-.099,.097,.12,.153,"577963",8,4)
-    boot.box(0,.043,-.045,.175,.237,.131,"76533f",.035)
-    boot.box(0,.053,-.104,.187,.244,.050,"503f36",.014)
+    figure_art.hero_clothes(body,arm,leg,boot)
+    eyes=figure_art.hero_face(Model,point,body)
+    figure_art.hero_hat(body)
+    figure_art.hero_tail(tail)
     hoe=Model("Gärtnerfigur · Gartenhacke","hoe")
     hoe.pole((0,0,.125),(0,0,-.433),.024,"ab784e",7,tip=.018)
     hoe.box(0,.027,-.416,.064,.09,.071,"787c6a",.012)
     hoe.box(0,.097,-.442,.193,.17,.055,"809084",.019)
     hoe.box(0,.166,-.448,.174,.031,.037,"a8b5a2",.008)
-    return [body,arm,leg,boot,hoe,tail]
+    return [body,arm,leg,boot,hoe,tail,*eyes]
 
 
 def expansion():
@@ -2223,32 +2171,47 @@ def npc_models():
             suffix="l" if side<0 else "r"
             leg=Model(f"{asset}_leg_{suffix}",asset)
             leg.pivot=point(side*.114,.012,.45)
-            leg.ellipsoid(side*.114,.012,.275,.089,.106,.226,fur,8,4)
-            leg.box(side*.119,.067,.083,.160,.214,.123,dark,.034)
+            leg.ellipsoid(side*.114,.012,.275,.089,.106,.226,cloth,10,5,mode="cloth")
+            leg.box(side*.119,.067,.083,.165,.223,.129,dark,.034)
+            leg.box(side*.118,.058,.025,.171,.224,.042,"5c4d41",.012)
             arm=Model(f"{asset}_arm_{suffix}",asset)
             arm.pivot=point(side*.239,-.004,.817)
-            arm.ellipsoid(side*.239,-.004,.674,.084,.081,.228,cloth,8,4)
-            arm.ellipsoid(side*.246,.029,.502,.073,.067,.082,fur,8,4)
+            arm.ellipsoid(side*.239,-.004,.674,.093,.091,.229,cloth,10,5,mode="cloth")
+            arm.ellipsoid(side*.246,.012,.552,.076,.084,.041,light,10,4,mode="cloth")
+            arm.ellipsoid(side*.246,.029,.503,.073,.068,.083,fur,10,5,mode="fur")
             arms[side]=arm
             models.extend([leg,arm])
-        m.ellipsoid(0,0,.662,.244,.162,.322,cloth,11,5)
-        m.box(0,.152,.66,.292,.043,.306,light,.033)
+        m.ellipsoid(0,0,.662,.248,.163,.309,cloth,14,6,mode="cloth")
+        m.box(0,.152,.66,.272,.040,.292,light,.033,mode="cloth")
         for side in [-1,1]:
-            m.ellipsoid(side*.108,.166,.846,.026,.022,.028,"c8a465",8,4)
-        m.ellipsoid(0,-.028,1.156,.269,.211,.256,fur,12,6)
-        m.ellipsoid(0,.145,1.085,.207,.158,.153,light,11,5)
-        m.ellipsoid(0,.276,1.128,.046,.025,.03,dark,8,4)
+            figure_art.button(m,side*.106,.169,.844,"c8a465")
+        width=.282 if species in ("badger","cat") else .257
+        m.ellipsoid(0,-.022,1.169,width,.223,.259,fur,15,7,mode="fur")
+        muzzle=.181 if species=="fox" else .141
+        m.ellipsoid(0,muzzle,1.089,.205,.161,.143,light,14,6,mode="fur")
+        m.ellipsoid(0,muzzle+.147,1.120,.044,.027,.027,dark,10,5,mode="fur")
         for side in [-1,1]:
+            suffix="l" if side<0 else "r"
             if species=="badger":
-                m.ellipsoid(side*.151,.134,1.204,.086,.083,.124,"565453",8,5)
-            m.ellipsoid(side*.109,.207,1.203,.035,.025,.042,"483a32",8,4,mode="raw")
-            m.ellipsoid(side*.106-.01,.229,1.222,.010,.007,.011,"fff0d2",7,3,mode="raw")
+                m.ellipsoid(side*.143,.150,1.200,.097,.099,.125,"565453",11,5,mode="fur")
+            else:
+                m.ellipsoid(side*.177,.133,1.136,.102,.077,.101,light,11,5,mode="fur")
+            m.ellipsoid(side*.106,.243,1.263,.049,.029,.017,dark,8,4,mode="fur")
+            models.append(figure_art.eye(Model,point,f"{asset}_{suffix}",asset,
+                                         side*.105,.252,1.208,
+                                         1.06 if species in ("rabbit","cat") else .94))
             if species=="rabbit":
-                m.ellipsoid(side*.14,-.012,1.49,.073,.064,.234,fur,9,5,angle=side*.13)
-                m.ellipsoid(side*.14,.043,1.515,.047,.024,.159,"d9a98f",8,4)
+                height=1.49 if side<0 else 1.55
+                m.ellipsoid(side*.142,-.027,height,.080,.062,.218,fur,11,6,mode="fur")
+                m.ellipsoid(side*.144,.020,height+.039,.048,.032,.144,"d9a98f",9,5,mode="fur")
+            elif species=="badger":
+                m.ellipsoid(side*.203,-.041,1.384,.086,.074,.081,fur,10,5,mode="fur")
+                m.ellipsoid(side*.220,.006,1.403,.043,.030,.049,dark,8,4,mode="fur")
             else:
                 m.pole((side*.169,-.001,1.31),(side*.228,-.034,1.53),
                        .093,fur,6,tip=.015)
+                m.face([(side*.158,.055,1.355),(side*.216,.012,1.483),
+                        (side*.253,.027,1.358)],light,"fur")
         if species in ["fox","squirrel"]:
             m.ellipsoid(.22,-.29,.62,.127,.29,.159,fur,10,5,angle=.27)
             m.ellipsoid(.32,-.465,.63,.094,.104,.111,light,8,4)
@@ -2260,22 +2223,16 @@ def npc_models():
         if asset=="npc_lina":
             arms[1].box(.241,.078,.48,.145,.132,.17,"ab8a5b",.029)
             arms[1].ellipsoid(.222,.137,.511,.061,.024,.048,"9ea874",7,4)
-        if asset=="npc_miro" or asset=="npc_mara":
-            scarf="b65e4a" if asset=="npc_miro" else "b8a991"
-            m.ellipsoid(0,.029,.935,.172,.134,.069,scarf,10,4)
-            m.face([(-.086,.171,.932),(.104,.174,.934),(-.028,.188,.743)],scarf)
         if asset=="npc_juna":
             m.box(.225,-.086,.54,.169,.125,.222,"ad875f",.032)
             m.pole((-.142,.166,.893),(.217,.166,.606),.024,"ae8d66",5)
-        if asset=="npc_bo" or asset=="npc_juna":
-            m.pole((0,.027,1.373),(0,.027,1.428),.257,cloth,12,tip=.238)
-            m.ellipsoid(0,-.023,1.45,.217,.155,.089,cloth,10,4)
-            m.ellipsoid(0,.207,1.409,.042,.023,.04,"dfb96c",8,4)
+        figure_art.resident_details(m,arms,asset)
         if asset=="npc_mara":
             for side in [-1,1]:
-                ring=[(side*.105+.081*math.cos(a),.230,1.183+.070*math.sin(a)) for i in range(9) for a in [i*TAU/9]]
-                for i in range(9):m.pole(ring[i],ring[(i+1)%9],.012,"775e4e",5)
-            m.pole((-.029,.238,1.188),(.029,.238,1.188),.010,"775e4e",5)
+                ring=[(side*.105+.077*math.cos(a),.286,1.201+.063*math.sin(a))
+                      for i in range(11) for a in [i*TAU/11]]
+                figure_art.hem(m,ring+[ring[0]],.009,"88664f")
+            m.pole((-.029,.286,1.205),(.029,.286,1.205),.009,"88664f",5)
     if legacy_rng is not None:
         RNG.setstate(legacy_rng)
     return models
@@ -2453,11 +2410,13 @@ def build_object(model, bvh, material, collection, offset, finishes):
     attr=mesh.color_attributes.new(name="COLOR_0",type="FLOAT_COLOR",domain="CORNER")
     mesh.color_attributes.active_color=attr
     finish_indices={}
+    figure=figure_art.is_figure(model.asset)
     for mode in sorted({style for _,style in model.colors} & finishes.keys()):
         finish_indices[mode]=len(mesh.materials)
         mesh.materials.append(finishes[mode])
     uv=mesh.uv_layers.new(name="Oberfläche") if finish_indices else None
     for p,(color,mode) in zip(mesh.polygons,model.colors):
+        p.use_smooth=figure and mode in ("fur","cloth")
         normal=p.normal.copy()
         sampling=p.center*.12
         if mode in finish_indices:
@@ -2466,7 +2425,7 @@ def build_object(model, bvh, material, collection, offset, finishes):
             vertex=mesh.vertices[mesh.loops[loop_index].vertex_index]
             v=vertex.co*.88+sampling+offset
             tint, style = (color[corner], "raw") if mode=="gradient" else (color, mode)
-            attr.data[loop_index].color=light_color(tint,normal,v,style,bvh)
+            attr.data[loop_index].color=light_color(tint,normal,v,"raw" if figure else style,bvh)
             if mode in finish_indices:
                 uv.data[loop_index].uv=surface_art.uv(vertex.co,normal,mode)
     if model.pivot is not None:
@@ -2810,6 +2769,9 @@ def generate():
     RNG.setstate(existing_rng)
     world.extend(geography.models(SimpleNamespace(Model=Model,landscape=landscape,pine=pine,grass=grass)))
     RNG.setstate(existing_rng)
+    world.extend(depth_art.models(SimpleNamespace(
+        Model=Model,landscape=landscape,seasonal=seasonal,grass=grass,flowers=flowers,fern=fern)))
+    RNG.setstate(existing_rng)
     terrain=landscape.terrain_models(SimpleNamespace(Model=Model, blend=blend))
     landscape.bake_heightmap(ROOT)
     resources=resource_models()
@@ -2931,10 +2893,11 @@ def generate():
                          ("resonance_weide_idle",34.,146.8,landscape.height(34.,146.8)),
                          ("resonance_moor_idle",-154.,19.1,landscape.height(-154.,19.1)),
                          ("resonance_hafen_idle",56.4,11.1,landscape.height(56.4,11.1))]:
-        replica=objects[asset][0].copy()
-        preview.objects.link(replica)
-        replica.location=point(x,z,h)
-        replica.hide_set(False)
+        for base in objects[asset]:
+            replica=base.copy()
+            preview.objects.link(replica)
+            replica.location=Vector(point(x,z,h))+base.location
+            replica.hide_set(False)
     bpy.ops.object.select_all(action="DESELECT")
     bpy.context.scene.name="Waldwinkel · Zusammenhängende Welt"
     setup_preview(bpy.context.scene,445.,(0.,49.,0.65))

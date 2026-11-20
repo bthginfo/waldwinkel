@@ -2990,8 +2990,9 @@ mod tests {
         };
         let center = world::PLOTS[index];
         let tip = Vec3::new(center.x, 1.17, center.y);
-        let offset = world::camera_offset(Area::Island);
-        let ray = Ray3d::new(tip + offset, Dir3::new(-offset).unwrap());
+        let eye = Vec3::new(world::SPAWN.x, 0.89, world::SPAWN.y);
+        let origin = eye + world::approach_camera(world::SPAWN, eye.y, 12.3, 0., false);
+        let ray = Ray3d::new(origin, Dir3::new(tip - origin).unwrap());
         assert_eq!(hit_plot(ray, &garden).map(|(index, _)| index), Some(index));
     }
 
@@ -3066,7 +3067,8 @@ mod tests {
     #[test]
     fn selecting_the_roof_picks_the_door() {
         let garden = Garden::default();
-        let camera = Vec3::new(-0.62, 0.89, 3.47) + world::camera_offset(Area::Island);
+        let eye = Vec3::new(world::SPAWN.x, 0.89, world::SPAWN.y);
+        let camera = eye + world::approach_camera(world::SPAWN, eye.y, 12.3, 0., false);
         let roof = Vec3::new(-3.0, 4.36, -2.44);
         let ray = Ray3d::new(camera, Dir3::new(roof - camera).unwrap());
         assert!(hit_volume(ray, Target::Door, Vec3::ZERO, &garden).is_some());

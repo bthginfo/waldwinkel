@@ -11,6 +11,7 @@ mod duel;
 mod evening_market;
 mod farm_ui;
 mod fieldwork;
+mod figure;
 mod forest;
 mod furniture;
 mod garden;
@@ -131,8 +132,10 @@ pub fn main() {
             ..default()
         })
     };
-    app.add_plugins(plugins)
-        .add_plugins(bevy::pbr::MaterialPlugin::<water::WaterMaterial>::default());
+    app.add_plugins(plugins).add_plugins((
+        bevy::pbr::MaterialPlugin::<water::WaterMaterial>::default(),
+        bevy::pbr::MaterialPlugin::<figure::FigureMaterial>::default(),
+    ));
     #[cfg(target_os = "android")]
     {
         use bevy::render::{
@@ -230,9 +233,9 @@ pub fn main() {
                 world::move_clouds,
                 world::turn_mill,
                 world::update_camera,
-                cinematic::show,
-                weather::precipitation,
-                weather::lighting,
+                cinematic::show.after(world::update_camera),
+                weather::precipitation.after(world::update_camera),
+                weather::lighting.after(world::update_camera),
                 sound::play,
                 wildlife::animate,
                 adventure::animate_animals,
@@ -247,6 +250,8 @@ pub fn main() {
             Update,
             (
                 fieldwork::show.after(world::update_selection),
+                figure::animate_eyes,
+                figure::shade,
                 harvest_fx::animate.before(sound::play),
                 forest::draw,
                 session::update,
