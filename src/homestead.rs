@@ -432,6 +432,7 @@ pub struct AnimalState {
 pub enum Product {
     Crop(Crop, Quality),
     Prepared(Dish),
+    Crafted(crate::craft::Recipe),
     Regional(Material),
     Spoils(Loot),
     Seasonal(crate::weather::Season),
@@ -466,6 +467,7 @@ impl Product {
         match self {
             Self::Crop(crop, _) => crop.name(),
             Self::Prepared(dish) => dish.name(),
+            Self::Crafted(recipe) => recipe.name(),
             Self::Regional(material) => material.name(),
             Self::Spoils(loot) => loot.name(),
             Self::Seasonal(season) => season.find_name(),
@@ -500,6 +502,7 @@ impl Product {
         match self {
             Self::Crop(crop, quality) => quality.price(crop.price().div_ceil(2)),
             Self::Prepared(dish) => dish.value(),
+            Self::Crafted(recipe) => recipe.value(),
             Self::Regional(material) => material.value(),
             Self::Spoils(loot) => loot.value(),
             Self::Seasonal(_) => 7,
@@ -520,6 +523,7 @@ impl Product {
             .flat_map(|crop| Quality::ALL.map(move |quality| Self::Crop(crop, quality)))
             .chain(Self::GATHERED)
             .chain(Dish::ALL.map(Self::Prepared))
+            .chain(crate::craft::Recipe::ALL.map(Self::Crafted))
             .chain(Material::ALL.map(Self::Regional))
             .chain(Loot::ALL.map(Self::Spoils))
             .chain(crate::weather::Season::ALL.map(Self::Seasonal))
@@ -635,6 +639,7 @@ impl Ore {
         }
     }
     pub fn mine(self, g: &mut Garden) -> u32 {
+        g.ledger.record(crate::commissions::Activity::Mine, 1);
         let quantity = 1 + u32::from(crate::workshop::ToolKind::Pickaxe.level(g));
         match self {
             Self::Copper => g.copper = g.copper.saturating_add(quantity),

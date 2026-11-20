@@ -12,6 +12,7 @@ use crate::{
 pub enum Clip {
     Arrival,
     Opening,
+    Watches,
 }
 
 impl Clip {
@@ -19,6 +20,7 @@ impl Clip {
         match self {
             Self::Arrival => 13.5,
             Self::Opening => 9.,
+            Self::Watches => 11.,
         }
     }
 
@@ -32,6 +34,12 @@ impl Clip {
             }
             Self::Arrival => {
                 "Bo · Lockere ein Beet, säe und gieße es. Danach findest du mich in Eichenhafen."
+            }
+            Self::Watches if time < 5.5 => {
+                "Juna · Als die Glocken schwiegen, wiesen diese fünf Lichter den Menschen den Heimweg."
+            }
+            Self::Watches => {
+                "Juna · Jetzt hat die Insel wieder eine Karte. Und neben jedem Licht steht deine Geschichte."
             }
             Self::Opening if time < 4.5 => {
                 "Bo · Der Fischersteg trägt wieder. Heute teilen wir hier draußen das Essen aus deinem Garten."
@@ -49,6 +57,10 @@ impl Clip {
             Self::Arrival => (
                 Vec3::new(-6.9, 1.65, 0.04).lerp(Vec3::new(0.8, 0.89, 3.12), t),
                 25.0_f32.lerp(12.3, t),
+            ),
+            Self::Watches => (
+                Vec3::new(52.2, 1.28, 7.22).lerp(Vec3::new(55.8, 0.88, 6.81), t),
+                19.3_f32.lerp(10.8, t),
             ),
             Self::Opening => (
                 Vec3::new(57.7, 0.38, 26.5).lerp(Vec3::new(58.08, 0.69, 32.5), t),
@@ -68,6 +80,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
     commands
         .spawn((
             SubtitlePane,
+            crate::controller::Panel::Cinematic,
             Node {
                 display: Display::None,
                 position_type: PositionType::Absolute,

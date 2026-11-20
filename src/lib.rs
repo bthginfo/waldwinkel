@@ -1,7 +1,9 @@
 mod adventure;
 mod battle_ui;
 mod cinematic;
+mod commissions;
 mod controller;
+mod craft;
 mod day;
 mod duel;
 mod farm_ui;
@@ -26,6 +28,7 @@ mod terrain;
 mod town;
 mod travel;
 mod ui;
+mod waywatch;
 mod weather;
 mod workshop;
 mod world;
@@ -45,6 +48,9 @@ struct Controls {
     move_axis: Vec2,
     pick_at: Option<Vec2>,
     cycle: bool,
+    pad_cycle: i8,
+    pad_action: bool,
+    cancel: bool,
     act: bool,
     zoom: f32,
     map: bool,
@@ -198,6 +204,7 @@ pub fn main() {
             town::update,
             farm_ui::update,
             battle_ui::update,
+            battle_ui::draw_trial_guardian,
             battle_ui::animate_guardian,
             ui::sync_visibility,
         )

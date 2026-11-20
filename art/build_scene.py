@@ -23,6 +23,7 @@ import route_details
 import harbor
 import geography
 import workshop_art
+import watch_art
 from harvestable import Harvestables, LEAF
 from season_art import SeasonalArt, gathering_assets
 OUT = ROOT / "assets" / "models"
@@ -2583,6 +2584,9 @@ def generate():
     extra.extend(gathering_assets(Model,lantern))
     extra.extend(harbor.models(Model,lantern,barrel))
     extra.extend(workshop_art.models(Model,lantern,window))
+    prev_rng=RNG.getstate()
+    extra.extend(watch_art.models(SimpleNamespace(Model=Model,grass=grass,flowers=flowers)))
+    RNG.setstate(prev_rng)
     extra.extend(harvest.bake(ROOT))
     extra.extend([seasonal.wood_snow, seasonal.night_windows])
     exterior=[*world,*districts,*terrain,*seasonal.layers.values()]
@@ -2645,6 +2649,17 @@ def generate():
             preview.objects.link(replica)
             replica.location=offset
             replica.hide_set(False)
+    for kind,x,z,tx,tz in watch_art.SITES:
+        y=landscape.height(x,z)
+        tone="green" if kind in ("fen","tide") else "warm"
+        for asset,xx,zz,hh in [(f"watch_{kind}",x,z,y),
+                               (f"watch_{tone}_lit",x+1.43,z+.72,y+.94),
+                               ("watch_trace",tx,tz,landscape.height(tx,tz))]:
+            for base in objects[asset]:
+                replica=base.copy()
+                preview.objects.link(replica)
+                replica.location=point(xx,zz,hh)
+                replica.hide_set(False)
     for x,z,h,scale,angle,variant in harvest.nodes:
         for base in objects[f"forage_{variant}_summer"]:
             replica=base.copy()

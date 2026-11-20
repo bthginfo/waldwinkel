@@ -222,6 +222,7 @@ pub enum MenuText {
     SlotAction(usize),
     Message(Screen),
     ActiveSlot,
+    PadHelp(Screen),
     UiSize,
     Sound,
 }
@@ -231,6 +232,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
         commands
             .spawn((
                 MenuScreen(screen),
+                crate::controller::Panel::Session,
                 Node {
                     display: if screen == Screen::Title {
                         Display::Flex
@@ -337,6 +339,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                             }
                         }
                         panel.spawn((MenuText::Message(screen), fonts.body("", 13.)));
+                        panel.spawn((MenuText::PadHelp(screen), fonts.body("", 13.)));
                     });
             });
     }
@@ -537,6 +540,7 @@ pub fn autosave(
 
 pub fn update(
     session: Res<Session>,
+    controller: Res<crate::controller::Controller>,
     slots: Res<SaveSlots>,
     garden: Res<Garden>,
     ready: Res<Ready>,
@@ -581,6 +585,13 @@ pub fn update(
                 } else {
                     String::new()
                 }
+            }
+            MenuText::PadHelp(_) if !controller.active => String::new(),
+            MenuText::PadHelp(Screen::Title) => {
+                "Steuerkreuz · Spielstand wählen   A · Bestätigen".into()
+            }
+            MenuText::PadHelp(_) => {
+                "A bestätigen · B zurück · LB/RB Zoom · LT Saatgut · RT Dünger".into()
             }
             MenuText::ActiveSlot => format!(
                 "Spielstand {} · Tag {}",

@@ -1,4 +1,4 @@
-# Waldwinkel 1.3
+# Waldwinkel 1.4
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
@@ -9,7 +9,17 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 - Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://github.com/bthginfo/waldwinkel/releases/latest/download/Waldwinkel-Android.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
 
-## Neu in 1.3
+## Neu in 1.4
+
+- **Die fünf Wegwachten.** Öffne im Journal den Reiter **Wegwachten** oder frag Bo. Beginne in der Farnwacht. Folge den Wegzeichen, fertige Material und wecke die Lichter in Farnwald, Muschelbucht, Kupferklamm, Windweiden und Nebelmoor. Bring die fünf Geschichten zu Juna.
+- **Wachtprüfungen.** Die Farnwacht bietet schon früh ein Kartenduell. Drei Wachten haben je vier ansteigende Prüfungen mit eigenen Regeln und Belohnungen. In einem Kampf kannst du einmal ein vorbereitetes Gericht einsetzen.
+- **Hafenaufträge.** Am Auftragsbrett kannst du unter anderem Ernten, Fischen und Erzabbau als Auftrag annehmen. Aushänge wechseln alle drei Tage. Ein angenommener Auftrag bleibt bis zum Einlösen oder Aufgeben aktiv.
+- **Fertigung.** Werkbank, Schmiedetisch und der neue Webrahmen stellen Fichtenbretter, Muschelglas, Kupfernieten, Segeltuch und Laternenöl her. Wähle ein, drei oder fünf Arbeitsgänge. Neue Rezepte lernst du an den Wegzeichen.
+- **Xbox auf dem Tablet.** Linker Stick bewegt die Figur. Links und rechts am Steuerkreuz wählen nahe Ziele. **A** bestätigt, **X** benutzt ein gewähltes Ziel, **B** geht zurück und **Y** öffnet die Karte oder beendet im Duell den Zug.
+
+[Stand und Qualitätsprüfung](docs/stand-1.4.md) · [Farnwacht](docs/14-farnwacht.jpg) · [Weitere Wegwachten](docs/14-wegwachten.jpg) · [Fertigung](docs/14-materialien.jpg) · [Proviant im Duell](docs/14-proviant.jpg) · [Szenenausschnitt mit Juna](docs/14-finale.jpg) · [Xbox-Fokus im Tabletformat](docs/14-xbox.jpg) · [Bildreferenz](art/references/wegwachten.jpg)
+
+## Seit 1.3
 
 - **Eine zusammenhängende Insel.** Bergkämme rahmen Farnwald, Hof und Kupferklamm. Die Wege ins Nebelmoor und in die Klamm führen durch Pässe, die Windweiden sind über die neue Weidebrücke erreichbar. Felsgruppen und Wälder markieren die Übergänge.
 - **Dein erster Morgen.** Ein neuer Spielstand beginnt mit einer kurzen Kamerafahrt und Untertiteln. Danach führt dein erster Auftrag vom Hacken, Säen und Gießen bis zum Gespräch mit Bo. Über **Überspringen** kommst du direkt zum Auftrag.
@@ -116,7 +126,7 @@ Im Startmenü kannst du auf bis zu drei getrennten Plätzen ein **Neues Spiel** 
 ### Steuerung
 
 - **Touch.** Tippe auf Boden, Gegenstände oder Figuren. Drücke die rechte Aktionstaste, um den gewählten Gegenstand zu benutzen oder eine Figur anzusprechen.
-- **Android-Controller.** Der linke Stick bewegt den Tanuki. Der rechte Stick steuert den Zeiger. In geöffneten Menüs springt das Steuerkreuz zwischen Schaltflächen. **A** wählt aus, **X** führt die ausgewählte Aktion aus und **Y** öffnet die Karte. Die Schultertasten zoomen. **B** oder **Start** schließen ein Fenster oder öffnen das Pausenmenü.
+- **Xbox-Controller auf Android.** Links/rechts am Steuerkreuz wählt Ziele, oben öffnet das Journal und unten die Tasche. **View** öffnet ebenfalls die Tasche. Mit **LT** wählst du Saatgut oder Möbel, mit **RT** düngst du. **LB/RB** zoomen. **Menü** pausiert im Gelände. In Menüs nimm den linken Stick oder das Steuerkreuz und bestätige mit **A**. Der rechte Stick bleibt als Zeiger für freie Ziele und die Karte verfügbar.
 - **Tastatur und Maus.** WASD und Pfeiltasten bewegen den Tanuki. Tab wechselt das Beet, Leertaste führt die Aktion aus. Das Mausrad zoomt. M öffnet die Karte, E die Saatguttasche, Q das Journal und I die Tasche. Im Kampf spielen die Ziffern 1–8 eine Karte aus. Leertaste oder Enter beenden den Zug. F10 blendet das HUD aus, F12 speichert ein Spielbild.
 
 ## Projekt ausführen und bauen
@@ -156,7 +166,7 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 ## Tests
 
-60 Rust-Tests decken den ersten Hofauftrag, Stegbau, Werkzeugstufen, Baupläne, Rohstoffabbau, die Gebirgspässe, Beetauswahl und die 25 Dämmergänge ab. Die Android-Builds werden im Android-14-Emulator über die vorherige Installation geprüft. Die Aufnahmen stammen aus dem laufenden Bevy-Spiel.
+68 Rust-Tests prüfen die Wege, den Hof und die Geschichte, den Fortschritt aller fünf Wachten, Fertigung, rotierende Aufträge, Proviant, die Dämmergänge und den Controller-Fokus. Die Android-Builds werden im Android-14-Emulator über die vorherige Installation geprüft. Die Aufnahmen stammen aus dem laufenden Bevy-Spiel.
 
 Die Blender-Landschaften entstanden nach eigenen Bildreferenzen. [Insel und Pässe](art/references/insel.jpg) · [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)
 

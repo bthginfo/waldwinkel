@@ -3,11 +3,13 @@ use bevy::prelude::*;
 use crate::{
     Adventure, GardenFocus, Notice,
     adventure::commit,
-    duel::{Chapter, Emblem, Intent, Outcome},
+    duel::{Chapter, Emblem, Intent, Outcome, Ration},
     farm_ui::FarmMenu,
     garden::{Garden, SavePath},
+    homestead::Product,
     session::{Checkpoint, Session},
     ui::{self, UiFonts},
+    waywatch::Trial,
     world::Gardener,
 };
 
@@ -20,6 +22,8 @@ pub enum DuelButton {
     End,
     Retreat,
     Stay,
+    Pack,
+    Eat(Ration),
 }
 
 #[derive(Component)]
@@ -32,6 +36,9 @@ pub enum DuelText {
     Intent,
     Energy,
     Piles,
+    Rule,
+    Pack,
+    RationDetail(Ration),
     Message,
     Name(usize),
     Effects(usize),
@@ -46,12 +53,39 @@ pub struct CardPicture(usize);
 pub struct HealthFill(bool);
 
 #[derive(Component)]
-pub struct GuardianMotion;
+pub struct GuardianMotion(pub f32);
+
+pub fn draw_trial_guardian(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    menu: Res<FarmMenu>,
+    mut shown: Local<Option<(Trial, Entity)>>,
+) {
+    let trial = menu.battle().and_then(|battle| battle.trial);
+    if shown.as_ref().map(|(id, _)| *id) == trial {
+        return;
+    }
+    if let Some((_, entity)) = shown.take() {
+        commands.entity(entity).despawn();
+    }
+    if let Some(trial) = trial {
+        let point = trial.watch.point() + Vec2::new(-0.91, 1.86);
+        let ground = crate::world::exterior_ground(point);
+        let actor = commands
+            .spawn((
+                SceneRoot(assets.load(format!("models/{}.glb#Scene0", trial.enemy().model()))),
+                Transform::from_xyz(point.x, ground, point.y),
+                GuardianMotion(ground),
+            ))
+            .id();
+        *shown = Some((trial, actor));
+    }
+}
 
 pub fn animate_guardian(
     time: Res<Time>,
     menu: Res<FarmMenu>,
-    mut guardian: Query<&mut Transform, With<GuardianMotion>>,
+    mut guardian: Query<(&GuardianMotion, &mut Transform)>,
     mut previous: Local<Option<(u16, u16)>>,
     mut recoil_at: Local<Option<f32>>,
 ) {
@@ -72,8 +106,8 @@ pub fn animate_guardian(
         let progress = ((now - start) / 0.31).clamp(0., 1.);
         (std::f32::consts::PI * progress).sin()
     });
-    for mut transform in &mut guardian {
-        transform.translation.y = 0.022 * (now * 3.5).sin().abs() + 0.16 * pulse;
+    for (ground, mut transform) in &mut guardian {
+        transform.translation.y = ground.0 + 0.022 * (now * 3.5).sin().abs() + 0.16 * pulse;
         transform.rotation = Quat::from_rotation_y(-0.26) * Quat::from_rotation_z(-0.19 * pulse);
     }
 }
@@ -92,6 +126,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
     commands
         .spawn((
             DuelPane,
+            crate::controller::Panel::Duel,
             Node {
                 display: Display::None,
                 position_type: PositionType::Absolute,
@@ -197,6 +232,32 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
             .with_children(|table| {
                 table
                     .spawn(Node {
+                        column_gap: Val::Px(8.),
+                        flex_wrap: FlexWrap::Wrap,
+                        justify_content: JustifyContent::Center,
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        for ration in Ration::ALL {
+                            row.spawn((DuelButton::Eat(ration), ui::dialog_button(165.)))
+                                .with_children(|item| {
+                                    item.spawn(Node {
+                                        flex_direction: FlexDirection::Column,
+                                        align_items: AlignItems::Center,
+                                        ..default()
+                                    })
+                                    .with_children(|label| {
+                                        label.spawn(fonts.button(ration.dish().name(), 13.));
+                                        label.spawn((
+                                            DuelText::RationDetail(ration),
+                                            fonts.button("", 11.),
+                                        ));
+                                    });
+                                });
+                        }
+                    });
+                table
+                    .spawn(Node {
                         justify_content: JustifyContent::SpaceBetween,
                         column_gap: Val::Px(16.),
                         align_items: AlignItems::Center,
@@ -281,6 +342,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                             ..default()
                         })
                         .with_children(|feedback| {
+                            feedback.spawn((DuelText::Rule, fonts.button("", 13.)));
                             feedback.spawn((DuelText::Message, fonts.button("", 14.)));
                             feedback.spawn((DuelText::Piles, fonts.button("", 13.)));
                         });
@@ -289,6 +351,9 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                             ..default()
                         })
                         .with_children(|actions| {
+                            actions
+                                .spawn((DuelButton::Pack, ui::dialog_button(104.)))
+                                .with_child((DuelText::Pack, fonts.button("Proviant", 13.)));
                             actions
                                 .spawn((DuelButton::Retreat, ui::dialog_button(123.)))
                                 .with_child(fonts.button("Zurückziehen", 13.));
@@ -307,6 +372,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
 pub fn input(
     session: Res<Session>,
     keys: Res<ButtonInput<KeyCode>>,
+    controller: Res<crate::controller::Controller>,
     choices: Query<(&DuelButton, &Interaction), Changed<Interaction>>,
     mut menu: ResMut<FarmMenu>,
     mut adventure: ResMut<Adventure>,
@@ -327,14 +393,16 @@ pub fn input(
         .iter()
         .find_map(|(button, pressed)| (*pressed == Interaction::Pressed).then_some(*button));
     let keyboard = if keys.just_pressed(KeyCode::Escape) {
-        Some(if battle.outcome == Outcome::Won {
+        Some(if battle.pack_open {
+            DuelButton::Pack
+        } else if battle.outcome == Outcome::Won {
             DuelButton::End
         } else if battle.retreat_pending {
             DuelButton::Stay
         } else {
             DuelButton::Retreat
         })
-    } else if keys.any_just_pressed([KeyCode::Space, KeyCode::Enter]) {
+    } else if controller.end_turn || keys.any_just_pressed([KeyCode::Space, KeyCode::Enter]) {
         Some(DuelButton::End)
     } else {
         [
@@ -382,7 +450,11 @@ pub fn input(
         | (Outcome::Running, DuelButton::End)
             if battle.retreat_pending || battle.outcome == Outcome::Lost =>
         {
-            let (area, position) = adventure.escape_duel(&mut garden, player, transform);
+            let (area, position) = if battle.trial.is_some() {
+                (adventure.area, player.position)
+            } else {
+                adventure.escape_duel(&mut garden, player, transform)
+            };
             garden.checkpoint = Some(Checkpoint::new(area, position));
             *focus = GardenFocus::default();
             menu.close();
@@ -397,21 +469,53 @@ pub fn input(
             );
             return;
         }
-        (Outcome::Running, DuelButton::Play(index)) => {
+        (Outcome::Running, DuelButton::Pack) if !battle.ration_used => {
+            battle.pack_open = !battle.pack_open;
+            return;
+        }
+        (Outcome::Running, DuelButton::Eat(ration)) if battle.pack_open => {
+            let stock = Product::Prepared(ration.dish());
+            if garden.stock(stock) > 0 && battle.eat(ration) {
+                garden.take_stock(stock, 1);
+                commit(
+                    &garden,
+                    &path,
+                    &mut notice,
+                    now,
+                    battle.message.clone(),
+                    None,
+                    None,
+                );
+            }
+            return;
+        }
+        (Outcome::Running, DuelButton::End) if battle.pack_open => {
+            battle.pack_open = false;
+            return;
+        }
+        (Outcome::Running, DuelButton::Play(index)) if !battle.pack_open => {
             battle.play(index);
         }
         (Outcome::Running, DuelButton::End) => battle.end_turn(),
         _ => return,
     }
-    if battle.outcome == Outcome::Won
-        && let Some((prize, card)) = garden.rpg.win(battle.level, battle.hp)
-    {
+    if battle.outcome != Outcome::Won {
+        return;
+    }
+    let prize = if let Some(trial) = battle.trial {
+        trial.reward(&mut garden)
+    } else if let Some((prize, card)) = garden.rpg.win(battle.level, battle.hp) {
         let coins = 7 + battle.level * 2;
         garden.farm.coins = garden.farm.coins.saturating_add(coins);
         let mut reward = format!("Gewonnen · +1 {} · +{coins} Münzen", prize.name());
         if let Some(card) = card {
             reward.push_str(&format!(" · Karte „{}“", card.name()));
         }
+        Some(reward)
+    } else {
+        None
+    };
+    if let Some(reward) = prize {
         battle.message.clone_from(&reward);
         commit(&garden, &path, &mut notice, now, reward, None, None);
     }
@@ -421,6 +525,8 @@ pub fn update(
     menu: Res<FarmMenu>,
     session: Res<Session>,
     icons: Res<DeckIcons>,
+    garden: Res<Garden>,
+    controller: Res<crate::controller::Controller>,
     mut veil: Single<&mut Node, With<DuelPane>>,
     mut fields: Query<(&DuelText, &mut Text)>,
     mut pictures: Query<(&CardPicture, &mut ImageNode)>,
@@ -435,7 +541,7 @@ pub fn update(
         return;
     };
     veil.display = Display::Flex;
-    if menu.is_changed() || session.is_changed() {
+    if menu.is_changed() || session.is_changed() || controller.is_changed() {
         for (HealthFill(player), mut node) in &mut bars {
             let (current, max) = if *player {
                 (battle.hp, battle.max_hp)
@@ -454,8 +560,17 @@ pub fn update(
         }
         for (field, mut text) in &mut fields {
             let value = match *field {
-                DuelText::Level => format!("Ebene {} · Zug {}", battle.level, battle.round),
-                DuelText::Chapter => Chapter::at(battle.level).name().into(),
+                DuelText::Level => battle.trial.map_or_else(
+                    || format!("Ebene {} · Zug {}", battle.level, battle.round),
+                    |trial| format!("Prüfung {} · Zug {}", trial.rank + 1, battle.round),
+                ),
+                DuelText::Chapter => battle
+                    .trial
+                    .map_or_else(
+                        || Chapter::at(battle.level).name(),
+                        |trial| trial.watch.name(),
+                    )
+                    .into(),
                 DuelText::EnemyName => battle.enemy.name().into(),
                 DuelText::Friend => format!(
                     "{} / {} Leben · {} Schild",
@@ -499,6 +614,23 @@ pub fn update(
                     format!("{draw} im Zugstapel · {trash} abgelegt")
                 }
                 DuelText::Piles => String::new(),
+                DuelText::Rule if battle.pack_open => "Ein Proviant pro Kampf".into(),
+                DuelText::RationDetail(ration) => format!(
+                    "{} · ×{}",
+                    ration.effect(),
+                    garden.stock(Product::Prepared(ration.dish()))
+                ),
+                DuelText::Rule => battle
+                    .trial
+                    .filter(|_| battle.outcome == Outcome::Running)
+                    .map_or("", |trial| trial.watch.rule())
+                    .into(),
+                DuelText::Pack => if battle.pack_open {
+                    "Schließen"
+                } else {
+                    "Proviant"
+                }
+                .into(),
                 DuelText::Message => battle.message.clone(),
                 DuelText::Name(i) => battle.hand.get(i).map_or("", |card| card.name()).into(),
                 DuelText::Cost(i) => battle
@@ -511,6 +643,7 @@ pub fn update(
                     .map_or_else(String::new, |&card| battle.card_description(card)),
                 DuelText::End if battle.retreat_pending => "Rückzug bestätigen".into(),
                 DuelText::End => match battle.outcome {
+                    Outcome::Running if controller.active => "Y · Zug beenden",
                     Outcome::Running => "Zug beenden",
                     Outcome::Won => "Weiter erkunden",
                     Outcome::Lost => "Zurück zur Rast",
@@ -526,6 +659,7 @@ pub fn update(
         let (visible, enabled) = match button {
             DuelButton::Play(i) => (
                 battle.outcome == Outcome::Running
+                    && !battle.pack_open
                     && !battle.retreat_pending
                     && i < battle.hand.len(),
                 battle
@@ -538,6 +672,19 @@ pub fn update(
                 true,
             ),
             DuelButton::Stay => (battle.retreat_pending, true),
+            DuelButton::Pack => (
+                battle.outcome == Outcome::Running
+                    && !battle.retreat_pending
+                    && !battle.ration_used
+                    && Ration::ALL
+                        .into_iter()
+                        .any(|ration| garden.stock(Product::Prepared(ration.dish())) > 0),
+                true,
+            ),
+            DuelButton::Eat(ration) => (
+                battle.pack_open && garden.stock(Product::Prepared(ration.dish())) > 0,
+                true,
+            ),
             DuelButton::End => (true, true),
         };
         node.display = if visible {

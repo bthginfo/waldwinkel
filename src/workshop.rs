@@ -9,6 +9,7 @@ use crate::{
 
 pub const BENCH: Vec2 = Vec2::new(-0.45, 1.34);
 pub const FORGE: Vec2 = Vec2::new(7.05, -0.75);
+pub const LOOM: Vec2 = Vec2::new(10.85, -0.65);
 pub const ANNEXES: [(Vec2, Vec2); 2] = [
     (Vec2::new(0.51, -2.65), Vec2::new(1.21, 1.01)),
     (Vec2::new(-5.86, -2.96), Vec2::new(1.29, 1.15)),
@@ -22,6 +23,7 @@ pub const ROOM_PRICES: [u32; 2] = [32, 58];
 pub struct Progress {
     pub restored: bool,
     pub forge: bool,
+    pub loom: bool,
     pub house: u8,
     pub rooms: [bool; 2],
     pub barns: [bool; 2],
@@ -148,6 +150,7 @@ impl ToolKind {
 pub enum Project {
     Restore,
     Forge,
+    Loom,
     Room(usize),
 }
 
@@ -158,6 +161,10 @@ impl Project {
             .then_some(Self::Restore)
             .into_iter()
             .chain((state.restored && !state.forge).then_some(Self::Forge))
+            .chain(
+                (state.restored && !state.loom && crate::craft::Recipe::Canvas.learned(garden))
+                    .then_some(Self::Loom),
+            )
             .chain((state.restored && state.house < 2).then_some(Self::Room(state.house as usize)))
     }
 
@@ -165,6 +172,7 @@ impl Project {
         match self {
             Self::Restore => "Werkbank instand setzen",
             Self::Forge => "Schmiedetisch bauen",
+            Self::Loom => "Webrahmen bauen",
             Self::Room(index) => ROOMS[index],
         }
     }
@@ -180,6 +188,12 @@ impl Project {
                 wood: 5,
                 stone: 3,
                 copper: 4,
+                ..Default::default()
+            },
+            Self::Loom => Cost {
+                wood: 6,
+                stone: 2,
+                copper: 2,
                 ..Default::default()
             },
             Self::Room(0) => Cost {
@@ -231,6 +245,10 @@ impl Project {
             Self::Forge => {
                 garden.workshop.forge = true;
                 "Der Schmiedetisch steht jetzt am östlichen Hofweg.".into()
+            }
+            Self::Loom => {
+                garden.workshop.loom = true;
+                "Der Webrahmen steht am östlichen Hofweg.".into()
             }
             Self::Room(_) => {
                 garden.workshop.house += 1;

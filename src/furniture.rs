@@ -91,8 +91,9 @@ pub const CUSHION_BENCH: usize = 12;
 pub const WALL_HANGING: usize = 14;
 pub const SEASONS_SHELF: usize = 18;
 pub const HARBOR_LANTERN: usize = 19;
+pub const WATCH_LAMP: usize = 20;
 
-pub const CATALOG: [Furniture; 20] = [
+pub const CATALOG: [Furniture; 21] = [
     Furniture::new(
         "Runder Tisch",
         "furniture_table",
@@ -232,6 +233,13 @@ pub const CATALOG: [Furniture; 20] = [
         [0.35, 0.27, 1.48],
         [3, 1, 2, 0],
         Blueprint::Reward("Belohnung für die Wiedereröffnung des Fischerstegs"),
+    ),
+    Furniture::new(
+        "Wegwachtlampe",
+        "furniture_watch_lamp",
+        [0.39, 0.35, 1.68],
+        [4, 2, 2, 0],
+        Blueprint::Reward("Belohnung für Junas Inselkarte"),
     ),
 ];
 

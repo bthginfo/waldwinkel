@@ -3,7 +3,7 @@ use bevy::{prelude::*, window::PrimaryWindow};
 use crate::{
     GardenFocus, Notice, Ready,
     adventure::{
-        Adventure, Area, GUIDE_OFFSET, LANDMARKS, Target, landmark_center, landmark_offset,
+        Adventure, Area, LANDMARKS, Target, landmark_center, landmark_offset, tracked_pin,
     },
     garden::{Action, Garden, Stage},
     homestead,
@@ -269,18 +269,8 @@ pub fn map_labels(
         }
     }
     let (node, visible) = &mut *pin;
-    let point = adventure
-        .tracked_target(&garden)
-        .filter(|_| adventure.map && adventure.area.outdoors())
-        .and_then(|target| {
-            landmark_center(
-                camera,
-                view,
-                adventure.position(target, &garden),
-                layout.scale,
-                GUIDE_OFFSET,
-            )
-        });
+    let point =
+        tracked_pin(&adventure, &garden, camera, view, layout.scale).map(|(_, point)| point);
     if let Some(p) = point {
         **visible = Visibility::Inherited;
         node.left = px(p.x / layout.scale - 53.);
@@ -918,6 +908,7 @@ pub fn update_fertilizer(
 #[derive(PartialEq)]
 pub(crate) struct Panel {
     action: Option<Action>,
+    pad: bool,
     enabled: bool,
     pressed: bool,
     title: String,
@@ -935,7 +926,7 @@ pub fn update(
     adventure: Res<Adventure>,
     focus: Res<GardenFocus>,
     player: Single<&Gardener>,
-    gesture: Res<Gesture>,
+    input: (Res<Gesture>, Res<crate::controller::Controller>),
     notice: Res<Notice>,
     icons: Res<Icons>,
     time: Res<Time>,
@@ -948,6 +939,7 @@ pub fn update(
     mut thumb: Single<&mut Node, (With<Thumb>, Without<ProgressTrack>, Without<Progress>)>,
     mut old_panel: Local<Option<Panel>>,
 ) {
+    let (gesture, controller) = input;
     thumb.left = px(30.0 + gesture.stick_axis.x * 32.0);
     thumb.top = px(30.0 - gesture.stick_axis.y * 32.0);
     let now = time.elapsed_secs();
@@ -955,6 +947,7 @@ pub fn update(
     let mut progress_value = None;
     let mut panel = Panel {
         action: None,
+        pad: controller.active,
         enabled,
         pressed: gesture.action_held(),
         title,
@@ -1026,6 +1019,13 @@ pub fn update(
     } else if garden.clock.night() && adventure.focus.is_none() && adventure.area.outdoors() {
         panel.detail = "Die Feldarbeit ruht bis morgen. Schlaf in deiner Hütte.".into();
     }
+    if panel.pad && focus.selected.is_none() && adventure.focus.is_none() && !garden.clock.night() {
+        panel.detail = if adventure.map {
+            "Rechter Stick · Kartenzeiger   A · Ziel   B · Nahansicht".into()
+        } else {
+            "← → Ziel wählen · A benutzen · ↑ Journal · Y Karte".into()
+        };
+    }
     if (notice.index.is_none() || notice.index == focus.selected) && now < notice.until {
         panel.detail.clone_from(&notice.message);
     }
@@ -1076,7 +1076,14 @@ pub fn update(
             ),
             Field::Context => panel.title.clone(),
             Field::Detail => panel.detail.clone(),
-            Field::Action => panel.action.map_or(panel.fallback, Action::label).into(),
+            Field::Action => {
+                let label = panel.action.map_or(panel.fallback, Action::label);
+                if panel.pad && panel.enabled {
+                    format!("X · {label}")
+                } else {
+                    label.into()
+                }
+            }
         };
     }
     action_surface.0 = if panel.enabled && panel.pressed {

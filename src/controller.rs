@@ -1,15 +1,56 @@
 use bevy::prelude::*;
 
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Panel {
+    Session,
+    Farm,
+    Dialogue,
+    Duel,
+    Cinematic,
+}
+
 #[derive(Resource, Default)]
 pub struct Controller {
     pub walk: Vec2,
     pub zoom: f32,
     pub map: bool,
     pub act: bool,
+    pub back: bool,
+    pub cycle: i8,
+    pub task: bool,
+    pub inventory: bool,
+    pub seeds: bool,
+    pub fertilizer: bool,
+    pub active: bool,
+    pub end_turn: bool,
     #[cfg(target_os = "android")]
     pointer: Option<Vec2>,
     #[cfg(target_os = "android")]
-    pressed_at: Option<Vec2>,
+    focused: Option<Entity>,
+    #[cfg(target_os = "android")]
+    release: Option<Vec2>,
+}
+
+#[cfg(any(target_os = "android", test))]
+fn focus_step(
+    buttons: impl Iterator<Item = (Entity, Vec2, bool)>,
+    from: Option<Vec2>,
+    step: Vec2,
+) -> Option<Entity> {
+    let axis = step.normalize_or_zero();
+    buttons
+        .filter_map(|(entity, point, close)| {
+            let Some(from) = from else {
+                let score = point.y * 4. + point.x * 0.01 + if close { 10_000. } else { 0. };
+                return Some((entity, score));
+            };
+            let offset = point - from;
+            let along = axis.dot(offset);
+            let sideways = axis.perp_dot(offset).abs();
+            (along > 7.).then_some((entity, along + sideways * 2.5))
+        })
+        .min_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(entity, _)| entity)
 }
 
 #[cfg(target_os = "android")]
@@ -28,10 +69,14 @@ mod android {
     };
     use ndk_sys as ndk;
 
-    use super::Controller;
-    use crate::{farm_ui::FarmMenu, session::Session, town::Dialog};
+    use super::{Controller, Panel, focus_step};
+    use crate::{
+        farm_ui::{Choice, FarmMenu, FarmPage},
+        session::Session,
+        town::{Dialog, DialogueButton},
+    };
 
-    const KEYS: [u32; 11] = [
+    const KEYS: [u32; 14] = [
         ndk::AKEYCODE_DPAD_UP,
         ndk::AKEYCODE_DPAD_DOWN,
         ndk::AKEYCODE_DPAD_LEFT,
@@ -43,9 +88,12 @@ mod android {
         ndk::AKEYCODE_BUTTON_L1,
         ndk::AKEYCODE_BUTTON_R1,
         ndk::AKEYCODE_BUTTON_START,
+        ndk::AKEYCODE_BUTTON_SELECT,
+        ndk::AKEYCODE_BUTTON_L2,
+        ndk::AKEYCODE_BUTTON_R2,
     ];
     const POINTER_ID: u64 = u64::MAX;
-    static AXES: [AtomicU32; 6] = [const { AtomicU32::new(0) }; 6];
+    static AXES: [AtomicU32; 8] = [const { AtomicU32::new(0) }; 8];
     static HELD: AtomicU32 = AtomicU32::new(0);
     static PRESSED: AtomicU32 = AtomicU32::new(0);
     unsafe extern "C" {
@@ -109,25 +157,34 @@ mod android {
                     let read = |axis: u32| unsafe {
                         ndk::AMotionEvent_getAxisValue(event, axis as i32, 0)
                     };
-                    let alternate = |main, other| {
-                        let value = read(main);
-                        if value.abs() > 0.03 {
-                            value
-                        } else {
-                            read(other)
-                        }
-                    };
                     let axes = [
                         read(ndk::AMOTION_EVENT_AXIS_X),
                         read(ndk::AMOTION_EVENT_AXIS_Y),
-                        alternate(ndk::AMOTION_EVENT_AXIS_Z, ndk::AMOTION_EVENT_AXIS_RX),
-                        alternate(ndk::AMOTION_EVENT_AXIS_RZ, ndk::AMOTION_EVENT_AXIS_RY),
+                        read(ndk::AMOTION_EVENT_AXIS_Z),
+                        read(ndk::AMOTION_EVENT_AXIS_RZ),
                         read(ndk::AMOTION_EVENT_AXIS_HAT_X),
                         read(ndk::AMOTION_EVENT_AXIS_HAT_Y),
+                        read(ndk::AMOTION_EVENT_AXIS_LTRIGGER)
+                            .max(read(ndk::AMOTION_EVENT_AXIS_BRAKE)),
+                        read(ndk::AMOTION_EVENT_AXIS_RTRIGGER)
+                            .max(read(ndk::AMOTION_EVENT_AXIS_GAS)),
                     ];
-                    for (slot, value) in AXES.iter().zip(axes) {
-                        slot.store(value.to_bits(), Relaxed);
+                    for (i, (slot, value)) in AXES.iter().zip(axes).enumerate() {
+                        let previous = f32::from_bits(slot.swap(value.to_bits(), Relaxed));
+                        // Keep taps that begin and end between two render frames.
+                        let new_direction = value.abs() > 0.5 && (value - previous).abs() > 0.5;
+                        let key = match i {
+                            4 if new_direction => Some(if value < 0. { 2 } else { 3 }),
+                            5 if new_direction => Some(if value < 0. { 0 } else { 1 }),
+                            6 | 7 if value > 0.55 && previous <= 0.55 => Some(i + 6),
+                            _ => None,
+                        };
+                        if let Some(key) = key {
+                            PRESSED.fetch_or(1 << key, Relaxed);
+                        }
                     }
+                } else if action == ndk::AMOTION_EVENT_ACTION_CANCEL {
+                    reset_input();
                 }
                 true
             }
@@ -160,8 +217,8 @@ mod android {
                 ..default()
             },
             BorderRadius::all(Val::Px(12.)),
-            BorderColor(Color::srgb_u8(255, 226, 128)),
-            BackgroundColor(Color::srgba(0.11, 0.17, 0.12, 0.44)),
+            BorderColor(Color::srgb_u8(240, 168, 58)),
+            BackgroundColor(Color::NONE),
         ));
     }
 
@@ -171,6 +228,34 @@ mod android {
         }
         let speed = ((axis.length() - 0.19) / 0.81).clamp(0., 1.);
         axis.normalize_or_zero() * speed
+    }
+
+    #[derive(Default)]
+    pub struct LastInput {
+        release_escape: bool,
+        panel: Option<(Panel, Option<FarmPage>)>,
+        direction: Vec2,
+        repeat_at: f32,
+        triggers: (bool, bool),
+    }
+
+    #[derive(bevy::ecs::system::SystemParam)]
+    pub struct FocusButtons<'w, 's> {
+        buttons: Query<
+            'w,
+            's,
+            (
+                Entity,
+                &'static ComputedNode,
+                &'static GlobalTransform,
+                &'static InheritedVisibility,
+                Option<&'static Choice>,
+                Option<&'static DialogueButton>,
+            ),
+            With<Button>,
+        >,
+        parents: Query<'w, 's, &'static ChildOf>,
+        panels: Query<'w, 's, &'static Panel>,
     }
 
     pub fn poll(
@@ -186,13 +271,11 @@ mod android {
         session: Res<Session>,
         menu: Res<FarmMenu>,
         dialog: Res<Dialog>,
-        buttons: Query<(&ComputedNode, &GlobalTransform, &InheritedVisibility), With<Button>>,
-        mut closing: Local<bool>,
-        mut previous_hat: Local<Vec2>,
-        mut was_modal: Local<bool>,
+        targets: FocusButtons,
+        mut last: Local<LastInput>,
     ) {
         let (entity, window) = *window;
-        let mut gesture = |position, phase| {
+        let mut send_touch = |position, phase| {
             touch.write(TouchInput {
                 phase,
                 position,
@@ -202,117 +285,191 @@ mod android {
             });
         };
         let unfocused = focus.read().any(|event| !event.focused);
-        let suspending = lifecycle
+        let suspended = lifecycle
             .read()
             .any(|event| matches!(event, AppLifecycle::WillSuspend | AppLifecycle::Suspended));
-        if unfocused || suspending {
-            if let Some(position) = controller.pressed_at {
-                gesture(position, TouchPhase::Canceled);
+        if last.release_escape {
+            keyboard.write(escape(entity, ButtonState::Released));
+            last.release_escape = false;
+        }
+        if unfocused || suspended {
+            if let Some(position) = controller.release.take() {
+                send_touch(position, TouchPhase::Canceled);
             }
             *controller = Controller::default();
+            *last = LastInput::default();
             reset_input();
-        }
-        if *closing {
-            keyboard.write(escape(entity, ButtonState::Released));
-            *closing = false;
+            cursor.display = Display::None;
+            return;
         }
         let keys = PRESSED.swap(0, Relaxed);
         let held = HELD.load(Relaxed) | keys;
-        let hit = |index| keys & (1_u32 << index) != 0_u32;
-        let down = |index| f32::from(u8::from(held & (1_u32 << index) != 0_u32));
-        let [x, y, look_x, look_y, hat_x, hat_y] =
+        let hit = |i: u32| keys & (1_u32 << i) != 0;
+        let down = |i: u32| f32::from(u8::from(held & (1_u32 << i) != 0));
+        let [x, y, look_x, look_y, hat_x, hat_y, lt, rt] =
             std::array::from_fn(|i| f32::from_bits(AXES[i].load(Relaxed)));
-        controller.walk = dead_zone(Vec2::new(x, -y));
-        controller.act = hit(6);
-        controller.map = hit(7);
-        controller.zoom = 0.21 * f32::from(i8::from(hit(9)) - i8::from(hit(8)));
-        if hit(5) || hit(10) {
-            keyboard.write(escape(entity, ButtonState::Pressed));
-            *closing = true;
+        let walk = dead_zone(Vec2::new(x, -y));
+        let look = dead_zone(Vec2::new(look_x, look_y));
+        let pad = (Vec2::new(down(3) - down(2), down(1) - down(0)) + Vec2::new(hat_x, hat_y))
+            .clamp(Vec2::splat(-1.), Vec2::ONE);
+        let triggers = (lt > 0.55 || hit(12), rt > 0.55 || hit(13));
+        controller.active |= keys != 0
+            || walk != Vec2::ZERO
+            || look != Vec2::ZERO
+            || pad != Vec2::ZERO
+            || triggers.0
+            || triggers.1;
+        let layer = if !session.playing() {
+            Some(Panel::Session)
+        } else if menu.clip().is_some() {
+            Some(Panel::Cinematic)
+        } else if menu.battle().is_some() {
+            Some(Panel::Duel)
+        } else if dialog.open() {
+            Some(Panel::Dialogue)
+        } else if menu.open() {
+            Some(Panel::Farm)
+        } else {
+            None
+        };
+        let panel = layer.map(|layer| (layer, menu.page()));
+        let changed_panel = panel != last.panel;
+        if changed_panel {
+            controller.focused = None;
+            controller.pointer = None;
+            last.direction = Vec2::ZERO;
         }
+        last.panel = panel;
+        let nav = if layer.is_some() && pad == Vec2::ZERO {
+            walk * Vec2::new(1., -1.)
+        } else {
+            pad
+        };
+        let direction = if nav.length() < 0.46 {
+            Vec2::ZERO
+        } else if nav.x.abs() > nav.y.abs() {
+            Vec2::X * nav.x.signum()
+        } else {
+            Vec2::Y * nav.y.signum()
+        };
+        let now = time.elapsed_secs();
+        let is_new_direction = direction != last.direction || keys & 0b1111 != 0;
+        let step = if direction != Vec2::ZERO
+            && (is_new_direction || (layer.is_some() && now >= last.repeat_at))
+        {
+            last.repeat_at = now + if is_new_direction { 0.30 } else { 0.115 };
+            direction
+        } else {
+            Vec2::ZERO
+        };
+        last.direction = direction;
+        let world = layer.is_none();
         let size = Vec2::new(window.width(), window.height());
-        let modal = !session.playing() || menu.open() || dialog.open();
-        let entered_modal = modal && !*was_modal;
-        *was_modal = modal;
-        let hat = Vec2::new(hat_x, hat_y);
-        let dpad = Vec2::new(down(3) - down(2), down(1) - down(0));
-        let stick = Vec2::new(look_x, look_y);
-        let direction = dead_zone(if modal { stick } else { stick + hat + dpad });
-        let tap = |i| f32::from(u8::from(hit(i)));
-        let step = Vec2::new(tap(3) - tap(2), tap(1) - tap(0))
-            + if hat != *previous_hat {
-                hat
-            } else {
-                Vec2::ZERO
-            };
-        *previous_hat = hat;
-        if modal
-            && (step != Vec2::ZERO
-                || hit(4) && controller.pointer.is_none()
-                || entered_modal && controller.pointer.is_some())
-        {
-            let visible = buttons.iter().filter_map(|(button, transform, visible)| {
-                if !visible.get() || button.size().min_element() < 4. {
-                    return None;
-                }
-                let at = transform.translation().truncate() / window.scale_factor();
-                at.cmpge(Vec2::ZERO)
-                    .all()
-                    .then_some(at)
-                    .filter(|p| p.cmple(size).all())
-            });
-            let from = if entered_modal {
-                None
-            } else {
-                controller.pointer
-            };
-            if let Some(point) = focus_step(visible, from, step) {
-                controller.pointer = Some(point);
+        controller.walk = if world { walk } else { Vec2::ZERO };
+        controller.zoom = if world {
+            0.21 * (f32::from(u8::from(hit(9))) - f32::from(u8::from(hit(8))))
+        } else {
+            0.
+        };
+        controller.act =
+            world && (hit(6) || (hit(4) && controller.pointer.is_none() && look == Vec2::ZERO));
+        controller.map = world && hit(7);
+        controller.back = world && hit(5);
+        controller.cycle = if world { step.x as i8 } else { 0 };
+        controller.task = world && step.y < 0.;
+        controller.inventory = world && (hit(11) || step.y > 0.);
+        controller.seeds = world && triggers.0 && !last.triggers.0;
+        controller.fertilizer = world && triggers.1 && !last.triggers.1;
+        controller.end_turn = layer == Some(Panel::Duel) && hit(7);
+        last.triggers = triggers;
+        if hit(10) || (hit(5) && !world) {
+            keyboard.write(escape(entity, ButtonState::Pressed));
+            last.release_escape = true;
+        }
+        if let Some(position) = controller.release.take() {
+            send_touch(
+                position,
+                if changed_panel {
+                    TouchPhase::Canceled
+                } else {
+                    TouchPhase::Ended
+                },
+            );
+        }
+        let selection = layer.filter(|_| controller.active).and_then(|layer| {
+            let candidates: Vec<_> = targets
+                .buttons
+                .iter()
+                .filter_map(|(entity, node, pose, visible, button, dialogue)| {
+                    if !visible.get()
+                        || node.size().min_element() < 4.
+                        || !targets.parents.iter_ancestors(entity).any(|parent| {
+                            targets
+                                .panels
+                                .get(parent)
+                                .is_ok_and(|&owner| owner == layer)
+                        })
+                    {
+                        return None;
+                    }
+                    let point = pose.translation().truncate() / window.scale_factor();
+                    let bounds = node.size() / window.scale_factor();
+                    let close = matches!(button, Some(Choice::Close))
+                        || matches!(dialogue, Some(DialogueButton::Close));
+                    (point.cmpge(Vec2::ZERO).all() && point.cmple(size).all())
+                        .then_some((entity, point, bounds, close))
+                })
+                .collect();
+            let current = candidates
+                .iter()
+                .find(|(id, _, _, _)| Some(*id) == controller.focused);
+            if current.is_none() || step != Vec2::ZERO {
+                controller.focused = focus_step(
+                    candidates.iter().map(|&(id, p, _, close)| (id, p, close)),
+                    current.map(|(_, p, _, _)| *p),
+                    step,
+                )
+                .or(controller.focused.filter(|_| current.is_some()));
             }
+            candidates
+                .into_iter()
+                .find(|(id, _, _, _)| Some(*id) == controller.focused)
+                .map(|(_, point, bounds, _)| (point, bounds + Vec2::splat(8.)))
+        });
+        if look != Vec2::ZERO && world {
+            let start = controller.pointer.unwrap_or(size / 2.);
+            controller.pointer =
+                Some((start + look * 610. * time.delta_secs().min(0.05)).clamp(Vec2::ZERO, size));
         }
-        let movement = time.delta_secs().clamp(0.01, 0.04) * 610. * direction;
-        if direction != Vec2::ZERO || hit(4) {
-            let center = controller.pointer.unwrap_or(size / 2.);
-            controller.pointer = Some((center + movement).clamp(Vec2::ZERO, size));
-        }
-        if let Some(position) = controller.pressed_at.take() {
-            gesture(position, TouchPhase::Ended);
-            if hit(4) {
-                PRESSED.fetch_or(1 << 4, Relaxed);
-            }
-        } else if hit(4)
-            && let Some(position) = controller.pointer
+        if world
+            && (walk != Vec2::ZERO || controller.cycle != 0 || controller.back)
+            && look == Vec2::ZERO
         {
-            gesture(position, TouchPhase::Started);
-            controller.pressed_at = Some(position);
+            controller.pointer = None;
         }
-        if let Some(position) = controller.pointer {
+        let mark = selection.or_else(|| {
+            controller
+                .pointer
+                .filter(|_| world)
+                .map(|p| (p, Vec2::splat(19.)))
+        });
+        if hit(4)
+            && !(hit(5) || hit(10))
+            && let Some((position, _)) = mark
+        {
+            send_touch(position, TouchPhase::Started);
+            controller.release = Some(position);
+        }
+        if let Some((position, bounds)) = mark {
             cursor.display = Display::Flex;
-            cursor.left = Val::Px(position.x / ui_scale.0 - 9.5);
-            cursor.top = Val::Px(position.y / ui_scale.0 - 9.5);
+            let origin = (position - bounds / 2.) / ui_scale.0;
+            cursor.left = Val::Px(origin.x);
+            cursor.top = Val::Px(origin.y);
+            cursor.width = Val::Px(bounds.x / ui_scale.0);
+            cursor.height = Val::Px(bounds.y / ui_scale.0);
         } else {
             cursor.display = Display::None;
         }
-    }
-
-    fn focus_step(
-        buttons: impl Iterator<Item = Vec2>,
-        from: Option<Vec2>,
-        step: Vec2,
-    ) -> Option<Vec2> {
-        let axis = step.normalize_or_zero();
-        buttons
-            .filter_map(|point| {
-                let Some(from) = from else {
-                    return Some((point, point.y * 4096. + point.x));
-                };
-                let offset = point - from;
-                let along = axis.dot(offset);
-                let perpendicular = axis.perp_dot(offset).abs();
-                (along > 7.).then_some((point, along + perpendicular * 2.35))
-            })
-            .min_by(|(_, a), (_, b)| a.total_cmp(b))
-            .map(|(point, _)| point)
     }
 
     pub fn hide_after_touch(
@@ -325,6 +482,8 @@ mod android {
             .any(|event| event.id != POINTER_ID && event.phase == TouchPhase::Started)
         {
             controller.pointer = None;
+            controller.focused = None;
+            controller.active = false;
             cursor.display = Display::None;
         }
     }
@@ -343,3 +502,27 @@ mod android {
 
 #[cfg(target_os = "android")]
 pub use android::{hide_after_touch, poll, setup};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_focus_prefers_a_work_button_and_direction_stays_in_the_column() {
+        let top = Entity::from_raw(1);
+        let close = Entity::from_raw(2);
+        let below = Entity::from_raw(3);
+        let diagonal = Entity::from_raw(4);
+        let buttons = [
+            (close, Vec2::new(800., 40.), true),
+            (top, Vec2::new(160., 180.), false),
+            (below, Vec2::new(160., 280.), false),
+            (diagonal, Vec2::new(270., 234.), false),
+        ];
+        assert_eq!(focus_step(buttons.into_iter(), None, Vec2::ZERO), Some(top));
+        assert_eq!(
+            focus_step(buttons.into_iter(), Some(Vec2::new(160., 180.)), Vec2::Y),
+            Some(below)
+        );
+    }
+}

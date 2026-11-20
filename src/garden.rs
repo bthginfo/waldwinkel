@@ -21,7 +21,7 @@ use std::{
 pub const PLOT_COUNT: usize = 12;
 pub const FERTILIZER_PRICE: u32 = 4;
 const FERTILIZER_PACK: u32 = 2;
-const SAVE_VERSION: u8 = 13;
+const SAVE_VERSION: u8 = 14;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Quality {
@@ -179,6 +179,9 @@ pub struct Garden {
     pub fertilized: [bool; PLOT_COUNT],
     fine_yields: [[u32; 2]; 6],
     prepared: [u32; crate::processing::Dish::ALL.len()],
+    materials: [u32; crate::craft::Recipe::ALL.len()],
+    pub watches: crate::waywatch::WatchRecord,
+    pub ledger: crate::commissions::Ledger,
     harvest_rng: u64,
     pub extra_seeds: [u32; 2],
     pub yields: [u32; 3],
@@ -222,6 +225,9 @@ impl Default for Garden {
             fertilized: [false; PLOT_COUNT],
             fine_yields: [[0; 2]; 6],
             prepared: [0; crate::processing::Dish::ALL.len()],
+            materials: [0; crate::craft::Recipe::ALL.len()],
+            watches: Default::default(),
+            ledger: Default::default(),
             harvest_rng: now_ms(),
             extra_seeds: [4, 4],
             yields: [0; 3],
@@ -288,6 +294,7 @@ impl Garden {
                 &mut self.fine_yields[crop as usize][quality as usize - 1]
             }
             Product::Prepared(dish) => &mut self.prepared[dish as usize],
+            Product::Crafted(recipe) => &mut self.materials[recipe as usize],
             Product::Regional(material) => &mut self.regions.goods[material as usize],
             Product::Spoils(loot) => &mut self.rpg.trophies[loot as usize],
             Product::Seasonal(season) => &mut self.seasons.stock[season as usize],
@@ -308,6 +315,7 @@ impl Garden {
             Product::Crop(crop, Quality::Normal) => self.farm.yields[crop as usize - 3],
             Product::Crop(crop, quality) => self.fine_yields[crop as usize][quality as usize - 1],
             Product::Prepared(dish) => self.prepared[dish as usize],
+            Product::Crafted(recipe) => self.materials[recipe as usize],
             Product::Regional(material) => self.regions.goods[material as usize],
             Product::Spoils(loot) => self.rpg.trophies[loot as usize],
             Product::Seasonal(season) => self.seasons.stock[season as usize],
@@ -471,6 +479,7 @@ impl Garden {
                 };
                 self.fertilized[index] = false;
                 self.harvested = self.harvested.saturating_add(3);
+                self.ledger.record(crate::commissions::Activity::Harvest, 1);
                 let item = Product::Crop(crop, quality);
                 self.add_stock(item, 3);
                 let mut message = format!("+3 {}", item.label());
@@ -508,6 +517,7 @@ impl Garden {
             return false;
         }
         self.felled.push(index);
+        self.ledger.record(crate::commissions::Activity::Fell, 1);
         self.tree_regrowth.push((index, self.day.saturating_add(3)));
         self.wood = self.wood.saturating_add(self.wood_per_tree());
         true

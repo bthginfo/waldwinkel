@@ -641,6 +641,37 @@ pub enum Outcome {
     Lost,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ration {
+    Soup,
+    Stew,
+    Jam,
+    Compote,
+}
+
+impl Ration {
+    pub const ALL: [Self; 4] = [Self::Soup, Self::Stew, Self::Jam, Self::Compote];
+
+    pub fn dish(self) -> crate::processing::Dish {
+        use crate::processing::Dish;
+        match self {
+            Self::Soup => Dish::CarrotSoup,
+            Self::Stew => Dish::TomatoStew,
+            Self::Jam => Dish::BerryJam,
+            Self::Compote => Dish::StrawberryCompote,
+        }
+    }
+
+    pub fn effect(self) -> &'static str {
+        match self {
+            Self::Soup => "+10 Leben",
+            Self::Stew => "+1 Kraft und +6 Schild",
+            Self::Jam => "+6 Schild und ziehe 1 Karte",
+            Self::Compote => "+4 Leben und ziehe 2 Karten",
+        }
+    }
+}
+
 pub struct Battle {
     pub level: u32,
     pub enemy: Enemy,
@@ -656,6 +687,9 @@ pub struct Battle {
     pub outcome: Outcome,
     pub message: String,
     pub retreat_pending: bool,
+    pub trial: Option<crate::waywatch::Trial>,
+    pub pack_open: bool,
+    pub ration_used: bool,
     resistance: u8,
     strength: u8,
     hand_size: u8,
@@ -669,7 +703,20 @@ pub struct Battle {
 
 impl Battle {
     pub fn new(level: u32, progress: &Progress) -> Self {
-        let foe = Enemy::at(level);
+        Self::encounter(level, Enemy::at(level), progress)
+    }
+
+    pub fn new_trial(trial: crate::waywatch::Trial, progress: &Progress) -> Self {
+        let mut battle = Self::encounter(trial.level(), trial.enemy(), progress);
+        battle.hp = battle.max_hp;
+        battle.trial = Some(trial);
+        if trial.watch == crate::waywatch::Watch::Kiln {
+            battle.enemy_guard = 3;
+        }
+        battle
+    }
+
+    fn encounter(level: u32, foe: Enemy, progress: &Progress) -> Self {
         let focus = progress.ranks[Talent::Focus as usize];
         let mut battle = Self {
             level,
@@ -686,6 +733,9 @@ impl Battle {
             outcome: Outcome::Running,
             message: String::new(),
             retreat_pending: false,
+            trial: None,
+            pack_open: false,
+            ration_used: false,
             resistance: progress.ranks[Talent::Shell as usize] + progress.gear.resistance(),
             strength: progress.gear.damage(),
             hand_size: 5 + u8::from(focus >= 1),
@@ -699,6 +749,26 @@ impl Battle {
         shuffle(&mut battle.drawing, &mut battle.rng);
         battle.draw(battle.hand_size);
         battle
+    }
+
+    pub fn eat(&mut self, ration: Ration) -> bool {
+        if self.ration_used || self.outcome != Outcome::Running || self.retreat_pending {
+            return false;
+        }
+        self.ration_used = true;
+        self.pack_open = false;
+        let (heal, guard, power, draw) = match ration {
+            Ration::Soup => (10, 0, 0, 0),
+            Ration::Stew => (0, 6, 1, 0),
+            Ration::Jam => (0, 6, 0, 1),
+            Ration::Compote => (4, 0, 0, 2),
+        };
+        self.hp = self.hp.saturating_add(heal).min(self.max_hp);
+        self.guard = self.guard.saturating_add(guard);
+        self.energy = self.energy.saturating_add(power);
+        self.draw(draw);
+        self.message = format!("{} · {}", ration.dish().name(), ration.effect());
+        true
     }
 
     pub fn intent(&self) -> Intent {
@@ -855,6 +925,12 @@ impl Battle {
             }
             Intent::Stagger => "Die gebrochene Rüstung unterbricht den Schlag.".into(),
         };
+        use crate::waywatch::Watch;
+        let watch = self.trial.map(|trial| trial.watch);
+        if watch == Some(Watch::Fern) && self.guard == 0 && self.hp > 0 {
+            self.hp = self.hp.saturating_sub(2);
+            self.message.push_str(" · Dornen −2 Leben");
+        }
         if self.hp == 0 {
             self.outcome = Outcome::Lost;
             return;
@@ -863,6 +939,14 @@ impl Battle {
         self.round = self.round.saturating_add(1);
         self.guard = 0;
         self.energy = self.energy_limit;
+        if watch == Some(Watch::Kiln) && self.round % 2 == 1 && self.charged.is_none() {
+            self.enemy_guard = self.enemy_guard.saturating_add(3);
+            self.message.push_str(" · Kupferhaut +3 Rüstung");
+        }
+        if watch == Some(Watch::Fen) && self.round % 3 == 0 {
+            self.energy -= 1;
+            self.message.push_str(" · Nebel −1 Kraft");
+        }
         self.draw(self.hand_size);
     }
 }
@@ -906,6 +990,156 @@ mod tests {
         assert!(p.knows(Card::LanternWard));
         assert!(p.train(Talent::Heart));
         assert_eq!(p.max_hp(), 39);
+    }
+
+    #[test]
+    fn the_farnwacht_can_be_won_with_the_first_deck() {
+        use crate::waywatch::{Trial, Watch};
+        let mut battle = Battle::new_trial(
+            Trial {
+                watch: Watch::Fern,
+                rank: 0,
+            },
+            &Progress::default(),
+        );
+        for _ in 0..12 {
+            if battle.outcome != Outcome::Running {
+                break;
+            }
+            for _ in 0..8 {
+                let Some(index) = battle
+                    .hand
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, card)| card.cost() <= battle.energy)
+                    .max_by_key(|(_, card)| {
+                        let spec = card.spec();
+                        let block =
+                            if battle.guard == 0 && (battle.round % 4 != 2 || battle.hp <= 20) {
+                                spec.guard
+                            } else {
+                                0
+                            };
+                        u16::from(spec.damage) * 4
+                            + u16::from(block) * 2
+                            + u16::from(spec.healing) * (u16::from(battle.hp < 21) * 2)
+                    })
+                    .map(|(i, _)| i)
+                else {
+                    break;
+                };
+                if !battle.play(index) || battle.outcome != Outcome::Running {
+                    break;
+                }
+            }
+            battle.end_turn();
+        }
+        assert_eq!(battle.outcome, Outcome::Won);
+    }
+
+    #[test]
+    fn armour_terrain_and_provisions_change_turn_decisions() {
+        use crate::waywatch::{Trial, Watch};
+        let p = Progress::default();
+        let mut fern = Battle::new_trial(
+            Trial {
+                watch: Watch::Fern,
+                rank: 0,
+            },
+            &p,
+        );
+        let incoming = fern.incoming(fern.intent());
+        fern.end_turn();
+        assert_eq!(fern.hp, fern.max_hp - incoming - 2);
+        let mut defended = Battle::new_trial(
+            Trial {
+                watch: Watch::Fern,
+                rank: 0,
+            },
+            &p,
+        );
+        assert!(defended.eat(Ration::Jam));
+        assert!(!defended.eat(Ration::Soup));
+        defended.end_turn();
+        assert_eq!(defended.hp, defended.max_hp);
+        let kiln = Battle::new_trial(
+            Trial {
+                watch: Watch::Kiln,
+                rank: 0,
+            },
+            &p,
+        );
+        assert_eq!(kiln.enemy_guard, 3);
+        let mut fen = Battle::new_trial(
+            Trial {
+                watch: Watch::Fen,
+                rank: 0,
+            },
+            &p,
+        );
+        fen.end_turn();
+        fen.end_turn();
+        assert_eq!(fen.round, 3);
+        assert_eq!(fen.energy, fen.energy_limit() - 1);
+        assert!(fen.eat(Ration::Stew));
+        assert_eq!(fen.energy, fen.energy_limit());
+    }
+
+    #[test]
+    fn a_trained_deck_can_win_all_twelve_watch_trials() {
+        use crate::waywatch::{Trial, Watch};
+        let mut p = Progress::default();
+        p.gear = Gear::CrystalBlade;
+        p.ranks = [4, 4, 2];
+        let cards = [
+            Card::QuartzThrust,
+            Card::CopperArc,
+            Card::LanternWard,
+            Card::FlaxWrap,
+            Card::MossBloom,
+            Card::StoneEcho,
+        ];
+        for card in cards {
+            p.learn(card);
+        }
+        let deck = cards
+            .into_iter()
+            .flat_map(|card| [card, card])
+            .collect::<Vec<_>>();
+        p.save_deck(&deck).unwrap();
+        for watch in [Watch::Fern, Watch::Kiln, Watch::Fen] {
+            for rank in 0..Trial::RANKS {
+                let mut battle = Battle::new_trial(Trial { watch, rank }, &p);
+                for _ in 0..26 {
+                    for _ in 0..8 {
+                        let candidate = battle
+                            .hand
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, card)| card.cost() <= battle.energy)
+                            .max_by_key(|(_, card)| {
+                                let spec = card.spec();
+                                let threat = battle.incoming(battle.intent());
+                                let protect = u16::from(spec.guard).min(threat);
+                                let heal = u16::from(spec.healing).min(battle.max_hp - battle.hp);
+                                u16::from(spec.damage) * 5
+                                    + protect * 3
+                                    + heal * 2
+                                    + u16::from(spec.spores) * 4
+                            })
+                            .map(|(index, _)| index);
+                        if !candidate.is_some_and(|index| battle.play(index)) {
+                            break;
+                        }
+                    }
+                    battle.end_turn();
+                    if battle.outcome != Outcome::Running {
+                        break;
+                    }
+                }
+                assert_eq!(battle.outcome, Outcome::Won, "{watch:?} rank {rank}");
+            }
+        }
     }
 
     #[test]

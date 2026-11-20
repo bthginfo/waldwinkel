@@ -539,6 +539,7 @@ pub enum DialogueButton {
     Story,
     Harbor,
     Plans,
+    WatchMap,
 }
 #[derive(Component)]
 pub struct DialogueLabel(DialogueButton);
@@ -547,6 +548,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
     commands
         .spawn((
             DialoguePane,
+            crate::controller::Panel::Dialogue,
             Node {
                 display: Display::None,
                 position_type: PositionType::Absolute,
@@ -599,6 +601,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                                 (DialogueButton::Story, "Nachfragen", 161.),
                                 (DialogueButton::Harbor, "Alter Fischersteg", 180.),
                                 (DialogueButton::Plans, "Baupläne", 103.),
+                                (DialogueButton::WatchMap, "Inselkarte", 118.),
                                 (DialogueButton::Back, "Zurück", 105.),
                                 (DialogueButton::Close, "Schließen", 103.),
                             ] {
@@ -662,6 +665,17 @@ pub fn input(
             *gesture = Gesture::default();
             *controls = Controls::default();
             farm_menu.show(FarmPage::BlueprintShop);
+            None
+        }
+        DialogueButton::WatchMap if matches!(npc, Npc::Juna | Npc::Bo) => {
+            dialog.close();
+            farm_menu.show(if npc == Npc::Juna {
+                FarmPage::WatchFinale
+            } else {
+                FarmPage::Journal(crate::story::GuideTab::Watches)
+            });
+            *gesture = Gesture::default();
+            *controls = Controls::default();
             None
         }
         DialogueButton::Pick if dialog.trading => {
@@ -832,6 +846,8 @@ pub fn update(
     for (label, mut text) in &mut labels {
         let caption = match label.0 {
             DialogueButton::Trade if npc == Npc::Runa => "Karten & Waffen",
+            DialogueButton::WatchMap if npc == Npc::Bo => "Wegwachten",
+            DialogueButton::WatchMap => "Inselkarte",
             DialogueButton::Trade => "Handeln",
             DialogueButton::Deal if npc == Npc::Miro => "Verkaufen",
             DialogueButton::Deal => "Saat kaufen",
@@ -858,6 +874,7 @@ pub fn update(
             DialogueButton::Plans => {
                 npc == Npc::Bo && garden.clock.market_open() && !dialog.trading
             }
+            DialogueButton::WatchMap => matches!(npc, Npc::Juna | Npc::Bo) && !dialog.trading,
             DialogueButton::Close => true,
         };
         let next = if shown { Display::Flex } else { Display::None };

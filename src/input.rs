@@ -224,6 +224,13 @@ pub fn collect(
     );
     controls.move_axis = (axis + keyboard + controller.walk).clamp_length_max(1.0);
     controls.act |= controller.act;
+    controls.pad_action = controller.act;
+    controls.pad_cycle = controller.cycle;
+    controls.cancel = controller.back;
+    controls.task |= controller.task;
+    controls.inventory |= controller.inventory;
+    controls.choice |= controller.seeds;
+    controls.fertilize |= controller.fertilizer;
     controls.map |= controller.map;
     controls.zoom += controller.zoom;
     controls.cycle = keys.just_pressed(KeyCode::Tab);

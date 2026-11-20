@@ -97,6 +97,7 @@ pub fn product_icon(product: Product) -> &'static str {
         Product::Prepared(dish) => {
             ["soup", "stew", "jam", "compote", "flour", "meal"][dish as usize]
         }
+        Product::Crafted(recipe) => recipe.icon(),
         Product::Regional(material) => ["quartz", "flax", "mint"][material as usize],
         Product::Spoils(loot) => ["moss", "seal", "dust"][loot as usize],
         Product::Seasonal(season) => ["blossom", "sun_shell", "amber", "frost"][season as usize],

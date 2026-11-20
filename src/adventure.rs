@@ -15,6 +15,7 @@ use crate::{
     story::{Guide, GuideTab, Resonator},
     town::{Dialog, Npc},
     travel::{self, District, FINDS},
+    waywatch::{Stage as WatchStage, Watch},
     weather::Season,
     workshop,
     world::{self, Gardener, IslandCamera, Reach, Tool},
@@ -147,6 +148,9 @@ pub enum Target {
     Slot(usize),
     Bench,
     Forge,
+    Loom,
+    Watch(Watch),
+    WatchTrace(Watch),
     Village(Village),
     Travel(District),
     Find(usize),
@@ -223,6 +227,9 @@ impl Target {
             Self::Slot(_) => "Möbelplatz",
             Self::Bench => "Hofwerkbank",
             Self::Forge => "Schmiedetisch",
+            Self::Loom => "Webrahmen",
+            Self::Watch(watch) => watch.name(),
+            Self::WatchTrace(_) => "Wegzeichen",
             Self::Village(target) => target.name(),
             Self::Travel(district) => district.name(),
             Self::Find(i) => FINDS[i].name(),
@@ -261,6 +268,9 @@ impl Target {
             Self::Slot(_) => "Einrichten",
             Self::Bench => "Werkbank öffnen",
             Self::Forge => "Schmieden",
+            Self::Loom => "Weben",
+            Self::Watch(_) => "Wacht ansehen",
+            Self::WatchTrace(_) => "Zeichen lesen",
             Self::Village(_) => "Benutzen",
             Self::Travel(_) => "Angekommen",
             Self::Find(_) | Self::SeasonFind(_) => "Sammeln",
@@ -287,6 +297,8 @@ impl Target {
             Self::Kitchen | Self::PatternStall => 0.88,
             Self::FarmAnimal(_) => 0.51,
             Self::Gate(_) | Self::Bell(_) => 0.93,
+            Self::Watch(_) => 1.5,
+            Self::WatchTrace(_) => 0.42,
             Self::Tree(i) => forest::node(i).map_or(1.50, |node| node.top() * 0.4),
             Self::Rock(i) => forest::node(i).map_or(0.45, |node| node.top() * 0.5),
             Self::Down | Self::Up => 0.65,
@@ -334,7 +346,45 @@ pub fn landmark_offset(target: Target) -> f32 {
     if target == Target::Portal { -24. } else { 23. }
 }
 
-pub const GUIDE_OFFSET: f32 = -36.;
+pub fn tracked_pin(
+    adventure: &Adventure,
+    garden: &Garden,
+    camera: &Camera,
+    view: &GlobalTransform,
+    scale: f32,
+) -> Option<(Target, Vec2)> {
+    if !adventure.area.outdoors() {
+        return None;
+    }
+    let target = adventure.tracked_target(garden)?;
+    let point = adventure.position(target, garden);
+    let at = if adventure.map {
+        landmark_center(camera, view, point, scale, -36.)?
+    } else {
+        if adventure.focus == Some(target) {
+            return None;
+        }
+        let height = match target {
+            Target::Watch(_) => 3.36,
+            Target::WatchTrace(_) => 1.12,
+            _ => return None,
+        };
+        camera
+            .world_to_viewport(
+                view,
+                Vec3::new(
+                    point.x,
+                    world::surface_height(point, garden) + height,
+                    point.y,
+                ),
+            )
+            .ok()?
+    };
+    let viewport = camera.logical_viewport_size()?;
+    (at.cmpge(Vec2::new(53., 14.) * scale).all()
+        && at.cmple(viewport - Vec2::new(53., 14.) * scale).all())
+    .then_some((target, at))
+}
 
 #[derive(Resource, Default)]
 pub struct Adventure {
@@ -564,6 +614,10 @@ impl Adventure {
                     && !within(SALE_CHEST, 0.70)
                     && !garden.workshop.annex_at(point)
                     && !inside(workshop::BENCH, BENCH_HALF_SIZE)
+                    && !(garden.workshop.loom && inside(workshop::LOOM, BENCH_HALF_SIZE))
+                    && !Watch::ALL.into_iter().any(|site| {
+                        inside(site.point(), Vec2::new(2.08, 1.27)) || within(site.trace(), 0.52)
+                    })
                     && !(garden.workshop.forge && inside(workshop::FORGE, BENCH_HALF_SIZE))
                     && !inside(KITCHEN, Vec2::new(1.15, 0.64))
                     && !inside(PATTERN_STALL, Vec2::new(0.85, 0.51))
@@ -660,7 +714,9 @@ impl Adventure {
             Target::Person(_) => NPC_RADIUS + 0.07,
             Target::HarborBoard => 0.95,
             Target::Bed => 1.10,
-            Target::Bench | Target::Forge => 0.91,
+            Target::Bench | Target::Forge | Target::Loom => 0.91,
+            Target::Watch(_) => 2.08,
+            Target::WatchTrace(_) => 0.58,
             Target::Binder | Target::DuskFoe | Target::DuskCamp => 0.70,
             Target::Slot(i) => {
                 let kind = garden.furniture[i]
@@ -683,10 +739,14 @@ impl Adventure {
             }
             _ => 0.,
         };
-        let limit = match target.tool() {
-            Tool::Axe => 1.08,
-            Tool::Pickaxe => 1.20,
-            Tool::Hoe | Tool::WateringCan | Tool::Rod | Tool::Weapon(_) => 1.49,
+        let limit = if matches!(target, Target::Watch(_)) {
+            2.95
+        } else {
+            match target.tool() {
+                Tool::Axe => 1.08,
+                Tool::Pickaxe => 1.20,
+                Tool::Hoe | Tool::WateringCan | Tool::Rod | Tool::Weapon(_) => 1.49,
+            }
         };
         Reach::target(self.position(target, &garden), clearance, limit)
     }
@@ -716,6 +776,9 @@ impl Adventure {
             Target::Exit => HOME + Vec2::new(0., 2.73),
             Target::Bench => workshop::BENCH,
             Target::Forge => workshop::FORGE,
+            Target::Loom => workshop::LOOM,
+            Target::Watch(site) => site.point(),
+            Target::WatchTrace(site) => site.trace(),
             Target::Slot(i) => HOME + SLOTS[i],
             Target::Up => cell_position(START) - Vec2::new(0.55, 0.57),
             Target::Down => cell_position(self.layout.down),
@@ -762,6 +825,19 @@ impl Adventure {
                     .map(Target::HarborFishing),
             )
             .chain(garden.workshop.forge.then_some(Target::Forge))
+            .chain(garden.workshop.loom.then_some(Target::Loom))
+            .chain(
+                Watch::ALL
+                    .into_iter()
+                    .filter(|site| site.accessible(garden))
+                    .map(Target::Watch),
+            )
+            .chain(
+                Watch::ALL
+                    .into_iter()
+                    .filter(|site| site.stage(garden) == WatchStage::Surveying)
+                    .map(Target::WatchTrace),
+            )
             .chain(Animal::ALL.into_iter().map(Target::FarmAnimal))
             .chain(Frontier::Moor.unlocked(garden).then_some(Target::DuskGate))
             .chain(
@@ -879,6 +955,14 @@ impl Adventure {
                     true,
                 );
             }
+            if target == Target::Village(Village::Board) {
+                return (
+                    "Auftragsbrett".into(),
+                    "Hafenaufträge annehmen oder den Hofauftrag im Journal ansehen.".into(),
+                    "Brett ansehen",
+                    true,
+                );
+            }
             let regional_action = match target {
                 Target::Gate(gate) => Some(gate.describe(garden)),
                 Target::Bell(bell) => Some(bell.describe(garden)),
@@ -987,6 +1071,14 @@ impl Adventure {
                     "Schmieden",
                 ),
                 Target::Kitchen => ("Kochen, Einmachen und Mahlen.".into(), "Küche öffnen"),
+                Target::Watch(site) => (site.summary(garden), target.label()),
+                Target::WatchTrace(_) => {
+                    ("Eine eingeritzte Spur der Wegwacht".into(), target.label())
+                }
+                Target::Loom => (
+                    "Flachs und Wolle zu Segeltuch weben.".into(),
+                    target.label(),
+                ),
                 Target::PatternStall => (
                     "Hier kaufst du Baupläne für deine Werkbank.".into(),
                     "Baupläne",
@@ -1370,7 +1462,9 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
             base + Vec3::new(1.50, 1.98, 0.28),
         ),
         Target::Bed => hit(BED_HALF_SIZE, 0., 1.03),
-        Target::Bench | Target::Forge => hit(BENCH_HALF_SIZE, 0., 1.16),
+        Target::Bench | Target::Forge | Target::Loom => hit(BENCH_HALF_SIZE, 0., 1.16),
+        Target::Watch(_) => hit(Vec2::new(2.0, 1.35), 0., 2.87),
+        Target::WatchTrace(_) => hit(Vec2::splat(0.47), 0., 0.65),
         Target::Binder => hit(Vec2::new(0.52, 0.35), 0., 1.03),
         Target::DuskExit | Target::DuskGate => hit(Vec2::new(1.42, 0.52), 0., 2.15),
         Target::DuskFoe => hit(Vec2::splat(0.60), 0., 1.43),
@@ -1385,8 +1479,14 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PadTarget {
+    Plot(usize),
+    Place(Target),
+}
+
 pub fn select(
-    controls: Res<Controls>,
+    mut controls: ResMut<Controls>,
     layout: Res<crate::ui::HudLayout>,
     mut adventure: ResMut<Adventure>,
     garden: Res<Garden>,
@@ -1394,6 +1494,91 @@ pub fn select(
     camera: Single<(&Camera, &GlobalTransform), With<IslandCamera>>,
     mut player: Single<&mut Gardener>,
 ) {
+    if controls.cancel {
+        adventure.map = false;
+        adventure.focus = None;
+        adventure.queued = None;
+        adventure.waiting = None;
+        *focus = GardenFocus::default();
+        player.stop();
+        return;
+    }
+    let auto = controls.pad_action && focus.selected.is_none() && adventure.focus.is_none();
+    if controls.pad_cycle != 0 || auto {
+        let point = player.position;
+        let mut targets: Vec<_> = adventure
+            .targets(&garden, point)
+            .into_iter()
+            .filter(|target| !matches!(target, Target::Travel(_)))
+            .map(PadTarget::Place)
+            .chain(
+                (0..world::PLOTS.len())
+                    .filter(|_| adventure.area == Area::Island)
+                    .map(PadTarget::Plot),
+            )
+            .map(|entry| {
+                let at = match entry {
+                    PadTarget::Plot(i) => world::PLOTS[i],
+                    PadTarget::Place(target) => adventure.position(target, &garden),
+                };
+                (point.distance_squared(at), entry)
+            })
+            .filter(|(distance, _)| *distance < 6.4 * 6.4)
+            .collect();
+        targets.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let current = focus
+            .selected
+            .map(PadTarget::Plot)
+            .or(adventure.focus.map(PadTarget::Place));
+        let chosen = targets
+            .iter()
+            .position(|(_, entry)| Some(*entry) == current)
+            .filter(|_| !auto)
+            .map_or_else(
+                || {
+                    if controls.pad_cycle < 0 {
+                        targets.len().saturating_sub(1)
+                    } else {
+                        0
+                    }
+                },
+                |i| {
+                    (i as isize + controls.pad_cycle as isize).rem_euclid(targets.len() as isize)
+                        as usize
+                },
+            );
+        let chosen = if auto {
+            adventure
+                .tracked_target(&garden)
+                .and_then(|goal| {
+                    targets
+                        .iter()
+                        .position(|(_, entry)| *entry == PadTarget::Place(goal))
+                })
+                .unwrap_or(chosen)
+        } else {
+            chosen
+        };
+        if let Some(&(_, target)) = targets.get(chosen) {
+            adventure.map = false;
+            adventure.queued = None;
+            adventure.waiting = None;
+            focus.pending = None;
+            player.stop();
+            match target {
+                PadTarget::Plot(i) => {
+                    adventure.focus = None;
+                    focus.selected = Some(i);
+                }
+                PadTarget::Place(place) => {
+                    adventure.focus = Some(place);
+                    focus.selected = None;
+                }
+            }
+        }
+        controls.act = false;
+        return;
+    }
     let (camera, view) = *camera;
     let Some(at) = controls.pick_at else {
         if controls.cycle && adventure.area.outdoors() {
@@ -1442,53 +1627,44 @@ pub fn select(
             best = (dist, Some(target));
         }
     }
-    let landmark = if adventure.map && adventure.area.outdoors() {
-        adventure
-            .tracked_target(&garden)
-            .filter(|&target| {
-                landmark_center(
-                    camera,
-                    view,
-                    adventure.position(target, &garden),
-                    layout.scale,
-                    GUIDE_OFFSET,
-                )
-                .is_some_and(|p| {
-                    (p - at)
-                        .abs()
-                        .cmple(Vec2::new(53., 14.) * layout.scale)
-                        .all()
+    let landmark = tracked_pin(&adventure, &garden, camera, view, layout.scale)
+        .filter(|(_, p)| {
+            (*p - at)
+                .abs()
+                .cmple(Vec2::new(53., 14.) * layout.scale)
+                .all()
+        })
+        .map(|(target, _)| target)
+        .or_else(|| {
+            if !adventure.map || !adventure.area.outdoors() {
+                return None;
+            }
+            LANDMARKS
+                .into_iter()
+                .filter_map(|(_, target)| {
+                    let center = landmark_center(
+                        camera,
+                        view,
+                        adventure.position(target, &garden),
+                        layout.scale,
+                        landmark_offset(target),
+                    )?;
+                    let delta = (at - center).abs() / layout.scale;
+                    let destination = if let Target::Travel(district) = target {
+                        Frontier::for_district(district)
+                            .filter(|gate| !gate.unlocked(&garden))
+                            .map_or(target, Target::Gate)
+                    } else {
+                        target
+                    };
+                    (delta.x <= 53. && delta.y <= 12.)
+                        .then_some((destination, delta.length_squared()))
                 })
-            })
-            .or_else(|| {
-                LANDMARKS
-                    .into_iter()
-                    .filter_map(|(_, target)| {
-                        let center = landmark_center(
-                            camera,
-                            view,
-                            adventure.position(target, &garden),
-                            layout.scale,
-                            landmark_offset(target),
-                        )?;
-                        let delta = (at - center).abs() / layout.scale;
-                        let destination = if let Target::Travel(district) = target {
-                            Frontier::for_district(district)
-                                .filter(|gate| !gate.unlocked(&garden))
-                                .map_or(target, Target::Gate)
-                        } else {
-                            target
-                        };
-                        (delta.x <= 53. && delta.y <= 12.)
-                            .then_some((destination, delta.length_squared()))
-                    })
-                    .min_by(|a, b| a.1.total_cmp(&b.1))
-                    .map(|(target, _)| target)
-            })
-    } else {
-        None
-    };
-    if !adventure.map
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(target, _)| target)
+        });
+    if landmark.is_none()
+        && !adventure.map
         && adventure.area == Area::Island
         && let Some((index, depth)) = ray.and_then(|ray| hit_plot(ray, &garden))
         && volume.is_none_or(|(other, _)| depth < other)
@@ -1704,6 +1880,9 @@ pub fn interact(
         | Target::DuskGate
         | Target::Bench
         | Target::Forge
+        | Target::Loom
+        | Target::Watch(_)
+        | Target::Village(Village::Board)
         | Target::PatternStall
         | Target::Kitchen
         | Target::HarborBoard
@@ -1713,6 +1892,9 @@ pub fn interact(
                 Target::Bench if garden.workshop.restored => FarmPage::Workbench,
                 Target::Bench => FarmPage::Projects,
                 Target::Forge => FarmPage::Tools { at_forge: true },
+                Target::Loom => FarmPage::Materials(crate::craft::Bench::Loom),
+                Target::Watch(site) => FarmPage::Watch(site),
+                Target::Village(Village::Board) => FarmPage::Commissions,
                 Target::PatternStall => FarmPage::BlueprintShop,
                 Target::Kitchen => FarmPage::Kitchen,
                 Target::Binder => FarmPage::Binder,
@@ -1784,6 +1966,14 @@ pub fn interact(
             let Some(message) = SeasonProgress::pick(&mut garden, i) else {
                 return;
             };
+            message
+        }
+        Target::WatchTrace(site) => {
+            let Some(message) = site.inspect(&mut garden) else {
+                return;
+            };
+            adventure.focus = None;
+            adventure.tracked = Some(Guide::Watch(site));
             message
         }
         Target::HarborDriftwood => {
@@ -1926,6 +2116,7 @@ pub fn interact(
                     Target::HarborFishing(spot) => harbor::catch(&mut garden, spot).into(),
                     _ => {
                         garden.add_stock(Product::Fish, 1);
+                        garden.ledger.record(crate::commissions::Activity::Fish, 1);
                         "+1 Fisch".into()
                     }
                 }
@@ -2014,7 +2205,8 @@ enum Stamp {
         pier: Phase,
         salvage: bool,
         opening: bool,
-        workshop: (bool, bool, u8),
+        workshop: (bool, bool, bool, u8),
+        watches: [bool; Watch::ALL.len()],
     },
     Home {
         furniture: Vec<u8>,
@@ -2070,8 +2262,10 @@ pub fn draw(
             workshop: (
                 garden.workshop.restored,
                 garden.workshop.forge,
+                garden.workshop.loom,
                 garden.workshop.house,
             ),
+            watches: Watch::ALL.map(|site| site.stage(&garden) >= WatchStage::Guarding),
         },
         Area::Home => Stamp::Home {
             furniture: garden.furniture.clone(),
@@ -2123,7 +2317,8 @@ pub fn draw(
                 pier,
                 salvage,
                 opening,
-                workshop: (restored, forge, house),
+                workshop: (restored, forge, loom, house),
+                watches,
             } => {
                 spawn(
                     if *restored {
@@ -2140,6 +2335,33 @@ pub fn draw(
                         "workshop_forge",
                         workshop::FORGE,
                         world::exterior_ground(workshop::FORGE),
+                        0.,
+                    );
+                }
+                if *loom {
+                    spawn(
+                        "workshop_loom",
+                        workshop::LOOM,
+                        world::exterior_ground(workshop::LOOM),
+                        0.,
+                    );
+                }
+                for site in Watch::ALL {
+                    let point = site.point();
+                    let ground = world::exterior_ground(point);
+                    spawn(site.model(), point, ground, 0.);
+                    let green = matches!(site, Watch::Tide | Watch::Fen);
+                    let model = match (green, watches[site as usize]) {
+                        (true, true) => "watch_green_lit",
+                        (true, false) => "watch_green_dark",
+                        (false, true) => "watch_warm_lit",
+                        (false, false) => "watch_warm_dark",
+                    };
+                    spawn(model, point + Vec2::new(1.43, 0.72), ground + 0.94, 0.);
+                    spawn(
+                        "watch_trace",
+                        site.trace(),
+                        world::exterior_ground(site.trace()),
                         0.,
                     );
                 }
@@ -2469,7 +2691,7 @@ pub fn draw(
                     );
                     commands
                         .entity(foe)
-                        .insert(crate::battle_ui::GuardianMotion);
+                        .insert(crate::battle_ui::GuardianMotion(0.));
                 } else if level % CAMP_INTERVAL == 0 {
                     spawn(
                         "dusk_camp",
@@ -2567,6 +2789,30 @@ pub fn animate_animals(time: Res<Time>, mut animals: Query<(&Critter, &mut Trans
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_five_watches_and_survey_marks_have_normal_walking_routes() {
+        let mut garden = Garden::default();
+        garden.regions = serde_json::from_value(serde_json::json!({"gates":[2,2,2]})).unwrap();
+        let a = Adventure::default();
+        for (site, district) in Watch::ALL.into_iter().zip([
+            District::Forest,
+            District::Beach,
+            District::Copper,
+            District::Wind,
+            District::Moor,
+        ]) {
+            let mut player = Gardener::new(district.waypoint());
+            assert!(
+                player.navigate(a.reach(Target::Watch(site), &garden), &a, &garden),
+                "Wacht {site:?}"
+            );
+            assert!(
+                player.navigate(a.reach(Target::WatchTrace(site), &garden), &a, &garden),
+                "Zeichen {site:?}"
+            );
+        }
+    }
 
     #[test]
     fn a_tap_on_a_tall_plant_selects_its_own_bed() {

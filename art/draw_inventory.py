@@ -221,3 +221,48 @@ for kind in ("axe", "pickaxe", "can", "hoe"):
         ("#7f8987","#b9beb1"),("#b57850","#e8aa7d"),("#8caaa7","#e3eadf"),
     ]):
         draw(f"tool_{kind}_{tier}",lambda d: tool(d,kind,metal,shine))
+
+
+def boards(d):
+    for x,y in [(17,48),(21,34),(27,24)]:
+        poly(d,[(x,y),(x+36,y-11),(x+55,y+5),(x+50,y+14),(x+8,y+27),(x,y+17)],"#a97951")
+        poly(d,[(x,y),(x+36,y-11),(x+55,y+5),(x+13,y+18)],"#d9b284")
+        line(d,[(x+11,y+6),(x+35,y-3),(x+44,y-1)],"#b88e61",2)
+
+
+def tideglass(d):
+    for x,y,r in [(19,33,27),(44,41,31),(46,17,24)]:
+        poly(d,[(x,y+r*.3),(x+r*.4,y),(x+r,y+10),(x+r*.75,y+r),
+                (x+r*.2,y+r*.86)],"#6d9d98")
+        poly(d,[(x,y+r*.3),(x+r*.4,y),(x+r*.70,y+10),(x+r*.48,y+r*.64)],"#b0d1b4")
+        line(d,[(x+r*.4,y+3),(x+r*.67,y+11)],"#e8eac8",2)
+
+
+def rivets(d):
+    for x,y in [(23,43),(46,32),(58,52)]:
+        line(d,[(x+4,y+5),(x+9,y+24)],"#9e644b",8)
+        oval(d,(x-7,y-8,x+15,y+9),"#c38760")
+        oval(d,(x-5,y-7,x+11,y+3),"#e9b17f")
+
+
+def canvas_roll(d):
+    poly(d,[(21,29),(64,20),(76,39),(77,61),(36,77),(24,66)],"#d8bb89")
+    poly(d,[(21,29),(64,20),(76,39),(36,52)],"#f0dbad")
+    oval(d,(24,40,53,77),"#b79b75")
+    oval(d,(29,44,47,71),"#e3c798")
+    oval(d,(35,51,44,65),"#9f8666")
+    for y in [39,46]:
+        line(d,[(45,y+9),(73,y)],"#8ea9a3",3)
+
+
+def oil(d):
+    box(d,(33,25,62,42),"#a98b58",4)
+    box(d,(29,34,66,77),"#65897a",9)
+    box(d,(33,52,62,73),"#d2ad5d",5)
+    line(d,[(35,42),(35,55)],"#cddebc",3)
+    box(d,(33,21,63,29),"#cfa270",4)
+
+
+for slug, picture in [("boards",boards),("tideglass",tideglass),("rivets",rivets),
+                      ("canvas",canvas_roll),("lampoil",oil)]:
+    draw(slug,picture)

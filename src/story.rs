@@ -178,6 +178,7 @@ pub enum GuideTab {
     Story,
     Orders,
     Town,
+    Watches,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -191,6 +192,8 @@ pub enum Guide {
     FirstMorning,
     Workshop,
     Pier,
+    Watch(crate::waywatch::Watch),
+    WatchFinale,
     Resident(Npc),
     Town(Npc),
     Regional(Frontier),
@@ -219,6 +222,14 @@ impl Guide {
                 Self::Regional(Frontier::Wind),
                 Self::Regional(Frontier::Moor),
             ],
+            GuideTab::Watches => &[
+                Self::Watch(crate::waywatch::Watch::Fern),
+                Self::Watch(crate::waywatch::Watch::Tide),
+                Self::Watch(crate::waywatch::Watch::Kiln),
+                Self::Watch(crate::waywatch::Watch::Wind),
+                Self::Watch(crate::waywatch::Watch::Fen),
+                Self::WatchFinale,
+            ],
             GuideTab::Town => &[
                 Self::Pier,
                 Self::Resident(Npc::Bo),
@@ -242,6 +253,8 @@ impl Guide {
             Self::Workshop => "Die alte Hofwerkbank",
             Self::FirstMorning => "Dein erster Morgen",
             Self::Pier => "Der alte Fischersteg",
+            Self::Watch(site) => site.name(),
+            Self::WatchFinale => "Junas Inselkarte",
             Self::Resident(npc) => npc.name(),
             Self::Town(npc) => town::order_name(npc),
             Self::Regional(frontier) => garden
@@ -319,6 +332,11 @@ impl Guide {
                 garden.harbor.phase.label(),
                 crate::harbor::supplies(garden)
             ),
+            Self::Watch(site) => site.summary(garden),
+            Self::WatchFinale if garden.watches.gathered => {
+                "Erfüllt · Die fünf Lichter stehen auf der Karte.".into()
+            }
+            Self::WatchFinale => format!("{}/5 Lichter · Danach zu Juna", garden.watches.lights()),
             Self::Resident(npc) => npc.whereabouts(garden).into(),
             Self::Town(npc) => town::order_detail(npc, garden),
             Self::Regional(frontier) if !frontier.unlocked(garden) => {
@@ -373,6 +391,8 @@ impl Guide {
                 crate::harbor::Phase::Landing if !garden.harbor.fittings => Target::Bench,
                 _ => Target::HarborBoard,
             }),
+            Self::Watch(site) => site.route(garden),
+            Self::WatchFinale => crate::waywatch::finale_route(garden),
             Self::Resident(npc) => person(npc),
             Self::SeasonMeeting => Some(Target::SeasonMeeting),
             Self::Town(npc) => (!town::order_done(npc, garden)).then_some(Target::Person(npc)),

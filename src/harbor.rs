@@ -285,6 +285,7 @@ pub fn catch(garden: &mut Garden, spot: Fishing) -> &'static str {
         Fishing::Seaward => (Product::Herring, "+1 Hafenhering"),
     };
     garden.add_stock(item, 1);
+    garden.ledger.record(crate::commissions::Activity::Fish, 1);
     message
 }
 
