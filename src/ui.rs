@@ -1076,10 +1076,6 @@ pub fn update(
         sky: Sky::at(garden.day),
         season: Season::at(garden.day),
     };
-    if controller.active && adventure.map && adventure.area.outdoors() && adventure.map_focus.is_none() {
-        panel.title = "Inselkarte".into();
-        panel.detail = "Steuerkreuz links/rechts · Ziel wählen   B · Zurück".into();
-    }
     if let Some(index) = focus.selected {
         let plot = garden.plots[index];
         let stage = plot.stage();
@@ -1169,9 +1165,7 @@ pub fn update(
     }
     if focus.selected.is_none() && adventure.focus.is_none() && !garden.clock.night() {
         let step = crate::campaign::next(&garden);
-        if panel.pad && adventure.map {
-            panel.detail = "Rechter Stick · Kartenzeiger   A · Ziel   B · Nahansicht".into();
-        } else if adventure.area.outdoors() && step != crate::campaign::Step::Done {
+        if adventure.area.outdoors() && step != crate::campaign::Step::Done {
             panel.title = step.title().into();
             panel.detail = step.hint(&garden, panel.pad);
         } else if panel.pad {
@@ -1191,7 +1185,12 @@ pub fn update(
     if island_map {
         panel.title = "! Neuer Auftrag · ? Abgabebereit".into();
         panel.detail = if panel.pad {
-            "Rechter Stick · Zeiger   A · Ziel wählen".into()
+            if let Some(target) = adventure.map_focus {
+                panel.title = target.name().into();
+                "← → Ziel wechseln · A Hinlaufen · B Zurück".into()
+            } else {
+                "← → Ziel wählen · B Zurück".into()
+            }
         } else {
             "Tippe einen Namen an, um zur Figur zu laufen.".into()
         };

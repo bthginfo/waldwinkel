@@ -209,7 +209,7 @@ impl Target {
         }
     }
 
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Door | Self::Exit => "Holzhütte",
             Self::Portal => "Minenstollen",
@@ -994,9 +994,6 @@ impl Adventure {
         player: Vec2,
         now: f32,
     ) -> (String, String, &'static str, bool) {
-        if self.map && self.area.outdoors() && let Some(target) = self.map_focus {
-            return (target.name().into(), "Steuerkreuz · Ziel wechseln   A · Hinlaufen   B · Zurück".into(), "Hinlaufen", true);
-        }
         if let Some(target) = self.focus {
             let walking = self.queued == Some(target);
             if let Some(reason) = target.restriction(garden) {
