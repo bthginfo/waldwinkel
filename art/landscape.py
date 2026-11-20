@@ -211,10 +211,23 @@ def bake_heightmap(root):
     out.write_bytes(data)
 
 
+def bake_weather_cover(root, top):
+    """Roof, branch and bridge heights for the pooled outdoor precipitation."""
+    ox, oz, step = -207., -79., .5
+    cols, rows = 833, 563
+    data = bytearray(struct.pack("<4sfffHH", b"WTH1", ox, oz, step, cols, rows))
+    for j in range(rows):
+        z = oz+j*step
+        for i in range(cols):
+            hit = top(ox+i*step,z)
+            data += struct.pack("<h", round(hit.z*100) if hit is not None else -700)
+    (root/"assets"/"world"/"weather.bin").write_bytes(data)
+
+
 def terrain_models(api):
     Model,blend=api.Model,api.blend
     rng=random.Random(4839)
-    land=Model('Durchgehende Küste · Erde und Wiesen','mainland',casts=False)
+    land=Model('Durchgehende Küste · Erde und Wiesen','world_ground',casts=False)
     sea=Model('Gezeitenwasser · ein Wasserspiegel','mainland',casts=False)
     surf=Model('Brandung an der Küste','mainland',casts=False)
     paths=Model('Wanderwege, Sandpfade und Hafenstraße','mainland',casts=False)

@@ -6,10 +6,12 @@ use crate::{
     garden::{Crop, Garden, SavePath},
     homestead::{Animal, ORCHARD, Ore, Product, Village},
     regions::{Bell, Frontier},
+    seasons::{self, MEETING_POINT, SITES, SeasonProgress},
     session::Checkpoint,
     story::{Guide, GuideTab, Resonator},
     town::{Dialog, Npc},
     travel::{self, District, FINDS},
+    weather::Season,
     world::{self, Gardener, IslandCamera, Reach, Tool},
 };
 use bevy::prelude::*;
@@ -37,6 +39,8 @@ const ROCK_RADIUS: f32 = 0.78;
 const ORE_RADIUS: f32 = 0.71;
 const BED_HALF_SIZE: Vec2 = Vec2::new(0.78, 1.04);
 const BENCH_HALF_SIZE: Vec2 = Vec2::new(0.71, 0.56);
+const TABLE_HALF_SIZE: Vec2 = Vec2::new(0.89, 0.53);
+const NPC_RADIUS: f32 = 0.43;
 const TREES: [Vec2; 12] = [
     Vec2::new(-16.88, 6.9),
     Vec2::new(-16.60, 10.18),
@@ -129,6 +133,8 @@ pub enum Target {
     Village(Village),
     Travel(District),
     Find(usize),
+    SeasonFind(usize),
+    SeasonMeeting,
     Person(Npc),
     Binder,
     DuskGate,
@@ -197,6 +203,8 @@ impl Target {
             Self::Village(target) => target.name(),
             Self::Travel(district) => district.name(),
             Self::Find(i) => FINDS[i].name(),
+            Self::SeasonFind(i) => SITES[i].season.find_name(),
+            Self::SeasonMeeting => "Dorftisch",
             Self::Person(person) => person.name(),
             Self::Binder => "Kartenbinder",
             Self::DuskGate | Self::DuskExit => "Dämmergänge",
@@ -229,7 +237,8 @@ impl Target {
             Self::Bench => "Herstellen",
             Self::Village(_) => "Benutzen",
             Self::Travel(_) => "Angekommen",
-            Self::Find(_) => "Sammeln",
+            Self::Find(_) | Self::SeasonFind(_) => "Sammeln",
+            Self::SeasonMeeting => "Treffen ansehen",
             Self::Person(_) => "Ansprechen",
             Self::Binder => "Öffnen",
             Self::DuskGate => "Aufbrechen",
@@ -254,6 +263,8 @@ impl Target {
             Self::Village(target) => target.height(),
             Self::Travel(_) => 0.2,
             Self::Find(i) => FINDS[i].height(),
+            Self::SeasonFind(_) => 0.23,
+            Self::SeasonMeeting => 0.94,
             Self::Person(_) => 1.02,
             Self::Binder | Self::DuskFoe => 0.86,
             Self::DuskGate | Self::DuskExit => 1.05,
@@ -523,6 +534,10 @@ impl Adventure {
                     && !within(SALE_CHEST, 0.70)
                     && !inside(KITCHEN, Vec2::new(1.15, 0.64))
                     && !inside(PATTERN_STALL, Vec2::new(0.85, 0.51))
+                    && !inside(MEETING_POINT, TABLE_HALF_SIZE)
+                    && !Npc::ALL
+                        .into_iter()
+                        .any(|npc| within(npc.position(), NPC_RADIUS))
                     && !Animal::ALL
                         .into_iter()
                         .any(|kind| inside(kind.site(), Vec2::new(1.57, 1.22)))
@@ -589,6 +604,8 @@ impl Adventure {
             Target::Gate(_) => 0.67,
             Target::Bell(_) => 0.66,
             Target::Resonator(_) => 0.69,
+            Target::SeasonMeeting => 0.95,
+            Target::Person(_) => NPC_RADIUS + 0.07,
             Target::Bed => 1.10,
             Target::Bench => 0.91,
             Target::Binder | Target::DuskFoe | Target::DuskCamp => 0.70,
@@ -649,6 +666,8 @@ impl Adventure {
             Target::Village(location) => location.position(),
             Target::Travel(district) => district.waypoint(),
             Target::Find(i) => FINDS[i].position(),
+            Target::SeasonFind(i) => SITES[i].point,
+            Target::SeasonMeeting => MEETING_POINT,
             Target::Person(person) => person.position(),
             Target::Binder => BINDER,
             Target::DuskGate => DUSK_GATE,
@@ -668,6 +687,7 @@ impl Adventure {
                 Target::SaleChest,
                 Target::Kitchen,
                 Target::PatternStall,
+                Target::SeasonMeeting,
             ]
             .into_iter()
             .chain(Animal::ALL.into_iter().map(Target::FarmAnimal))
@@ -705,6 +725,12 @@ impl Adventure {
                     .enumerate()
                     .filter_map(|(i, &find)| find.available(garden, i).then_some(Target::Find(i))),
             )
+            .chain((0..SITES.len()).filter_map(|i| {
+                garden
+                    .seasons
+                    .available(i, garden.day)
+                    .then_some(Target::SeasonFind(i))
+            }))
             .chain(
                 (0..TREES.len())
                     .filter(|i| !garden.felled.contains(i))
@@ -870,6 +896,11 @@ impl Adventure {
                 Target::PatternStall => (
                     "Hier kaufst du Baupläne für deine Werkbank.".into(),
                     "Baupläne",
+                ),
+                Target::SeasonMeeting => (seasons::meeting_status(garden), target.label()),
+                Target::SeasonFind(_) => (
+                    "Saisonfund · Sammlung und Dorftreffen".into(),
+                    target.label(),
                 ),
                 Target::Pier => match self.waiting {
                     Some((bite, end)) if now >= bite && now <= end => {
@@ -1156,6 +1187,8 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
         ),
         Target::Bell(_) => hit(Vec2::splat(0.67), 0., 1.95),
         Target::Resonator(_) => hit(Vec2::splat(0.53), 0., 1.62),
+        Target::SeasonMeeting => hit(TABLE_HALF_SIZE, 0., 1.85),
+        Target::SeasonFind(_) => hit(Vec2::splat(0.36), 0., 0.32),
         Target::Kitchen | Target::PatternStall => hit(Vec2::new(0.96, 0.61), 0., 1.82),
         Target::FarmAnimal(_) => ray_box(
             ray,
@@ -1429,7 +1462,8 @@ pub fn interact(
         | Target::DuskGate
         | Target::Bench
         | Target::PatternStall
-        | Target::Kitchen => {
+        | Target::Kitchen
+        | Target::SeasonMeeting => {
             farm_menu.show(match target {
                 Target::SaleChest => FarmPage::Sale,
                 Target::Bench => FarmPage::Workbench,
@@ -1437,6 +1471,7 @@ pub fn interact(
                 Target::Kitchen => FarmPage::Kitchen,
                 Target::Binder => FarmPage::Binder,
                 Target::DuskGate => FarmPage::Expedition,
+                Target::SeasonMeeting => FarmPage::SeasonMeeting,
                 _ => FarmPage::SeedShop,
             });
             if target == Target::Binder {
@@ -1495,6 +1530,13 @@ pub fn interact(
                 return;
             };
             adventure.focus = None;
+            message
+        }
+        Target::SeasonFind(i) => {
+            adventure.focus = None;
+            let Some(message) = SeasonProgress::pick(&mut garden, i) else {
+                return;
+            };
             message
         }
         Target::Person(person) => {
@@ -1674,6 +1716,8 @@ enum Stamp {
         bells: [bool; 7],
         finds: [bool; FINDS.len()],
         resonance: [bool; Resonator::ALL.len()],
+        season: Season,
+        seasonal_finds: [bool; SITES.len()],
     },
     Home([u8; 6]),
     Mine(u32, Vec<u16>),
@@ -1708,6 +1752,8 @@ pub fn draw(
             bells: Bell::ALL.map(|bell| bell.ready(&garden)),
             finds: std::array::from_fn(|i| FINDS[i].available(&garden, i)),
             resonance: Resonator::ALL.map(|site| site.active(&garden)),
+            season: Season::at(garden.day),
+            seasonal_finds: std::array::from_fn(|i| garden.seasons.available(i, garden.day)),
         },
         Area::Home => Stamp::Home(garden.furniture),
         Area::Expedition(level) => Stamp::Dusk(level, garden.rpg.cleared >= level),
@@ -1751,6 +1797,8 @@ pub fn draw(
                 bells,
                 finds,
                 resonance,
+                season,
+                seasonal_finds,
             } => {
                 spawn(
                     "sale_crate",
@@ -1824,7 +1872,24 @@ pub fn draw(
                         );
                     }
                 }
+                spawn(
+                    season.table_model(),
+                    MEETING_POINT,
+                    world::exterior_ground(MEETING_POINT),
+                    0.,
+                );
+                for (i, site) in SITES.into_iter().enumerate() {
+                    if seasonal_finds[i] {
+                        spawn(
+                            site.season.find_model(),
+                            site.point,
+                            world::exterior_ground(site.point) + 0.035,
+                            i as f32 * 0.63,
+                        );
+                    }
+                }
                 for (i, point) in TREES.into_iter().enumerate() {
+                    let angle = i as f32 * 0.62;
                     spawn(
                         if felled.contains(&i) {
                             "wood_stump"
@@ -1833,8 +1898,11 @@ pub fn draw(
                         },
                         point,
                         0.,
-                        i as f32 * 0.62,
+                        angle,
                     );
+                    if *season == Season::Winter && !felled.contains(&i) {
+                        spawn("wood_snow", point, 0., angle);
+                    }
                 }
                 for (i, point) in ROCKS.into_iter().enumerate() {
                     if !broken.contains(&i) {
@@ -2084,6 +2152,28 @@ pub fn animate_animals(time: Res<Time>, mut animals: Query<(&Critter, &mut Trans
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seasonal_targets_are_reachable_and_the_dorftisch_blocks_movement() {
+        let mut garden = Garden::default();
+        let adventure = Adventure::default();
+        assert!(!adventure.walkable(MEETING_POINT, &garden));
+        assert!(adventure.can_reach(Target::SeasonMeeting, MEETING_POINT + Vec2::Y, &garden));
+        for (i, site) in SITES.into_iter().enumerate() {
+            garden.day = 1 + site.season as u32 * Season::LENGTH;
+            assert!(adventure.targets(&garden).contains(&Target::SeasonFind(i)));
+            assert!(adventure.walkable(site.point, &garden), "Fundort {}", i + 1);
+        }
+        for npc in [Npc::Lina, Npc::Miro, Npc::Fiete, Npc::Juna] {
+            assert!(!adventure.walkable(npc.position(), &garden));
+            assert!((0..8).any(|i| {
+                let point =
+                    npc.position() + Vec2::from_angle(i as f32 * std::f32::consts::FRAC_PI_4);
+                adventure.walkable(point, &garden)
+                    && adventure.can_reach(Target::Person(npc), point, &garden)
+            }));
+        }
+    }
 
     #[test]
     fn resources_block_the_player_until_collected_and_remain_reachable() {

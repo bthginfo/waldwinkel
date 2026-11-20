@@ -580,6 +580,11 @@ pub fn update(
             DialogueText::Greeting if dialog.trading => {
                 "Wähle eine Ware und bestätige den Handel.".into()
             }
+            DialogueText::Greeting if npc == crate::weather::Season::at(garden.day).host()
+                && crate::weather::Season::day(garden.day) >= crate::seasons::MEETING_START => {
+                format!("{} Komm zum Dorftisch am Marktplatz.",
+                        crate::weather::Season::at(garden.day).invitation())
+            }
             DialogueText::Greeting if quest_state == Some(QuestState::Done) => {
                 "Danke für deine Hilfe. Schau gern wieder vorbei!".into()
             }

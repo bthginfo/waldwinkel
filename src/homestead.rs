@@ -205,6 +205,15 @@ impl Village {
                     )
                 }
             }
+            Self::Orchard(_)
+                if crate::weather::Season::at(g.day) == crate::weather::Season::Winter =>
+            {
+                (
+                    "Die Obstwiese ruht bis zum Frühling.".into(),
+                    "Winterruhe",
+                    false,
+                )
+            }
             Self::Orchard(i) if farm.fruit_ready(i, g.day) => (
                 "Früchte wachsen nach zwei Tagen nach.".into(),
                 "Pflücken",
@@ -417,6 +426,7 @@ pub enum Product {
     Prepared(Dish),
     Regional(Material),
     Spoils(Loot),
+    Seasonal(crate::weather::Season),
     Fish,
     Apple,
     Berry,
@@ -448,6 +458,7 @@ impl Product {
             Self::Prepared(dish) => dish.name(),
             Self::Regional(material) => material.name(),
             Self::Spoils(loot) => loot.name(),
+            Self::Seasonal(season) => season.find_name(),
             Self::Fish => "Fisch",
             Self::Apple => "Äpfel",
             Self::Berry => "Waldbeeren",
@@ -480,6 +491,7 @@ impl Product {
             Self::Prepared(dish) => dish.value(),
             Self::Regional(material) => material.value(),
             Self::Spoils(loot) => loot.value(),
+            Self::Seasonal(_) => 7,
             Self::Fish | Self::Egg => 5,
             Self::Apple | Self::Berry => 2,
             Self::Wool => 8,
@@ -498,6 +510,7 @@ impl Product {
             .chain(Dish::ALL.map(Self::Prepared))
             .chain(Material::ALL.map(Self::Regional))
             .chain(Loot::ALL.map(Self::Spoils))
+            .chain(crate::weather::Season::ALL.map(Self::Seasonal))
             .filter(|&item| garden.stock(item) > 0)
     }
 
@@ -546,7 +559,8 @@ impl Default for Homestead {
 
 impl Homestead {
     pub fn fruit_ready(&self, i: usize, day: u32) -> bool {
-        self.fruit_days[i].is_none_or(|last| day.saturating_sub(last) >= 2)
+        crate::weather::Season::at(day) != crate::weather::Season::Winter
+            && self.fruit_days[i].is_none_or(|last| day.saturating_sub(last) >= 2)
     }
 
     pub fn end_day(&mut self, day: u32) {

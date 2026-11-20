@@ -91,8 +91,9 @@ pub const HARBOR_CHEST: usize = 9;
 pub const VINE_SHELF: usize = 10;
 pub const CUSHION_BENCH: usize = 12;
 pub const WALL_HANGING: usize = 14;
+pub const SEASONS_SHELF: usize = 18;
 
-pub const CATALOG: [Furniture; 18] = [
+pub const CATALOG: [Furniture; 19] = [
     Furniture::new(
         "Runder Tisch",
         "furniture_table",
@@ -219,10 +220,20 @@ pub const CATALOG: [Furniture; 18] = [
         [8, 0, 4, 2],
         Blueprint::sold(58, 3),
     ),
+    Furniture::new(
+        "Jahreszeitenregal",
+        "furniture_seasons",
+        [0.58, 0.34, 1.49],
+        [7, 0, 2, 0],
+        Blueprint::Reward("Belohnung für alle vier Dorftreffen"),
+    ),
 ];
 
-pub fn starting_blueprints() -> [bool; CATALOG.len()] {
-    std::array::from_fn(|index| matches!(CATALOG[index].blueprint, Blueprint::Known))
+pub fn starting_blueprints() -> Vec<bool> {
+    CATALOG
+        .iter()
+        .map(|design| matches!(design.blueprint, Blueprint::Known))
+        .collect()
 }
 
 pub fn learn(garden: &mut Garden, design: usize) -> bool {

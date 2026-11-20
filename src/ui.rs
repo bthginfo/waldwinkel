@@ -1066,7 +1066,11 @@ pub fn update(
                 } else {
                     panel.season.label()
                 },
-                panel.sky.label()
+                if garden.clock.night() && panel.sky == Sky::Sun {
+                    "Klar"
+                } else {
+                    panel.sky.label()
+                }
             ),
             Field::Context => panel.title.clone(),
             Field::Detail => panel.detail.clone(),

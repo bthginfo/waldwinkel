@@ -185,6 +185,7 @@ pub enum Guide {
     Echo(Frontier),
     Dusk,
     Festival,
+    SeasonMeeting,
     Farm,
     Town(Npc),
     Regional(Frontier),
@@ -220,6 +221,7 @@ impl Guide {
             Self::Echo(frontier) => Resonator::from_frontier(frontier).name(),
             Self::Dusk => "Unter dem Nebelmoor",
             Self::Festival => "Lichtfest in Eichenhafen",
+            Self::SeasonMeeting => "Dorftisch in Eichenhafen",
             Self::Farm => garden.task().0,
             Self::Town(npc) => town::order_name(npc),
             Self::Regional(frontier) => garden
@@ -277,6 +279,7 @@ impl Guide {
             Self::Festival => {
                 "Stimme alle drei Klangsteine und erreiche die letzte Dämmerglocke.".into()
             }
+            Self::SeasonMeeting => crate::seasons::meeting_status(garden),
             Self::Farm if garden.task().1 => "Abgabebereit · +5 Münzen und Saatgut".into(),
             Self::Farm if garden.challenge >= 8 => "Erfüllt".into(),
             Self::Farm => "Hofaufgabe · +5 Münzen und Saatgut".into(),
@@ -319,6 +322,7 @@ impl Guide {
                 Some(Target::Resonator(Resonator::Harbor))
             }
             Self::Festival | Self::Farm => None,
+            Self::SeasonMeeting => Some(Target::SeasonMeeting),
             Self::Town(npc) => (!town::order_done(npc, garden)).then_some(Target::Person(npc)),
             Self::Regional(frontier) if !frontier.unlocked(garden) => gateway(frontier),
             Self::Regional(frontier) if garden.regions.story_steps(frontier) >= 3 => None,

@@ -2,20 +2,21 @@
 use bevy::prelude::*;
 
 const MAP: &[u8] = include_bytes!("../assets/world/terrain.bin");
+const WEATHER: &[u8] = include_bytes!("../assets/world/weather.bin");
 const HEADER: usize = 20;
 const SAMPLE: usize = 3;
 
-const fn map_float(offset: usize) -> f32 {
+const fn map_float(data: &[u8], offset: usize) -> f32 {
     f32::from_le_bytes([
-        MAP[offset],
-        MAP[offset + 1],
-        MAP[offset + 2],
-        MAP[offset + 3],
+        data[offset],
+        data[offset + 1],
+        data[offset + 2],
+        data[offset + 3],
     ])
 }
 
-const ORIGIN: Vec2 = Vec2::new(map_float(4), map_float(8));
-const STEP: f32 = map_float(12);
+const ORIGIN: Vec2 = Vec2::new(map_float(MAP, 4), map_float(MAP, 8));
+const STEP: f32 = map_float(MAP, 12);
 const COLS: usize = u16::from_le_bytes([MAP[16], MAP[17]]) as usize;
 const ROWS: usize = u16::from_le_bytes([MAP[18], MAP[19]]) as usize;
 const _: () =
@@ -52,4 +53,24 @@ pub fn walkable(point: Vec2) -> bool {
         let blocked = sample(p.x.round() as usize, p.y.round() as usize).1;
         !blocked && height_at(p) > -0.40
     })
+}
+
+pub fn weather_cover(point: Vec2) -> f32 {
+    const ORIGIN: Vec2 = Vec2::new(map_float(WEATHER, 4), map_float(WEATHER, 8));
+    const STEP: f32 = map_float(WEATHER, 12);
+    const COLS: usize = u16::from_le_bytes([WEATHER[16], WEATHER[17]]) as usize;
+    const ROWS: usize = u16::from_le_bytes([WEATHER[18], WEATHER[19]]) as usize;
+    const _: () = assert!(
+        WEATHER[0] == b'W' && WEATHER[3] == b'1' && WEATHER.len() == HEADER + COLS * ROWS * 2
+    );
+    let cell = ((point - ORIGIN) / STEP).round();
+    if !cell.is_finite()
+        || cell.min_element() < 0.
+        || cell.x >= COLS as f32
+        || cell.y >= ROWS as f32
+    {
+        return -7.0;
+    }
+    let index = HEADER + (cell.y as usize * COLS + cell.x as usize) * 2;
+    f32::from(i16::from_le_bytes([WEATHER[index], WEATHER[index + 1]])) * 0.01
 }

@@ -11,6 +11,8 @@ mod input;
 mod processing;
 mod progression;
 mod regions;
+mod season_view;
+mod seasons;
 mod session;
 mod story;
 mod terrain;
@@ -111,6 +113,7 @@ pub fn main() {
         Startup,
         (
             world::setup,
+            season_view::setup,
             ui::setup,
             weather::setup,
             session::setup,
@@ -145,13 +148,16 @@ pub fn main() {
             (
                 world::update_plots,
                 world::show_exterior,
+                season_view::visibility,
+                season_view::ground,
                 world::update_selection,
                 world::animate_gardener,
                 world::watering_effect,
                 world::move_clouds,
                 world::turn_mill,
                 world::update_camera,
-                weather::update.after(world::update_camera),
+                weather::precipitation,
+                weather::lighting,
                 adventure::animate_animals,
                 ui::update,
                 ui::update_fertilizer,

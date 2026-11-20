@@ -20,7 +20,7 @@ use std::{
 pub const PLOT_COUNT: usize = 12;
 pub const FERTILIZER_PRICE: u32 = 4;
 const FERTILIZER_PACK: u32 = 2;
-const SAVE_VERSION: u8 = 10;
+const SAVE_VERSION: u8 = 11;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Quality {
@@ -192,7 +192,7 @@ pub struct Garden {
     pub deepest: u32,
     pub furniture: [u8; FURNITURE_COUNT],
     pub crafted: Vec<bool>,
-    pub blueprints: [bool; CATALOG.len()],
+    pub blueprints: Vec<bool>,
     pub challenge: usize,
     pub farm: Homestead,
     pub checkpoint: Option<Checkpoint>,
@@ -200,6 +200,7 @@ pub struct Garden {
     pub regions: RegionProgress,
     pub rpg: duel::Progress,
     pub story: StoryProgress,
+    pub seasons: crate::seasons::SeasonProgress,
     pub large_ui: bool,
 }
 
@@ -238,6 +239,7 @@ impl Default for Garden {
             regions: RegionProgress::default(),
             rpg: duel::Progress::default(),
             story: StoryProgress::default(),
+            seasons: Default::default(),
             large_ui: false,
         }
     }
@@ -279,6 +281,7 @@ impl Garden {
             Product::Prepared(dish) => &mut self.prepared[dish as usize],
             Product::Regional(material) => &mut self.regions.goods[material as usize],
             Product::Spoils(loot) => &mut self.rpg.trophies[loot as usize],
+            Product::Seasonal(season) => &mut self.seasons.stock[season as usize],
             Product::Fish => &mut self.fish,
             Product::Mushroom => &mut self.town.goods[0],
             Product::Hazel => &mut self.town.goods[1],
@@ -297,6 +300,7 @@ impl Garden {
             Product::Prepared(dish) => self.prepared[dish as usize],
             Product::Regional(material) => self.regions.goods[material as usize],
             Product::Spoils(loot) => self.rpg.trophies[loot as usize],
+            Product::Seasonal(season) => self.seasons.stock[season as usize],
             Product::Fish => self.fish,
             Product::Mushroom => self.town.goods[0],
             Product::Hazel => self.town.goods[1],
@@ -566,6 +570,14 @@ impl Garden {
         }
         garden.plots.resize(PLOT_COUNT, Plot::Grass);
         garden.crafted.resize(CATALOG.len(), false);
+        garden.blueprints.resize(CATALOG.len(), false);
+        for (known, starting) in garden
+            .blueprints
+            .iter_mut()
+            .zip(furniture::starting_blueprints())
+        {
+            *known |= starting;
+        }
         for (index, &built) in garden.crafted.iter().enumerate() {
             garden.blueprints[index] |= built;
         }
@@ -647,6 +659,37 @@ pub fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prior_blueprints_and_goods_survive_the_seasonal_update() {
+        let mut original = Garden::default();
+        original.day = 22;
+        original.blueprints[furniture::HARBOR_CHEST] = true;
+        original.crafted[furniture::HARBOR_CHEST] = true;
+        original.add_stock(Product::Shell, 7);
+        let mut old_save = serde_json::to_value(&original).unwrap();
+        old_save["version"] = 10.into();
+        old_save["blueprints"].as_array_mut().unwrap().pop();
+        old_save["crafted"].as_array_mut().unwrap().pop();
+        old_save.as_object_mut().unwrap().remove("seasons");
+        let path =
+            std::env::temp_dir().join(format!("waldwinkel-seasons-{}.json", std::process::id()));
+        fs::write(&path, serde_json::to_vec(&old_save).unwrap()).unwrap();
+        let mut restored = Garden::load(&path).unwrap();
+        assert_eq!(restored.version, SAVE_VERSION);
+        assert_eq!(restored.day, 22);
+        assert_eq!(restored.stock(Product::Shell), 7);
+        assert!(restored.blueprints[furniture::HARBOR_CHEST]);
+        assert!(restored.crafted[furniture::HARBOR_CHEST]);
+        assert!(!restored.blueprints[furniture::SEASONS_SHELF]);
+        assert_eq!(restored.seasons.collection(), 0);
+        assert!(crate::seasons::SeasonProgress::pick(&mut restored, 9).is_some());
+        restored.save(&path).unwrap();
+        let restored = Garden::load(&path).unwrap();
+        assert_eq!(restored.seasons.collection(), 1);
+        assert_eq!(restored.seasons.stock[3], 1);
+        fs::remove_file(path).unwrap();
+    }
 
     fn primary(g: &mut Garden, index: usize, crop: Crop) -> Option<Action> {
         let action = g.action(index, crop)?;

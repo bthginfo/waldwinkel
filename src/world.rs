@@ -7,7 +7,7 @@ use std::{
 use bevy::{
     core_pipeline::{fxaa::Fxaa, tonemapping::Tonemapping},
     prelude::*,
-    render::camera::ScalingMode,
+    render::{camera::ScalingMode, view::ColorGrading},
     scene::SceneInstanceReady,
     window::PrimaryWindow,
 };
@@ -17,9 +17,11 @@ use crate::{
     adventure::{Adventure, Area},
     duel::Gear,
     garden::{Action, Crop, Garden, Stage},
+    season_view::SeasonLayer,
     terrain,
     town::Npc,
     travel::District,
+    weather::{self, Season, Sky},
 };
 
 pub const SPAWN: Vec2 = Vec2::new(-0.62, 3.47);
@@ -38,9 +40,10 @@ pub const PLOTS: [Vec2; 12] = [
     Vec2::new(9.90, 5.52),
 ];
 const REACH: f32 = 1.30;
-const SPEED: f32 = 3.85;
-const ACCELERATION: f32 = 23.0;
-const BRAKING: f32 = 37.0;
+const SPEED: f32 = 4.35;
+const ACCELERATION: f32 = 29.0;
+const BRAKING: f32 = 43.0;
+const MAX_STEP: f32 = 1.0 / 120.0;
 const ANKLE: f32 = 0.224;
 const CAMERA_TARGET: Vec3 = Vec3::new(0.28, 1.24, 0.03);
 const CAMERA_AT: Vec3 = Vec3::new(-8.50, 17.50, 22.80);
@@ -103,7 +106,7 @@ pub struct Selection;
 #[derive(Component)]
 pub struct PlotModel {
     index: usize,
-    stage: Option<(Stage, Crop, bool)>,
+    stage: Option<(Stage, Crop, bool, bool)>,
     base: Entity,
     plant: Entity,
     soil_amendment: Entity,
@@ -113,8 +116,10 @@ pub struct PlotModel {
 #[derive(Resource)]
 pub struct Models {
     exterior: Vec<(Vec2, Handle<Scene>)>,
+    seasonal: [Handle<Scene>; Season::ALL.len()],
     frame: Handle<Scene>,
     lawn: Handle<Scene>,
+    winter_lawn: Handle<Scene>,
     soil: Handle<Scene>,
     wet_soil: Handle<Scene>,
     sprout: Handle<Scene>,
@@ -138,12 +143,18 @@ impl FromWorld for Models {
         let assets = world.resource::<AssetServer>();
         let get = |name: &str| assets.load(format!("models/{name}.glb#Scene0"));
         Self {
-            exterior: [(Vec2::ZERO, get("island")), (Vec2::ZERO, get("mainland"))]
-                .into_iter()
-                .chain(District::ALL.map(|district| (district.origin(), get(district.model()))))
-                .collect(),
+            exterior: [
+                (Vec2::ZERO, get("island")),
+                (Vec2::ZERO, get("mainland")),
+                (Vec2::ZERO, get("world_ground")),
+            ]
+            .into_iter()
+            .chain(District::ALL.map(|district| (district.origin(), get(district.model()))))
+            .collect(),
+            seasonal: Season::ALL.map(|season| get(&format!("season_{}", season.slug()))),
             frame: get("bed"),
             lawn: get("lawn"),
+            winter_lawn: get("lawn_winter"),
             soil: get("soil"),
             wet_soil: get("wet_soil"),
             sprout: get("sprout"),
@@ -201,12 +212,21 @@ pub fn setup(mut commands: Commands, models: Res<Models>, assets: Res<AssetServe
             ..OrthographicProjection::default_3d()
         }),
         Tonemapping::None,
+        ColorGrading::default(),
+        DistanceFog {
+            color: Color::NONE,
+            ..default()
+        },
         Msaa::Off,
         Fxaa::default(),
         Transform::from_translation(CAMERA_TARGET + camera_offset(Area::Island))
             .looking_at(CAMERA_TARGET, Vec3::Y),
     ));
-    let scenery_count = models.exterior.len();
+    let scenery_count = models.exterior.len() + models.seasonal.len();
+    let scene_ready = move |_: Trigger<SceneInstanceReady>, mut ready: ResMut<Ready>| {
+        ready.1 += 1;
+        ready.0 = ready.1 >= scenery_count;
+    };
     for (origin, model) in &models.exterior {
         commands
             .spawn((
@@ -214,12 +234,20 @@ pub fn setup(mut commands: Commands, models: Res<Models>, assets: Res<AssetServe
                 SceneRoot(model.clone()),
                 Transform::from_translation(position3(*origin, 0.)),
             ))
-            .observe(
-                move |_: Trigger<SceneInstanceReady>, mut ready: ResMut<Ready>| {
-                    ready.1 += 1;
-                    ready.0 = ready.1 >= scenery_count;
+            .observe(scene_ready);
+    }
+    for (season, model) in Season::ALL.into_iter().zip(&models.seasonal) {
+        commands
+            .spawn((
+                SeasonLayer(season),
+                SceneRoot(model.clone()),
+                if season == Season::Spring {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
                 },
-            );
+            ))
+            .observe(scene_ready);
     }
     for (i, person) in Npc::ALL.into_iter().enumerate() {
         let point = person.position();
@@ -471,6 +499,7 @@ pub fn update_plots(
     models: Res<Models>,
     mut plots: Query<&mut PlotModel>,
 ) {
+    let winter = Season::at(garden.day) == Season::Winter;
     for mut plot in &mut plots {
         let fertilized = garden.fertilized[plot.index];
         if plot.fertilized != fertilized {
@@ -484,20 +513,23 @@ pub fn update_plots(
         let state = garden.plots[plot.index];
         let stage = state.stage();
         let wet = state.remaining().is_some_and(|(_, wet)| wet);
-        if plot.stage == Some((stage, state.crop(), wet)) {
+        let snow = stage == Stage::Grass && winter;
+        if plot.stage == Some((stage, state.crop(), wet, snow)) {
             continue;
         }
         let bare = stage == Stage::Grass;
         if plot.stage.is_none()
             || plot
                 .stage
-                .is_some_and(|(previous, _, was_wet)| previous == Stage::Grass || was_wet != wet)
+                .is_some_and(|(previous, _, was_wet, _)| previous == Stage::Grass || was_wet != wet)
             || bare
         {
             replace_model(
                 &mut commands,
                 plot.base,
-                Some(if bare {
+                Some(if snow {
+                    &models.winter_lawn
+                } else if bare {
                     &models.lawn
                 } else if wet {
                     &models.wet_soil
@@ -513,7 +545,7 @@ pub fn update_plots(
             _ => None,
         };
         replace_model(&mut commands, plot.plant, plant);
-        plot.stage = Some((stage, state.crop(), wet));
+        plot.stage = Some((stage, state.crop(), wet, snow));
     }
 }
 
@@ -561,7 +593,7 @@ pub fn advance_player(
         Vec2::ZERO
     };
     let old = player.position;
-    let steps = (delta * 120.).ceil() as u32;
+    let steps = (delta / MAX_STEP).ceil() as u32;
     let step_time = delta / steps as f32;
     let passable = |p| adventure.walkable(p, &garden);
     for _ in 0..steps {
@@ -582,7 +614,9 @@ pub fn advance_player(
                 .min(diff.length() / step_time);
             player.velocity = diff.normalize_or_zero() * speed;
         } else {
-            let rate = if desired.length_squared() < player.velocity.length_squared() {
+            let rate = if desired.length_squared() < player.velocity.length_squared()
+                || desired.dot(player.velocity) < 0.0
+            {
                 BRAKING
             } else {
                 ACCELERATION
@@ -592,9 +626,12 @@ pub fn advance_player(
         }
         let advance = player.velocity * step_time;
         let moved = slide(player.position, advance, &passable);
-        if moved == player.position && advance != Vec2::ZERO && !manual {
-            player.route.clear();
-            player.velocity = Vec2::ZERO;
+        let actual = moved - player.position;
+        if (actual - advance).length_squared() > 1e-8 {
+            player.velocity = actual / step_time;
+            if actual == Vec2::ZERO && !manual {
+                player.route.clear();
+            }
         }
         player.position = moved;
     }
@@ -627,12 +664,16 @@ fn slide(point: Vec2, step: Vec2, passable: &impl Fn(Vec2) -> bool) -> Vec2 {
     if passable(next) {
         return next;
     }
-    let horizontal = Vec2::new(next.x, point.y);
-    if horizontal != point && passable(horizontal) {
-        return horizontal;
-    }
-    let vertical = Vec2::new(point.x, next.y);
-    if passable(vertical) { vertical } else { point }
+    let x = Vec2::new(next.x, point.y);
+    let y = Vec2::new(point.x, next.y);
+    let axes = if step.x.abs() >= step.y.abs() {
+        [x, y]
+    } else {
+        [y, x]
+    };
+    axes.into_iter()
+        .find(|&candidate| candidate != point && passable(candidate))
+        .unwrap_or(point)
 }
 
 pub fn animate_gardener(
@@ -753,7 +794,25 @@ pub fn animate_gardener(
         let (swing, _) = foot_pose(step_phase(player.phase, boot.0));
         transform.rotation = Quat::from_rotation_x(swing * 0.66 * player.gait);
     }
-    shadow.translation = root.translation + Vec3::new(0.026, 0.022, 0.04);
+    let outdoor = adventure.area.outdoors();
+    let daylight = if outdoor {
+        ((f32::from(garden.clock.minute()) - 360.0) / (16.0 * 60.0)).clamp(0., 1.)
+    } else {
+        0.5
+    };
+    let azimuth = -0.48 + daylight * 2.48;
+    let direction = Vec2::from_angle(azimuth);
+    let length = 0.34 + (1. - (std::f32::consts::PI * daylight).sin()) * 0.56;
+    let softness = if !outdoor || garden.clock.night() || Sky::at(garden.day) != Sky::Sun {
+        0.28
+    } else {
+        length
+    };
+    let point = root.translation.xz() + direction * softness * 0.19;
+    let ground = if outdoor { exterior_ground(point) } else { 0. };
+    shadow.translation = position3(point, ground + 0.023);
+    shadow.rotation = Quat::from_rotation_y(-azimuth);
+    shadow.scale = Vec3::new(0.38 + softness * 0.40, 1.0, 0.32);
 }
 
 #[derive(Component)]
@@ -823,16 +882,31 @@ fn foot_pose(phase: f32) -> (f32, f32) {
     }
 }
 
-pub fn move_clouds(time: Res<Time>, mut clouds: Query<(&Cloud, &mut Transform)>) {
+pub fn move_clouds(
+    time: Res<Time>,
+    garden: Res<Garden>,
+    mut clouds: Query<(&Cloud, &mut Transform)>,
+) {
+    let gust = weather::wind(Sky::at(garden.day), time.elapsed_secs());
     for (cloud, mut transform) in &mut clouds {
         let phase = time.elapsed_secs() * 0.17 + cloud.phase;
-        transform.translation =
-            cloud.origin + Vec3::new(phase.sin() * 0.53, phase.cos() * 0.10, 0.0);
+        transform.translation = cloud.origin
+            + Vec3::new(
+                phase.sin() * gust.x,
+                phase.cos() * 0.10,
+                phase.sin() * gust.y,
+            );
     }
 }
 
-pub fn turn_mill(time: Res<Time>, sail: Single<&mut Transform, With<MillSails>>) {
-    sail.into_inner().rotate_z(0.60 * time.delta_secs());
+pub fn turn_mill(
+    time: Res<Time>,
+    garden: Res<Garden>,
+    sail: Single<&mut Transform, With<MillSails>>,
+) {
+    let speed = weather::wind(Sky::at(garden.day), time.elapsed_secs()).length();
+    sail.into_inner()
+        .rotate_z((0.32 + speed * 0.6) * time.delta_secs());
 }
 
 fn position3(point: Vec2, height: f32) -> Vec3 {
@@ -1075,6 +1149,17 @@ fn approach(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blocked_diagonal_preserves_the_longer_free_component() {
+        let step = Vec2::new(0.015, 0.03);
+        let obstacle = |p: Vec2| p.x == 0. || p.y == 0.;
+        assert_eq!(slide(Vec2::ZERO, step, &obstacle), Vec2::new(0., 0.03));
+        assert_eq!(
+            slide(Vec2::ZERO, -step.yx(), &obstacle),
+            Vec2::new(-0.03, 0.)
+        );
+    }
 
     #[test]
     fn tap_can_route_around_the_cabin_and_fence() {

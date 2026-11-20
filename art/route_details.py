@@ -156,12 +156,8 @@ def dress(api, theme, model, ground, origin):
                     a,b=.81*s*math.cos(angle),.67*s*math.sin(angle)
                     h=y+(2.54+.24*(k%3))*s
                     model.pole((x+.18*s,z,y+1.65*s),(x+a,z+b,h),.088*s,"91775d",6,tip=.045*s)
-                    model.ellipsoid(x+a,z+b,h,.71*s,.53*s,.39*s,
+                    api.seasonal.crown(model,x+a,z+b,h,.71*s,.53*s,.39*s,
                                     ["788873","9a9a7a","879878","979288","b59c9e"][(k+group)%5],8,4,rough=.14)
-                    for n in range(3):
-                        aa=x+a+(n-1)*.21*s
-                        model.pole((aa,z+b,h-.06),(aa+.055*s,z+b+.09*s,h-.64*s),.034*s,
-                                   "809275",5,tip=.007*s,mode="leaf")
             for j in range(34):
                 x,z=cx+rng.uniform(-4.8,4.8),cz+rng.uniform(-4.4,4.4)
                 if usable(x,z):

@@ -11,9 +11,11 @@ use crate::{
     processing::{Dish, Method, Preparation},
     progression::{self, CARDS_FOR_SALE, GearSource},
     regions::Bell,
+    seasons::{self, CONTRIBUTION, MEETING_START, PRIZE},
     session::{Checkpoint, Session},
     story::{Guide, GuideTab},
     ui::{self, UiFonts},
+    weather::Season,
     world::Gardener,
 };
 
@@ -36,6 +38,8 @@ pub enum FarmPage {
     Gear(GearSource),
     Expedition,
     Journal(GuideTab),
+    Calendar,
+    SeasonMeeting,
     Battle,
 }
 
@@ -140,6 +144,8 @@ impl FarmMenu {
                 .map(Entry::Level)
                 .collect(),
             FarmPage::Journal(tab) => Guide::entries(tab).map(Entry::Guide).collect(),
+            FarmPage::Calendar => Season::ALL.into_iter().map(Entry::Season).collect(),
+            FarmPage::SeasonMeeting => Vec::new(),
             FarmPage::Battle => Vec::new(),
         }
     }
@@ -162,6 +168,7 @@ enum Entry {
     Gear(Gear),
     Level(u32),
     Guide(Guide),
+    Season(Season),
 }
 
 impl Entry {
@@ -179,6 +186,10 @@ impl Entry {
             Self::Level(1) => "Ebene 1".into(),
             Self::Level(level) => format!("Glockenrast {level}"),
             Self::Guide(guide) => guide.title(garden).into(),
+            Self::Season(season) if season == Season::at(garden.day) => {
+                format!("{} · Jetzt", season.label())
+            }
+            Self::Season(season) => season.label().into(),
         }
     }
 
@@ -242,6 +253,14 @@ impl Entry {
             Self::Level(1) => "Am Eingang beginnen".into(),
             Self::Level(_) => "Hier beginnen und Leben auffüllen".into(),
             Self::Guide(guide) => guide.detail(garden),
+            Self::Season(season) => {
+                let discovery = if garden.seasons.discovered[season as usize] {
+                    season.find_name()
+                } else {
+                    "Fund offen"
+                };
+                format!("{} · {discovery}", season.meeting())
+            }
         }
     }
 
@@ -274,6 +293,7 @@ pub enum Choice {
     Gear,
     Return,
     Guide(GuideTab),
+    Calendar,
 }
 
 #[derive(Component)]
@@ -429,6 +449,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                             (Choice::Return, "Zurück", 84.),
                             (Choice::Guide(GuideTab::Orders), "Aufträge", 104.),
                             (Choice::Guide(GuideTab::Story), "Geschichte", 112.),
+                            (Choice::Calendar, "Kalender", 104.),
                         ] {
                             footer
                                 .spawn((action, ui::dialog_button(width)))
@@ -569,8 +590,12 @@ pub fn input(
             menu.message.clear();
             None
         }
-        Choice::Guide(tab) if matches!(page, FarmPage::Journal(_)) => {
+        Choice::Guide(tab) if matches!(page, FarmPage::Journal(_) | FarmPage::Calendar) => {
             menu.navigate(FarmPage::Journal(tab));
+            None
+        }
+        Choice::Calendar if matches!(page, FarmPage::Journal(_) | FarmPage::SeasonMeeting) => {
+            menu.navigate(FarmPage::Calendar);
             None
         }
         Choice::Talents if page == FarmPage::Binder => {
@@ -639,9 +664,11 @@ pub fn input(
                 Err("Für diesen Rang fehlen Punkte, oder das Talent ist bereits ausgebaut.".into())
             })
         }
-        Choice::Work if matches!(page, FarmPage::Journal(_)) => {
-            let Some(Entry::Guide(guide)) = menu.selected else {
-                return;
+        Choice::Work if matches!(page, FarmPage::Journal(_) | FarmPage::Calendar) => {
+            let guide = match (page, menu.selected) {
+                (FarmPage::Calendar, _) => Guide::SeasonMeeting,
+                (_, Some(Entry::Guide(guide))) => guide,
+                _ => return,
             };
             if guide == Guide::Farm {
                 Some(if garden.claim() {
@@ -668,6 +695,7 @@ pub fn input(
                 None
             }
         }
+        Choice::Work if page == FarmPage::SeasonMeeting => Some(seasons::contribute(&mut garden)),
         Choice::Work if matches!(page, FarmPage::Gear(_)) => {
             let (FarmPage::Gear(source), Some(Entry::Gear(gear))) = (page, menu.selected) else {
                 return;
@@ -784,6 +812,8 @@ pub fn update(
                 FarmPage::Expedition => "Dämmergänge",
                 FarmPage::Journal(GuideTab::Story) => "Das Licht der Wegglocken",
                 FarmPage::Journal(GuideTab::Orders) => "Aufträge",
+                FarmPage::Calendar => "Jahreszeitenkalender",
+                FarmPage::SeasonMeeting => Season::at(garden.day).meeting(),
                 FarmPage::Battle => "",
             }
             .into(),
@@ -855,6 +885,31 @@ pub fn update(
                 FarmPage::Journal(GuideTab::Orders) => {
                     "Hof, Eichenhafen und die Außenregionen".into()
                 }
+                FarmPage::Calendar => {
+                    let season = Season::at(garden.day);
+                    let day = Season::day(garden.day);
+                    let left = Season::LENGTH + 1 - day;
+                    let next = Season::ALL[(season as usize + 1) % Season::ALL.len()];
+                    let change = if left == 1 {
+                        "morgen".into()
+                    } else {
+                        format!("in {left} Tagen")
+                    };
+                    format!(
+                        "{} · Tag {day}/{} · {} beginnt {change}.",
+                        season.label(),
+                        Season::LENGTH,
+                        next.label()
+                    )
+                }
+                FarmPage::SeasonMeeting => {
+                    let season = Season::at(garden.day);
+                    format!(
+                        "{} lädt ein. {}",
+                        season.host().name(),
+                        seasons::meeting_status(&garden)
+                    )
+                }
                 FarmPage::Battle => String::new(),
             },
             Field::Message if progress.is_some() => {
@@ -870,6 +925,36 @@ pub fn update(
                 )
             }
             Field::Message if !menu.message.is_empty() => menu.message.clone(),
+            Field::Message if page == FarmPage::Calendar => {
+                let season = match selected {
+                    Some(Entry::Season(season)) => season,
+                    _ => Season::at(garden.day),
+                };
+                let item = garden.stock(Product::Seasonal(season));
+                let status = if garden.seasons.celebrated[season as usize] {
+                    "Teilgenommen"
+                } else {
+                    "Treffen offen"
+                };
+                format!(
+                    "{} × {} · {} · Funde {}/4 · Dorftreffen {}/4\n{} Treffen an Tag {MEETING_START}–7.",
+                    item,
+                    season.find_name(),
+                    status,
+                    garden.seasons.collection(),
+                    garden.seasons.meetings(),
+                    season.find_hint()
+                )
+            }
+            Field::Message if page == FarmPage::SeasonMeeting => {
+                let season = Season::at(garden.day);
+                let supplies = garden.stock(Product::Seasonal(season));
+                format!(
+                    "{}\nBeitrag {supplies}/{CONTRIBUTION} {} · Belohnung {PRIZE} Münzen und 3 Samen.\nDas Jahreszeitenregal gibt es nach allen vier Treffen.",
+                    season.invitation(),
+                    season.find_name()
+                )
+            }
             Field::Message if selected.is_some() => match selected.unwrap() {
                 Entry::Stock(item) => format!(
                     "{} · {} Stück · {} Münzen für den Stapel",
@@ -933,6 +1018,8 @@ pub fn update(
                 (FarmPage::Gear(GearSource::Workbench), _) => "Bauen & anlegen",
                 (FarmPage::Journal(_), Some(Entry::Guide(Guide::Farm))) => "Belohnung holen",
                 (FarmPage::Journal(_), _) => "Auf Karte zeigen",
+                (FarmPage::Calendar, _) => "Treffpunkt zeigen",
+                (FarmPage::SeasonMeeting, _) => "Beitrag abgeben",
                 _ => "Herstellen",
             }
             .into(),
@@ -960,7 +1047,12 @@ pub fn update(
             ),
             Choice::Return => (matches!(page, FarmPage::Talents | FarmPage::Gear(_)), true),
             Choice::Guide(tab) => (
-                matches!(page, FarmPage::Journal(current) if current != tab),
+                page == FarmPage::Calendar
+                    || matches!(page, FarmPage::Journal(current) if current != tab),
+                true,
+            ),
+            Choice::Calendar => (
+                matches!(page, FarmPage::Journal(_) | FarmPage::SeasonMeeting),
                 true,
             ),
             Choice::AddCopy => (
@@ -996,6 +1088,8 @@ pub fn update(
                     (FarmPage::Journal(_), Some(Entry::Guide(guide))) => {
                         guide.target(&garden).is_some()
                     }
+                    (FarmPage::Calendar, _) => true,
+                    (FarmPage::SeasonMeeting, _) => seasons::can_contribute(&garden),
                     _ => false,
                 };
                 (
@@ -1007,6 +1101,8 @@ pub fn update(
                             | FarmPage::Talents
                             | FarmPage::Gear(_)
                             | FarmPage::Journal(_)
+                            | FarmPage::Calendar
+                            | FarmPage::SeasonMeeting
                     ),
                     available,
                 )
@@ -1025,6 +1121,12 @@ pub fn update(
                 (false, _, _) => Color::srgb_u8(234, 227, 205),
                 (_, true, _) | (_, _, Interaction::Pressed) => Color::srgb_u8(198, 214, 162),
                 (_, _, Interaction::Hovered) => Color::srgb_u8(239, 220, 171),
+                _ if let Some(Entry::Season(season)) = entry => match season {
+                    Season::Spring => Color::srgb_u8(242, 215, 207),
+                    Season::Summer => Color::srgb_u8(247, 230, 181),
+                    Season::Autumn => Color::srgb_u8(242, 208, 169),
+                    Season::Winter => Color::srgb_u8(215, 233, 228),
+                },
                 _ => Color::srgb_u8(241, 228, 191),
             }
         } else {

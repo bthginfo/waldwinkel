@@ -276,8 +276,9 @@ def models(api):
             continue
         moor.pole((x,z,y),(x+.06,z,y+2.11*s),.207*s,"9c8271",8,tip=.108*s)
         moor.obstacle_circle(x,z,.24*s)
+        api.seasonal.bare_tree(moor,x,z,y,s,2.11*s)
         for dx,dz,hh,rad in [(-.47,.09,2.04,.86),(.58,-.20,2.33,.80),(.07,.22,2.69,.83)]:
-            moor.ellipsoid(x+dx*s,z+dz*s,y+hh*s,rad*s,rad*.91*s,rad*.75*s,
+            api.seasonal.crown(moor,x+dx*s,z+dz*s,y+hh*s,rad*s,rad*.91*s,rad*.75*s,
                           ["a37887","af828d","987789"][(i+int(hh*10))%3],9,4,rough=.15)
     for i in range(230):
         cx,cz=[(-9.0,4.8),(-12.1,2.7),(-15.3,12.8),(-4.5,9.2),(-18.7,10.4)][i%5]
@@ -315,8 +316,9 @@ def models(api):
                 if theme=="moor" and i%3!=0:
                     m.pole((x,z,y),(x+.07,z,y+2.55*scale),.223*scale,"886e57",8,tip=.105)
                     m.obstacle_circle(x,z,.27*scale)
+                    api.seasonal.bare_tree(m,x,z,y,scale,2.55*scale)
                     for dx,dz,dy,r in [(-.65,.11,2.16,.71),(.56,-.24,2.48,.76),(.14,.17,2.84,.82)]:
-                        m.ellipsoid(x+dx*scale,z+dz*scale,y+dy*scale,r*scale,r*.85*scale,r*.80*scale,
+                        api.seasonal.crown(m,x+dx*scale,z+dz*scale,y+dy*scale,r*scale,r*.85*scale,r*.80*scale,
                                     ["a37483","b48b90","947386"][(i+int(dy))%3],8,4,rough=.16)
                 else:
                     api.pine(m,x,z,y,scale,i)
