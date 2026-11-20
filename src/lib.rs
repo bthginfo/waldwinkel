@@ -84,133 +84,155 @@ pub fn main() {
     let path = SavePath::for_device();
     let slots = session::SaveSlots::new(path.0.clone());
     let mut app = App::new();
-    app.add_plugins(
-        DefaultPlugins
-            .set(LogPlugin {
-                filter: "wgpu=error,bevy_render=info,waldwinkel=info".to_owned(),
-                ..default()
-            })
-            .set(AssetPlugin {
-                meta_check: AssetMetaCheck::Never,
-                ..default()
-            })
-            .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "Waldwinkel".into(),
-                    resolution: (1600.0f32, 900.0f32).into(),
-                    present_mode: PresentMode::AutoVsync,
-                    ..default()
-                }),
+    let plugins = DefaultPlugins
+        .set(LogPlugin {
+            filter: "wgpu=error,naga=warn,bevy_render=info,waldwinkel=info".to_owned(),
+            ..default()
+        })
+        .set(AssetPlugin {
+            meta_check: AssetMetaCheck::Never,
+            ..default()
+        })
+        .set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "Waldwinkel".into(),
+                resolution: (1600.0f32, 900.0f32).into(),
+                present_mode: PresentMode::AutoVsync,
                 ..default()
             }),
-    )
-    .insert_resource(ClearColor(Color::srgb_u8(132, 204, 201)))
-    .init_resource::<Garden>()
-    .insert_resource(path)
-    .insert_resource(slots)
-    .init_resource::<session::Session>()
-    .init_resource::<town::Dialog>()
-    .init_resource::<farm_ui::FarmMenu>()
-    .init_resource::<Adventure>()
-    .init_resource::<Ready>()
-    .init_resource::<Controls>()
-    .init_resource::<controller::Controller>()
-    .init_resource::<GardenFocus>()
-    .init_resource::<Notice>()
-    .init_resource::<input::Gesture>()
-    .init_resource::<ui::HudLayout>()
-    .init_resource::<world::Models>()
-    .init_resource::<ui::Icons>()
-    .init_resource::<ui::UiFonts>()
-    .init_resource::<battle_ui::DeckIcons>()
-    .add_event::<harvest_fx::Break>()
-    .add_systems(
-        Startup,
-        (
-            world::setup,
-            forest::setup,
-            season_view::setup,
-            ui::setup,
-            weather::setup,
-            session::setup,
-            town::setup,
-            farm_ui::setup,
-            battle_ui::setup,
-            cinematic::setup,
-            sound::setup,
-        ),
-    )
-    .add_systems(
-        Update,
-        (
-            ui::resize,
-            session::input,
-            town::input,
-            farm_ui::input,
-            battle_ui::input,
-            input::collect,
-            session::open_menu,
+            ..default()
+        });
+    #[cfg(target_os = "android")]
+    let plugins = {
+        use bevy::render::{
+            RenderPlugin,
+            settings::{RenderCreation, WgpuSettings, WgpuSettingsPriority},
+        };
+        // Keep startup on the portable Vulkan path. Some Android drivers
+        // advertise optional GPU preprocessing capabilities that fail during
+        // pipeline creation.
+        plugins
+            .set(RenderPlugin {
+                render_creation: RenderCreation::Automatic(WgpuSettings {
+                    priority: WgpuSettingsPriority::Compatibility,
+                    ..default()
+                }),
+                synchronous_pipeline_compilation: true,
+                ..default()
+            })
+            .set(bevy::pbr::PbrPlugin {
+                use_gpu_instance_buffer_builder: false,
+                ..default()
+            })
+    };
+    app.add_plugins(plugins)
+        .insert_resource(ClearColor(Color::srgb_u8(132, 204, 201)))
+        .init_resource::<Garden>()
+        .insert_resource(path)
+        .insert_resource(slots)
+        .init_resource::<session::Session>()
+        .init_resource::<town::Dialog>()
+        .init_resource::<farm_ui::FarmMenu>()
+        .init_resource::<Adventure>()
+        .init_resource::<Ready>()
+        .init_resource::<Controls>()
+        .init_resource::<controller::Controller>()
+        .init_resource::<GardenFocus>()
+        .init_resource::<Notice>()
+        .init_resource::<input::Gesture>()
+        .init_resource::<ui::HudLayout>()
+        .init_resource::<world::Models>()
+        .init_resource::<ui::Icons>()
+        .init_resource::<ui::UiFonts>()
+        .init_resource::<battle_ui::DeckIcons>()
+        .add_event::<harvest_fx::Break>()
+        .add_systems(
+            Startup,
+            (
+                world::setup,
+                forest::setup,
+                season_view::setup,
+                ui::setup,
+                weather::setup,
+                session::setup,
+                town::setup,
+                farm_ui::setup,
+                battle_ui::setup,
+                cinematic::setup,
+                sound::setup,
+            ),
         )
-            .chain(),
-    )
-    .add_systems(
-        Update,
-        (
-            day::tick,
-            select_plot,
-            adventure::select,
-            world::advance_player,
-            act,
-            adventure::interact,
+        .add_systems(
+            Update,
+            (
+                ui::resize,
+                session::input,
+                town::input,
+                farm_ui::input,
+                battle_ui::input,
+                input::collect,
+                session::open_menu,
+            )
+                .chain(),
         )
-            .chain()
-            .after(session::open_menu)
-            .run_if(session::playing),
-    )
-    .add_systems(
-        Update,
-        (
-            adventure::draw,
-            town::move_residents,
-            world::update_plots,
-            world::show_exterior,
-            season_view::visibility,
-            season_view::ground,
-            world::update_selection,
-            world::animate_gardener,
-            world::watering_effect,
-            world::move_clouds,
-            world::turn_mill,
-            world::update_camera,
-            cinematic::show,
-            weather::precipitation,
-            weather::lighting,
-            sound::play,
-            adventure::animate_animals,
-            ui::update,
-            ui::update_fertilizer,
-            ui::map_labels.after(world::update_camera),
+        .add_systems(
+            Update,
+            (
+                day::tick,
+                select_plot,
+                adventure::select,
+                world::advance_player,
+                act,
+                adventure::interact,
+            )
+                .chain()
+                .after(session::open_menu)
+                .run_if(session::playing),
         )
-            .chain()
-            .after(adventure::interact)
-            .after(session::open_menu),
-    )
-    .add_systems(
-        Update,
-        (
-            harvest_fx::animate,
-            forest::draw,
-            session::update,
-            town::update,
-            farm_ui::update,
-            battle_ui::update,
-            battle_ui::draw_trial_guardian,
-            battle_ui::animate_guardian,
-            ui::sync_visibility,
+        .add_systems(
+            Update,
+            (
+                adventure::draw,
+                town::move_residents,
+                world::update_plots,
+                world::show_exterior,
+                season_view::visibility,
+                season_view::ground,
+                world::update_selection,
+                world::animate_gardener,
+                world::watering_effect,
+                world::move_clouds,
+                world::turn_mill,
+                world::update_camera,
+                cinematic::show,
+                weather::precipitation,
+                weather::lighting,
+                sound::play,
+                adventure::animate_animals,
+                ui::update,
+                ui::update_fertilizer,
+                ui::map_labels.after(world::update_camera),
+            )
+                .chain()
+                .after(adventure::interact)
+                .after(session::open_menu),
         )
-            .after(adventure::interact),
-    )
-    .add_systems(PostUpdate, session::autosave);
+        .add_systems(
+            Update,
+            (
+                harvest_fx::animate,
+                forest::draw,
+                session::update,
+                town::update,
+                farm_ui::update,
+                battle_ui::update,
+                battle_ui::draw_trial_guardian,
+                battle_ui::animate_guardian,
+                ui::sync_visibility,
+            )
+                .after(adventure::interact),
+        )
+        .add_systems(PostUpdate, session::autosave);
     #[cfg(target_os = "android")]
     app.add_systems(Startup, controller::setup).add_systems(
         PreUpdate,

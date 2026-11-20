@@ -23,3 +23,7 @@ Die 1.3.1 hatte bereits einen funktionierenden Hof, eine große Insel, vier Jahr
 - Im Spiel wurden Wegzeichen, Reparatur der Werkbank, Fertigung von sechs Brettern, Reparatur der Farnwacht, ein Duell mit Proviant und die Übergabe bei Juna mit Testspielständen geprüft. Die Stufen und Belohnungen stehen danach im Spielstand. [Farnwacht](14-farnwacht.jpg) · [Wegwachten](14-wegwachten.jpg) · [Fertigung](14-materialien.jpg) · [Duell](14-proviant.jpg)
 - Die Tests decken alle zwölf Wachtprüfungen mit einem ausgebauten Deck, den ersten Wachtkampf mit dem Startdeck, die fünf Wege, die Handwerksschritte, den Wechsel der Aufträge, das Ernten über mehrere Tage, die Proviantregeln und das einmalige Auszahlen der Belohnungen ab.
 - Die Referenz zeigt die angestrebten Formen und Materialien. Die Modelle stammen aus der Blender-Datei und dem Exportskript des Projekts. [Bildreferenz der fünf Wachten](../art/references/wegwachten.jpg)
+
+## Android 1.4.1
+
+Ein Kaltstart unter dem Android-Emulator hat bei der Erstellung eines Shaders abgebrochen. Der Android-Build verwendet deshalb das Vulkan-Kompatibilitätsprofil, bereitet Instanzen auf der CPU vor und erstellt die Grafikpipelines synchron.
