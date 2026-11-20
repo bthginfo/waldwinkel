@@ -106,6 +106,7 @@ pub fn collect(
     ready: Res<Ready>,
     session: Res<Session>,
     dialog: Res<Dialog>,
+    farm_menu: Res<crate::farm_ui::FarmMenu>,
     mut was_live: Local<bool>,
     mut gesture: ResMut<Gesture>,
     mut controls: ResMut<Controls>,
@@ -118,7 +119,7 @@ pub fn collect(
         || lifecycle
             .read()
             .any(|event| matches!(event, AppLifecycle::WillSuspend | AppLifecycle::Suspended));
-    let live = session.playing() && !dialog.open() && ready.0;
+    let live = session.playing() && !dialog.open() && !farm_menu.open() && ready.0;
     let just_opened = live && !*was_live;
     *was_live = live;
     if lost_focus || !live || just_opened {
@@ -219,6 +220,7 @@ pub fn collect(
         (KeyCode::KeyE, Utility::Choice),
         (KeyCode::KeyQ, Utility::Task),
         (KeyCode::KeyI, Utility::Inventory),
+        (KeyCode::KeyF, Utility::Fertilize),
     ] {
         if keys.just_pressed(key) {
             action.apply(&mut controls);

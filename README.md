@@ -9,7 +9,16 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Hof, Farnwald, Muschelbucht und Eichenhafen
 - Lade die signierte APK herunter und öffne sie auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://github.com/bthginfo/waldwinkel/releases/latest/download/Waldwinkel-Android.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
 
-## Neu in 0.6.0
+## Neu in 0.7.0
+
+- **Tagesablauf.** Der Tag beginnt um 06:00. Eine reale Sekunde entspricht einer Spielminute. Ab 19:00 wird es dämmrig, der Markt schließt um 20:00. Ab 22:00 ruhen Feldarbeit, Fischfang, Holz- und Erzabbau. Du kannst weiterlaufen, nach Hause gehen und in der Verkaufstruhe verkaufen. Schlafen im Bett beginnt den nächsten Tag.
+- **Anbau.** Tippe auf ein Beet und dann auf seine Aktion. Der Tanuki geht selbst in Reichweite und legt das Beet an, sät, gießt oder erntet. Über **Saatgut** wählst du direkt zwischen sechs Kulturen. Ein eigenes Symbol und die Gießkanne zeigen, wann ein Beet Wasser braucht.
+- **Saatgut und Qualität.** Samen gibt es beim Saatgutstand, in Farnwald und Muschelbucht, als Auftragsbelohnung und bei 30 % der Ernten. Gedüngte Beete liefern bei der nächsten Ernte feine oder prächtige Ware. Ein Pack mit zwei Einheiten Dünger kostet am Saatgutstand vier Münzen.
+- **Verkaufstruhe.** Öffne die Holzkiste neben dem Hofweg und wähle Ware und Qualität. Du kannst ein Stück oder den ausgewählten Stapel direkt verkaufen.
+
+[Saatguttasche im Android-Spiel](docs/saatguttasche.png) · [Weltkarte](docs/weltkarte.png)
+
+## Seit 0.6.0
 
 - **Haus.** Tippe das Dach, die Fassade oder die Veranda an und drücke **Eintreten**. Der Tanuki läuft zur Tür. Drinnen findest du **Hinausgehen** an der Treppe.
 - **Bewegung.** Das Lauftempo ist um 40 % gestiegen. Der Touch-Stick erlaubt langsames Gehen mit kurzem Ausschlag. Beim Anlaufen, Drehen und Bremsen geht der Tanuki fließend in die nächste Bewegung über. Häuser, Zäune, Baumstämme, Felsen und Möbel blockieren den Weg.
@@ -33,8 +42,8 @@ Im Startmenü kannst du auf bis zu drei getrennten Plätzen ein **Neues Spiel** 
 | Muschelbucht | Suche am Strand und hinter den Dünen nach Muscheln und Treibholz. Sammelstellen im Farnwald und an der Bucht füllen sich nach zwei Spieltagen wieder. |
 | Eichenhafen | Tippe auf eine Figur und dann auf **Ansprechen**. Lina verkauft Saatgut und Miro kauft Erzeugnisse und Funde. Mara, Fiete und Bo geben Aufträge. Juna erzählt dir, wohin die Wege führen. |
 | Stadtaufträge | Nimm Aufträge im Gespräch an und kehre mit den geforderten Zutaten und Materialien zurück. **Stadtaufträge** zeigt in allen drei neuen Gebieten, welche Aufgaben offen, angenommen, abgabebereit oder erfüllt sind. |
-| Garten | Möhren, Rüben, Kürbisse, Erdbeeren, Tomaten und Sonnenblumen anbauen. Saat links wechseln. Je nach Sorte sind zwei bis fünf gegossene Tage nötig. |
-| Kalender | Schlafen im Bett beginnt den nächsten Tag. Eine Jahreszeit dauert sieben Tage. Nebel, Regen und Winterschnee verändern die Landschaft. Regen gießt Pflanzen und neue Saat automatisch. |
+| Garten | Möhren, Rüben, Kürbisse, Erdbeeren, Tomaten und Sonnenblumen brauchen zwei bis fünf gegossene Tage. Eine Düngergabe vor der Reife reicht für die nächste Ernte. |
+| Kalender | Uhrzeit und Wetter stehen oben im HUD. Schlafen im Bett setzt die Uhr auf 06:00 und lässt gegossene Pflanzen wachsen. Regen gießt Pflanzen und neue Saat automatisch. Eine Jahreszeit dauert sieben Tage. |
 | Obstwiese | Äpfel und Waldbeeren pflücken. Jeder abgeerntete Baum oder Strauch trägt nach zwei Spieltagen wieder Früchte. |
 | Hafenmarkt | Beim Saatgutstand jeweils drei Samen der gewählten Sorte kaufen. Beim Ankäufer wechselt die linke Auswahltaste zwischen den verfügbaren Waren. Obst, Gemüse, Fisch, Eier, Wolle, Silber und Kristalle bringen Münzen. |
 | Tierweide | Huhn und Schaf adoptieren und am Trog füttern. Nach einem gefütterten Tag ist ein Ei bereit. Nach zwei gefütterten Tagen gibt das Schaf Wolle. An der Futterkiste wird Futter nachgekauft. |
@@ -42,7 +51,7 @@ Im Startmenü kannst du auf bis zu drei getrennten Plätzen ein **Neues Spiel** 
 | Aufgaben | Am Brett oder links über **Aufgaben** öffnen. Die acht Aufgaben fördern Garten, Sammeln, Handel, Tiere und Mine. Für eine erfüllte Aufgabe gibt es Saatgut und Münzen. |
 | Haus, Wald und Steg | Möbel herstellen und versetzen, markierte Kiefern fällen, Stein abbauen und am Steg angeln. |
 
-Am Rechner funktionieren auch WASD oder Pfeiltasten, Tab zum Beetwechsel, Leertaste für die Aktion, Mausrad zum Zoomen, M für die Weltkarte, E zur Auswahl, Q für Aufgaben und I für die Tasche. Escape öffnet das Pausenmenü oder schließt ein Gespräch. F10 blendet das HUD aus, F12 speichert ein Spielbild.
+Am Rechner funktionieren auch WASD oder Pfeiltasten, Tab zum Beetwechsel, Leertaste für die Aktion, Mausrad zum Zoomen, M für die Weltkarte, E für die Saatguttasche oder die Auswahl am Markt, F zum Düngen, Q für Aufgaben und I für die Tasche. Escape öffnet das Pausenmenü oder schließt ein Fenster. F10 blendet das HUD aus, F12 speichert ein Spielbild.
 
 ## Projekt ausführen und bauen
 
@@ -75,9 +84,8 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 ## Tests und nächste Etappen
 
-22 Rust-Tests decken unter anderem zusammenhängende Fußwege, Zugriff auf feste Objekte, Kollisionen, Bachquerungen, Speichern und die Übernahme alter Aufenthaltsorte ab. Der Einstieg per Touch und das Update von 0.5.0 wurden im Android-14-Emulator geprüft. Die Aufnahmen stammen aus dem laufenden Bevy-Spiel.
+25 Rust-Tests decken unter anderem Tageswechsel, Erntequalität, Verkauf, zusammenhängende Fußwege, Kollisionen und die Übernahme alter Spielstände ab. Das Update von 0.6.0 wurde im Android-14-Emulator mit drei vorhandenen Spielständen geprüft. Die Aufnahmen stammen aus dem laufenden Bevy-Spiel.
 
-1. **Hofalltag und Ernte.** Zeitgesteuerter Tagesablauf mit Schlafen, besserer Saat- und Gießablauf, Saatgut aus Handel, Funden, Aufträgen und zufälligen Erntedrops, Qualitätsstufen, Dünger und eine optionale Verkaufstruhe am Hof.
-2. **Ausbau und Verarbeitung.** Tiergebäude und Tierhaltung auf dem eigenen Hof, sammelbare Möbelrezepte für die Werkbank sowie Koch- und Verarbeitungsminispiele.
-3. **Neue Regionen.** Verbundene Gebiete in der Größenordnung der bisherigen Welt, eigene Materialien und Figuren, mehrstufige Questketten und je ein über eine Quest freischaltbarer Schnellreisepunkt. Pro Region entsteht vor den Blender-Modellen eine Bildreferenz.
-4. **Kartenkämpfe.** Prozedurale Ebenen mit ansteigender Schwierigkeit und Rückkehr zu freigeschalteten Ruheplätzen. Karten kommen etwa aus Erkundung, Aufträgen, Handel und Kämpfen. Ein Deck umfasst zwölf Karten und wird am Kartenbinder daheim zusammengestellt. Kampftalente verbessern Werte wie Gesundheit und Resistenzen.
+1. **Ausbau und Verarbeitung.** Tiergebäude und Tierhaltung auf dem eigenen Hof, sammelbare Möbelrezepte für die Werkbank sowie Koch- und Verarbeitungsminispiele.
+2. **Neue Regionen.** Verbundene Gebiete in der Größenordnung der bisherigen Welt, eigene Materialien und Figuren, mehrstufige Questketten und je ein über eine Quest freischaltbarer Schnellreisepunkt. [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)
+3. **Kartenkämpfe.** Prozedurale Ebenen mit ansteigender Schwierigkeit und Rückkehr zu freigeschalteten Ruheplätzen. Karten kommen etwa aus Erkundung, Aufträgen, Handel und Kämpfen. Ein Deck umfasst zwölf Karten und wird am Kartenbinder daheim zusammengestellt. Kampftalente verbessern Werte wie Gesundheit und Resistenzen.

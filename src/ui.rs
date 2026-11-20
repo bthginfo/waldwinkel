@@ -3,7 +3,7 @@ use bevy::{prelude::*, window::PrimaryWindow};
 use crate::{
     GardenFocus, Notice, Ready,
     adventure::{Adventure, Area, LANDMARKS, Target, landmark_center},
-    garden::{Action, Garden, Stage},
+    garden::{Action, Crop, Garden, Stage},
     homestead::{self, Product},
     input::Gesture,
     session::Session,
@@ -18,6 +18,9 @@ const STICK_SIZE: f32 = 108.0;
 const BUTTON_WIDTH: f32 = 188.0;
 const BUTTON_HEIGHT: f32 = 62.0;
 const BUTTON_BOTTOM: f32 = 29.0;
+const FERTILIZER_BOTTOM: f32 = BUTTON_BOTTOM + BUTTON_HEIGHT + 10.0;
+const FERTILIZER_HEIGHT: f32 = 41.0;
+const FERTILIZER_WIDTH: f32 = 119.0;
 const CONTEXT_WIDTH: f32 = 316.0;
 const TOOLS_TOP: f32 = 88.;
 const TOOL_WIDTH: f32 = 105.;
@@ -33,6 +36,7 @@ pub enum Utility {
     Task,
     Inventory,
     Menu,
+    Fertilize,
 }
 impl Utility {
     const ALL: [Self; 7] = [
@@ -53,6 +57,7 @@ impl Utility {
             Self::Task => controls.task = true,
             Self::Inventory => controls.inventory = true,
             Self::Menu => controls.menu = true,
+            Self::Fertilize => controls.fertilize = true,
         }
     }
 }
@@ -93,6 +98,7 @@ pub struct HudLayout {
     size: Vec2,
     pub scale: f32,
     context_height: f32,
+    fertilizer: bool,
 }
 
 impl Default for HudLayout {
@@ -101,6 +107,7 @@ impl Default for HudLayout {
             size: Vec2::new(1280.0, 720.0),
             scale: 1.0,
             context_height: 65.,
+            fertilizer: false,
         }
     }
 }
@@ -125,6 +132,14 @@ impl HudLayout {
     }
 
     pub fn utility(self, at: Vec2) -> Option<Utility> {
+        let right = (self.size.x - at.x) / self.scale;
+        let bottom = (self.size.y - at.y) / self.scale;
+        if self.fertilizer
+            && (MARGIN..=MARGIN + FERTILIZER_WIDTH).contains(&right)
+            && (FERTILIZER_BOTTOM..=FERTILIZER_BOTTOM + FERTILIZER_HEIGHT).contains(&bottom)
+        {
+            return Some(Utility::Fertilize);
+        }
         let point = at / self.scale - Vec2::new(MARGIN, TOOLS_TOP);
         if point.x < 0. || point.y < 0. {
             return None;
@@ -156,7 +171,7 @@ impl HudLayout {
         let bottom = (self.size.y - at.y) / self.scale;
         ((MARGIN..=MARGIN + 55.0).contains(&top)
             && ((MARGIN..=MARGIN + 188.0).contains(&left)
-                || (MARGIN..=MARGIN + 245.0).contains(&right)))
+                || (MARGIN..=MARGIN + 300.0).contains(&right)))
             || ((BUTTON_BOTTOM..=BUTTON_BOTTOM + self.context_height).contains(&bottom)
                 && (at.x - self.size.x * 0.5).abs() < CONTEXT_WIDTH * self.scale * 0.5)
     }
@@ -164,6 +179,8 @@ impl HudLayout {
 
 pub fn resize(
     adventure: Res<Adventure>,
+    focus: Res<GardenFocus>,
+    garden: Res<Garden>,
     window: Single<&Window, With<PrimaryWindow>>,
     mut layout: ResMut<HudLayout>,
     mut scale: ResMut<UiScale>,
@@ -176,7 +193,12 @@ pub fn resize(
     } else {
         65.
     };
-    if size != layout.size || layout.context_height != context_height {
+    let fertilizer =
+        focus.selected.is_some_and(|i| garden.fertilizable(i)) && !garden.clock.night();
+    if size != layout.size
+        || layout.context_height != context_height
+        || layout.fertilizer != fertilizer
+    {
         let fit = (size.y / 680.0)
             .max(0.78)
             .min(size.y / 505.0)
@@ -186,6 +208,7 @@ pub fn resize(
             size,
             scale: fit,
             context_height,
+            fertilizer,
         };
         scale.0 = fit;
     }
@@ -230,6 +253,9 @@ pub struct Thumb;
 pub struct ActionSurface;
 
 #[derive(Component)]
+pub struct FertilizerButton;
+
+#[derive(Component)]
 pub struct ProgressTrack;
 
 #[derive(Component)]
@@ -254,6 +280,9 @@ pub struct Icons {
     hoe: Handle<Image>,
     choose: Handle<Image>,
     carrot: Handle<Image>,
+    seeds: Handle<Image>,
+    watering: Handle<Image>,
+    fertilizer: Handle<Image>,
     day: Handle<Image>,
     coin: Handle<Image>,
     stick: Handle<Image>,
@@ -267,6 +296,9 @@ impl FromWorld for Icons {
             hoe: assets.load("ui/hoe.png"),
             choose: assets.load("ui/choose.png"),
             carrot: assets.load("ui/carrot.png"),
+            seeds: assets.load("ui/seeds.png"),
+            watering: assets.load("ui/watering.png"),
+            fertilizer: assets.load("ui/fertilizer.png"),
             day: assets.load("ui/day.png"),
             coin: assets.load("ui/coin.png"),
             stick: assets.load("ui/stick.png"),
@@ -644,6 +676,28 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>, icons: Res<Icons>) {
                 });
             }
             root.spawn((
+                FertilizerButton,
+                Node {
+                    display: Display::None,
+                    position_type: PositionType::Absolute,
+                    right: px(MARGIN),
+                    bottom: px(FERTILIZER_BOTTOM),
+                    width: px(FERTILIZER_WIDTH),
+                    height: px(FERTILIZER_HEIGHT),
+                    column_gap: px(5.),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                },
+                BorderRadius::all(px(15.)),
+                BackgroundColor(cream()),
+                shadow(),
+            ))
+            .with_children(|button| {
+                button.spawn(icon(&icons.fertilizer, 26.));
+                button.spawn(text("Düngen", &bold, 15., ink()));
+            });
+            root.spawn((
                 ActionSurface,
                 Node {
                     position_type: PositionType::Absolute,
@@ -685,6 +739,7 @@ pub fn sync_visibility(
     ready: Res<Ready>,
     session: Res<Session>,
     dialog: Res<Dialog>,
+    farm_menu: Res<crate::farm_ui::FarmMenu>,
     keys: Res<ButtonInput<KeyCode>>,
     mut show: Local<Option<bool>>,
     mut hud: Single<&mut Visibility, (With<Hud>, Without<Loading>)>,
@@ -693,7 +748,12 @@ pub fn sync_visibility(
     if keys.just_pressed(KeyCode::F10) {
         *show = Some(!show.unwrap_or(true));
     }
-    **hud = if ready.0 && session.playing() && !dialog.open() && show.unwrap_or(true) {
+    **hud = if ready.0
+        && session.playing()
+        && !dialog.open()
+        && !farm_menu.open()
+        && show.unwrap_or(true)
+    {
         Visibility::Inherited
     } else {
         Visibility::Hidden
@@ -702,6 +762,24 @@ pub fn sync_visibility(
         Visibility::Hidden
     } else {
         Visibility::Inherited
+    };
+}
+
+pub fn update_fertilizer(
+    layout: Res<HudLayout>,
+    garden: Res<Garden>,
+    mut button: Single<(&mut Node, &mut BackgroundColor), With<FertilizerButton>>,
+) {
+    let (node, color) = &mut *button;
+    node.display = if layout.fertilizer {
+        Display::Flex
+    } else {
+        Display::None
+    };
+    color.0 = if garden.fertilizer == 0 {
+        Color::srgba(0.97, 0.94, 0.82, 0.70)
+    } else {
+        cream()
     };
 }
 
@@ -714,6 +792,7 @@ pub(crate) struct Panel {
     detail: String,
     fallback: &'static str,
     counters: (u32, u32),
+    minute: u16,
     sky: Sky,
     season: Season,
 }
@@ -749,6 +828,7 @@ pub fn update(
         detail,
         fallback,
         counters: (garden.day, garden.farm.coins),
+        minute: garden.clock.minute(),
         sky: Sky::at(garden.day),
         season: Season::at(garden.day),
     };
@@ -756,8 +836,7 @@ pub fn update(
         let plot = garden.plots[index];
         let stage = plot.stage();
         panel.action = garden.action(index, adventure.crop);
-        let nearby = can_work(player.position, PLOTS[index], &adventure, &garden);
-        panel.enabled = !nearby || panel.action.is_some();
+        panel.enabled = panel.action.is_some();
         let label = match stage {
             Stage::Grass => "Wiesenplatz",
             Stage::Soil => "Lockere Erde",
@@ -783,18 +862,29 @@ pub fn update(
             );
             progress_value = Some(1. - f32::from(left) / f32::from(plot.crop().days()));
         }
-        panel.fallback = if nearby {
-            if stage == Stage::Soil {
-                "Saatgut fehlt"
-            } else {
-                "Wächst …"
-            }
-        } else {
-            "Zum Beet"
-        };
-        if !nearby {
-            panel.action = None;
+        if garden.fertilized[index] {
+            panel.detail.push_str(" · gedüngt");
+        } else if garden.fertilizable(index) && garden.fertilizer > 0 {
+            panel
+                .detail
+                .push_str(&format!(" · Dünger {}", garden.fertilizer));
         }
+        panel.fallback = if garden.clock.night() {
+            panel.detail = "Zeit zum Schlafen. Im Bett beginnt der nächste Tag.".into();
+            "Morgen weiter"
+        } else if focus.pending.is_some()
+            && !can_work(player.position, PLOTS[index], &adventure, &garden)
+        {
+            panel.detail = "Auf dem Weg zum Beet …".into();
+            "Zum Beet"
+        } else if stage == Stage::Soil && panel.action.is_none() {
+            panel.enabled = true;
+            "Saatgut wählen"
+        } else {
+            "Wächst …"
+        };
+    } else if garden.clock.night() && adventure.focus.is_none() && adventure.area.outdoors() {
+        panel.detail = "Die Feldarbeit ruht bis morgen. Schlaf in deiner Hütte.".into();
     }
     if (notice.index.is_none() || notice.index == focus.selected) && now < notice.until {
         panel.detail.clone_from(&notice.message);
@@ -802,17 +892,18 @@ pub fn update(
     if adventure.inventory {
         panel.title = "Tasche".into();
         panel.detail = format!(
-            "Holz {} · Stein {} · Kupfer {} · Futter {}\nMöhren {} · Rüben {} · Kürbisse {}\nErdbeeren {} · Tomaten {} · Sonnenblumen {}\nÄpfel {} · Beeren {} · Eier {} · Wolle {}\nFisch {} · Silber {} · Kristalle {}\nPilze {} · Haselnüsse {} · Muscheln {}",
+            "Holz {} · Stein {} · Kupfer {}\nFutter {} · Dünger {}\nMöhren {} · Rüben {} · Kürbisse {}\nErdbeeren {} · Tomaten {} · Sonnenblumen {}\nÄpfel {} · Beeren {} · Eier {} · Wolle {}\nFisch {} · Silber {} · Kristalle {}\nPilze {} · Haselnüsse {} · Muscheln {}",
             garden.wood,
             garden.stone,
             garden.copper,
             garden.farm.feed,
-            garden.yields[0],
-            garden.yields[1],
-            garden.yields[2],
-            garden.farm.yields[0],
-            garden.farm.yields[1],
-            garden.farm.yields[2],
+            garden.fertilizer,
+            garden.crop_total(Crop::Carrot),
+            garden.crop_total(Crop::Turnip),
+            garden.crop_total(Crop::Pumpkin),
+            garden.crop_total(Crop::Strawberry),
+            garden.crop_total(Crop::Tomato),
+            garden.crop_total(Crop::Sunflower),
             garden.stock(Product::Apple),
             garden.stock(Product::Berry),
             garden.stock(Product::Egg),
@@ -833,7 +924,7 @@ pub fn update(
             Utility::Choice if adventure.area == Area::Home => adventure.furniture_name(),
             Utility::Choice => {
                 homestead::choice_label(adventure.area, adventure.focus, adventure.offer(&garden))
-                    .unwrap_or(adventure.crop.name())
+                    .unwrap_or("Saatgut")
             }
             Utility::Task if adventure.journal => "Schließen",
             Utility::Task
@@ -865,9 +956,17 @@ pub fn update(
     }
     for (label, mut value) in &mut fields {
         value.0 = match label {
-            Field::Day => format!("Tag {}", panel.counters.0),
+            Field::Day => format!("Tag {} · {}", panel.counters.0, garden.clock.display()),
             Field::Coins => panel.counters.1.to_string(),
-            Field::Weather => format!("{} · {}", panel.season.label(), panel.sky.label()),
+            Field::Weather => format!(
+                "{} · {}",
+                if garden.clock.dusk() > 0. {
+                    garden.clock.label()
+                } else {
+                    panel.season.label()
+                },
+                panel.sky.label()
+            ),
             Field::Context => panel.title.clone(),
             Field::Detail => panel.detail.clone(),
             Field::Action => panel.action.map_or(panel.fallback, Action::label).into(),
@@ -882,7 +981,9 @@ pub fn update(
     };
     action_icon.image = match panel.action {
         Some(Action::Till) => icons.hoe.clone(),
-        Some(Action::Sow | Action::Water) => icons.sprout.clone(),
+        Some(Action::Sow) => icons.seeds.clone(),
+        Some(Action::Water) => icons.watering.clone(),
+        Some(Action::Fertilize) => icons.fertilizer.clone(),
         Some(Action::Harvest) => icons.carrot.clone(),
         None => icons.choose.clone(),
     };

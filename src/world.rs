@@ -64,6 +64,7 @@ pub enum Tool {
     Hoe,
     Axe,
     Pickaxe,
+    WateringCan,
 }
 
 #[derive(Component)]
@@ -100,6 +101,8 @@ pub struct PlotModel {
     stage: Option<(Stage, Crop, bool)>,
     base: Entity,
     plant: Entity,
+    soil_amendment: Entity,
+    fertilized: bool,
 }
 
 #[derive(Resource)]
@@ -117,7 +120,9 @@ pub struct Models {
     arm: Handle<Scene>,
     leg: Handle<Scene>,
     boot: Handle<Scene>,
-    tools: [(Tool, Handle<Scene>); 3],
+    tools: [(Tool, Handle<Scene>); 4],
+    fertilized_soil: Handle<Scene>,
+    water_drop: Handle<Scene>,
     clouds: [Handle<Scene>; 3],
     selection: Handle<Scene>,
     shadow: Handle<Scene>,
@@ -155,7 +160,10 @@ impl FromWorld for Models {
                 (Tool::Hoe, get("hoe")),
                 (Tool::Axe, get("axe")),
                 (Tool::Pickaxe, get("pickaxe")),
+                (Tool::WateringCan, get("watering_can")),
             ],
+            fertilized_soil: get("fertilized_soil"),
+            water_drop: get("water_drop"),
             clouds: [get("cloud_1"), get("cloud_2"), get("cloud_3")],
             selection: get("selection"),
             shadow: get("shadow"),
@@ -221,14 +229,19 @@ pub fn setup(mut commands: Commands, models: Res<Models>, assets: Res<AssetServe
         let plant = commands
             .spawn((Transform::default(), Visibility::Inherited))
             .id();
+        let soil_amendment = commands
+            .spawn((Transform::default(), Visibility::Inherited))
+            .id();
         commands
             .entity(parent)
-            .add_children(&[frame, base, plant])
+            .add_children(&[frame, base, plant, soil_amendment])
             .insert(PlotModel {
                 index,
                 stage: None,
                 base,
                 plant,
+                soil_amendment,
+                fertilized: false,
             });
     }
 
@@ -415,6 +428,15 @@ pub fn update_plots(
     mut plots: Query<&mut PlotModel>,
 ) {
     for mut plot in &mut plots {
+        let fertilized = garden.fertilized[plot.index];
+        if plot.fertilized != fertilized {
+            replace_model(
+                &mut commands,
+                plot.soil_amendment,
+                fertilized.then_some(&models.fertilized_soil),
+            );
+            plot.fertilized = fertilized;
+        }
         let state = garden.plots[plot.index];
         let stage = state.stage();
         let wet = state.remaining().is_some_and(|(_, wet)| wet);
@@ -469,17 +491,6 @@ pub fn update_selection(
         **visibility = Visibility::Inherited;
     } else {
         **visibility = Visibility::Hidden;
-    }
-}
-
-pub fn anticipate_walk(
-    mut focus: ResMut<GardenFocus>,
-    mut player: Single<&mut Gardener>,
-    adventure: Res<Adventure>,
-    garden: Res<Garden>,
-) {
-    if let Some(index) = focus.approach.take() {
-        player.navigate(Reach::ground(PLOTS[index]), &adventure, &garden);
     }
 }
 
@@ -584,6 +595,8 @@ pub fn animate_gardener(
     time: Res<Time>,
     notice: Res<Notice>,
     adventure: Res<Adventure>,
+    focus: Res<GardenFocus>,
+    garden: Res<Garden>,
     mut tools: Query<(&Tool, &mut Visibility)>,
     player: Single<(&Gardener, &Transform)>,
     mut joints: Query<
@@ -627,7 +640,19 @@ pub fn animate_gardener(
     }
     let now = time.elapsed_secs();
     let swing = adventure.swing(now);
-    let held = swing.map_or_else(|| adventure.held_tool(), |(tool, _)| tool);
+    let work_time = Notice::DURATION + now - notice.until;
+    let pouring = notice.action == Some(Action::Water) && (0.0..0.86).contains(&work_time);
+    let held = if let Some((tool, _)) = swing {
+        tool
+    } else if pouring
+        || focus
+            .selected
+            .is_some_and(|index| garden.action(index, adventure.crop) == Some(Action::Water))
+    {
+        Tool::WateringCan
+    } else {
+        adventure.held_tool()
+    };
     for (&tool, mut visibility) in &mut tools {
         visibility.set_if_neq(if held == tool {
             Visibility::Inherited
@@ -635,8 +660,9 @@ pub fn animate_gardener(
             Visibility::Hidden
         });
     }
-    let work_time = Notice::DURATION + now - notice.until;
-    let work = if let Some((_, elapsed)) = swing {
+    let work = if pouring {
+        (work_time / 0.86 * std::f32::consts::PI).sin().sqrt()
+    } else if let Some((_, elapsed)) = swing {
         (elapsed / 0.52 * std::f32::consts::PI).sin()
     } else if notice.action.is_some() && (0.0..0.55).contains(&work_time) {
         (work_time / 0.55 * std::f32::consts::PI).sin() * (1.0 - player.gait)
@@ -652,7 +678,7 @@ pub fn animate_gardener(
         let pitch = if joint.is_arm {
             let reach = if joint.side > 0.0 && swing.is_some() {
                 1.65
-            } else if notice.action == Some(Action::Till) && joint.side > 0.0 {
+            } else if (pouring || notice.action == Some(Action::Till)) && joint.side > 0.0 {
                 1.12
             } else {
                 0.62
@@ -670,7 +696,11 @@ pub fn animate_gardener(
             EulerRot::XYZ,
             pitch,
             0.0,
-            if joint.is_arm { joint.side * 0.11 } else { 0.0 },
+            if joint.is_arm {
+                joint.side * if pouring { 0.22 } else { 0.11 }
+            } else {
+                0.0
+            },
         );
     }
     for (boot, mut transform) in &mut boots {
@@ -678,6 +708,57 @@ pub fn animate_gardener(
         transform.rotation = Quat::from_rotation_x(swing * 0.66 * player.gait);
     }
     shadow.translation = root.translation + Vec3::new(0.026, 0.022, 0.04);
+}
+
+#[derive(Component)]
+pub struct WaterDrop {
+    from: Vec3,
+    to: Vec3,
+    start: f32,
+}
+
+pub fn watering_effect(
+    mut commands: Commands,
+    notice: Res<Notice>,
+    time: Res<Time>,
+    models: Res<Models>,
+    player: Single<&Transform, With<Gardener>>,
+    mut drops: Query<(Entity, &WaterDrop, &mut Transform, &mut Visibility), Without<Gardener>>,
+) {
+    let now = time.elapsed_secs();
+    if notice.is_changed()
+        && notice.action == Some(Action::Water)
+        && let Some(plot) = notice.index
+    {
+        let from = player.translation + player.rotation * Vec3::new(0.24, 0.61, 0.39);
+        for i in 0..12 {
+            let angle = i as f32 * 2.39996;
+            let to = position3(
+                PLOTS[plot] + Vec2::from_angle(angle) * (i as f32 * 0.039),
+                0.08,
+            );
+            commands.spawn((
+                WaterDrop {
+                    from,
+                    to,
+                    start: now + 0.13 + i as f32 * 0.025,
+                },
+                SceneRoot(models.water_drop.clone()),
+                Visibility::Hidden,
+                Transform::from_translation(from),
+            ));
+        }
+    }
+    for (entity, drop, mut transform, mut visible) in &mut drops {
+        let fraction = (now - drop.start) / 0.40;
+        if fraction >= 1.0 {
+            commands.entity(entity).despawn();
+        } else if fraction >= 0.0 {
+            *visible = Visibility::Inherited;
+            transform.translation = drop.from.lerp(drop.to, fraction);
+            transform.translation.y += 0.26 * fraction * (1.0 - fraction);
+        }
+    }
 }
 
 fn step_phase(phase: f32, side: f32) -> f32 {
@@ -794,6 +875,10 @@ impl Reach {
 impl Gardener {
     pub fn teleport(&mut self, p: Vec2) {
         self.position = p;
+        self.stop();
+    }
+
+    pub fn stop(&mut self) {
         self.velocity = Vec2::ZERO;
         self.route.clear();
     }

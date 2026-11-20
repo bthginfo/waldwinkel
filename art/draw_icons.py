@@ -74,6 +74,22 @@ for cx, cy, a in [(34,53,-.4),(56,31,.56),(63,62,.62)]:
 save(image,"seeds")
 
 image, draw = canvas()
+box(draw,(27,37,63,69),"#639383",9)
+line(draw,[(34,41),(27,27),(32,21),(52,20),(57,35)],INK,5)
+line(draw,[(53,53),(69,49),(79,35)],"#639383",9)
+line(draw,[(74,33),(84,40)],GOLD,6)
+for x,y in [(73,50),(82,53),(76,61)]:
+    ellipse(draw,(x-2,y-2,x+3,y+4),"#5b9799")
+save(image,"watering")
+
+image, draw = canvas()
+polygon(draw,[(30,21),(66,21),(63,32),(73,46),(72,72),(62,78),(31,78),(24,70),(25,44),(34,33)],GOLD)
+box(draw,(32,44,65,70),"#f0d9a3",5)
+line(draw,[(40,63),(55,50)],INK,4)
+ellipse(draw,(47,47,61,57),LEAF)
+save(image,"fertilizer")
+
+image, draw = canvas()
 for x,z in [(-1,-1),(-1,1),(1,-1),(1,1)]:
     line(draw,[(48+x*12,48+z*21),(48+x*22,48+z*21),(48+x*22,48+z*11)],INK,5)
 ellipse(draw,(43,43,53,53),LEAF)

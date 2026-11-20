@@ -1,4 +1,5 @@
 use crate::{
+    day::FarmClock,
     homestead::{Homestead, Product},
     session::Checkpoint,
     town::Journal,
@@ -13,6 +14,36 @@ use std::{
 };
 
 pub const PLOT_COUNT: usize = 12;
+pub const FERTILIZER_PRICE: u32 = 4;
+const FERTILIZER_PACK: u32 = 2;
+const SAVE_VERSION: u8 = 6;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Quality {
+    Normal,
+    Fine,
+    Premium,
+}
+
+impl Quality {
+    pub const ALL: [Self; 3] = [Self::Normal, Self::Fine, Self::Premium];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Normal => "Normal",
+            Self::Fine => "Fein",
+            Self::Premium => "Prächtig",
+        }
+    }
+
+    pub fn price(self, base: u32) -> u32 {
+        match self {
+            Self::Normal => base,
+            Self::Fine => base + base.div_ceil(2),
+            Self::Premium => base * 2,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 pub enum Crop {
@@ -112,6 +143,7 @@ pub enum Action {
     Till,
     Sow,
     Water,
+    Fertilize,
     Harvest,
 }
 
@@ -121,6 +153,7 @@ impl Action {
             Self::Till => "Beet anlegen",
             Self::Sow => "Aussäen",
             Self::Water => "Gießen",
+            Self::Fertilize => "Düngen",
             Self::Harvest => "Ernten",
         }
     }
@@ -136,6 +169,11 @@ pub struct Garden {
     pub seeds: u32,
     pub harvested: u32,
     pub day: u32,
+    pub clock: FarmClock,
+    pub fertilizer: u32,
+    pub fertilized: [bool; PLOT_COUNT],
+    fine_yields: [[u32; 2]; 6],
+    harvest_rng: u64,
     pub extra_seeds: [u32; 2],
     pub yields: [u32; 3],
     pub wood: u32,
@@ -157,11 +195,16 @@ pub struct Garden {
 impl Default for Garden {
     fn default() -> Self {
         Self {
-            version: 5,
+            version: SAVE_VERSION,
             plots: vec![Plot::Grass; PLOT_COUNT],
             seeds: 6,
             harvested: 0,
             day: 1,
+            clock: FarmClock::default(),
+            fertilizer: 3,
+            fertilized: [false; PLOT_COUNT],
+            fine_yields: [[0; 2]; 6],
+            harvest_rng: now_ms(),
             extra_seeds: [4, 4],
             yields: [0; 3],
             wood: 0,
@@ -208,8 +251,13 @@ impl Garden {
 
     fn stock_slot(&mut self, item: Product) -> &mut u32 {
         match item {
-            Product::Crop(crop) if (crop as usize) < 3 => &mut self.yields[crop as usize],
-            Product::Crop(crop) => &mut self.farm.yields[crop as usize - 3],
+            Product::Crop(crop, Quality::Normal) if (crop as usize) < 3 => {
+                &mut self.yields[crop as usize]
+            }
+            Product::Crop(crop, Quality::Normal) => &mut self.farm.yields[crop as usize - 3],
+            Product::Crop(crop, quality) => {
+                &mut self.fine_yields[crop as usize][quality as usize - 1]
+            }
             Product::Fish => &mut self.fish,
             Product::Mushroom => &mut self.town.goods[0],
             Product::Hazel => &mut self.town.goods[1],
@@ -220,14 +268,23 @@ impl Garden {
 
     pub fn stock(&self, item: Product) -> u32 {
         match item {
-            Product::Crop(crop) if (crop as usize) < 3 => self.yields[crop as usize],
-            Product::Crop(crop) => self.farm.yields[crop as usize - 3],
+            Product::Crop(crop, Quality::Normal) if (crop as usize) < 3 => {
+                self.yields[crop as usize]
+            }
+            Product::Crop(crop, Quality::Normal) => self.farm.yields[crop as usize - 3],
+            Product::Crop(crop, quality) => self.fine_yields[crop as usize][quality as usize - 1],
             Product::Fish => self.fish,
             Product::Mushroom => self.town.goods[0],
             Product::Hazel => self.town.goods[1],
             Product::Shell => self.town.goods[2],
             _ => self.farm.goods[Self::goods_index(item)],
         }
+    }
+
+    pub fn crop_total(&self, crop: Crop) -> u32 {
+        Quality::ALL.into_iter().fold(0_u32, |total, quality| {
+            total.saturating_add(self.stock(Product::Crop(crop, quality)))
+        })
     }
 
     fn goods_index(item: Product) -> usize {
@@ -257,15 +314,47 @@ impl Garden {
     }
 
     pub fn sell(&mut self, item: Product) -> bool {
-        if !self.take_stock(item, 1) {
+        self.sell_many(item, 1).is_some()
+    }
+
+    pub fn sell_many(&mut self, item: Product, quantity: u32) -> Option<u32> {
+        let price = item.value().checked_mul(quantity)?;
+        let balance = self.farm.coins.checked_add(price)?;
+        if quantity == 0 || !self.take_stock(item, quantity) {
+            return None;
+        }
+        self.farm.coins = balance;
+        self.farm.trades = self.farm.trades.saturating_add(1);
+        Some(price)
+    }
+
+    pub fn buy_fertilizer(&mut self) -> bool {
+        let Some(balance) = self.farm.coins.checked_sub(FERTILIZER_PRICE) else {
+            return false;
+        };
+        let Some(stock) = self.fertilizer.checked_add(FERTILIZER_PACK) else {
+            return false;
+        };
+        if !self.clock.market_open() {
             return false;
         }
-        self.farm.coins = self.farm.coins.saturating_add(item.value());
+        self.fertilizer = stock;
+        self.farm.coins = balance;
         self.farm.trades = self.farm.trades.saturating_add(1);
         true
     }
 
+    pub fn fertilizable(&self, index: usize) -> bool {
+        self.plots.get(index).is_some_and(|plot| {
+            matches!(plot.stage(), Stage::Soil | Stage::Sprout | Stage::Young)
+                && !self.fertilized[index]
+        })
+    }
+
     pub fn action(&self, index: usize, crop: Crop) -> Option<Action> {
+        if self.clock.night() {
+            return None;
+        }
         let plot = *self.plots.get(index)?;
         match plot.stage() {
             Stage::Grass => Some(Action::Till),
@@ -276,8 +365,16 @@ impl Garden {
         }
     }
 
-    pub fn work(&mut self, index: usize, crop: Crop) -> Option<(Action, String)> {
-        let action = self.action(index, crop)?;
+    pub fn work(&mut self, index: usize, crop: Crop, action: Action) -> Option<String> {
+        let available = match action {
+            Action::Fertilize => {
+                self.fertilizer > 0 && self.fertilizable(index) && !self.clock.night()
+            }
+            _ => self.action(index, crop) == Some(action),
+        };
+        if !available {
+            return None;
+        }
         let plot = self.plots[index];
         let (new, message) = match action {
             Action::Till => (Plot::Tilled, "Beet angelegt.".into()),
@@ -305,19 +402,46 @@ impl Garden {
                     "Gegossen. Wächst bis morgen.".into(),
                 )
             }
+            Action::Fertilize => {
+                self.fertilizer -= 1;
+                self.fertilized[index] = true;
+                (plot, "Gedüngt. Die nächste Ernte wird hochwertiger.".into())
+            }
             Action::Harvest => {
                 let crop = plot.crop();
+                let quality = if !self.fertilized[index] {
+                    Quality::Normal
+                } else if self.harvest_roll() % 4 == 0 {
+                    Quality::Premium
+                } else {
+                    Quality::Fine
+                };
+                self.fertilized[index] = false;
                 self.harvested = self.harvested.saturating_add(3);
-                self.add_stock(Product::Crop(crop), 3);
-                self.add_seeds(crop, 1);
-                (Plot::Tilled, format!("+3 {} · +1 Saatgut", crop.name()))
+                let item = Product::Crop(crop, quality);
+                self.add_stock(item, 3);
+                let mut message = format!("+3 {}", item.label());
+                if self.harvest_roll() % 10 < 3 {
+                    self.add_seeds(crop, 1);
+                    message.push_str(" · +1 Samen");
+                }
+                (Plot::Tilled, message)
             }
         };
         self.plots[index] = new;
-        Some((action, message))
+        Some(message)
+    }
+
+    fn harvest_roll(&mut self) -> u64 {
+        self.harvest_rng = self.harvest_rng.wrapping_add(0x9e3779b97f4a7c15);
+        let mut value = self.harvest_rng;
+        value = (value ^ (value >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        value = (value ^ (value >> 27)).wrapping_mul(0x94d049bb133111eb);
+        value ^ (value >> 31)
     }
 
     pub fn sleep(&mut self) {
+        self.clock = FarmClock::default();
         let rain = Sky::at(self.day) == Sky::Rain;
         self.farm.end_day(self.day);
         self.day = self.day.saturating_add(1);
@@ -378,13 +502,14 @@ impl Garden {
 
     pub fn load(path: &Path) -> io::Result<Self> {
         let mut garden: Self = serde_json::from_slice(&fs::read(path)?)?;
-        if !matches!(garden.version, 1..=5) {
+        if !matches!(garden.version, 1..=SAVE_VERSION) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Unbekannte Spielstandversion",
             ));
         }
         garden.plots.resize(PLOT_COUNT, Plot::Grass);
+        garden.clock.restore();
         if Sky::at(garden.day) == Sky::Rain {
             for plot in &mut garden.plots {
                 if let Plot::Sown { wet, .. } = plot {
@@ -395,7 +520,7 @@ impl Garden {
         if garden.version <= 4 {
             garden.checkpoint = garden.checkpoint.map(Checkpoint::move_to_mainland);
         }
-        garden.version = 5;
+        garden.version = SAVE_VERSION;
         Ok(garden)
     }
 
@@ -448,6 +573,56 @@ pub fn now_ms() -> u64 {
 mod tests {
     use super::*;
 
+    fn primary(g: &mut Garden, index: usize, crop: Crop) -> Option<Action> {
+        let action = g.action(index, crop)?;
+        g.work(index, crop, action)?;
+        Some(action)
+    }
+
+    #[test]
+    fn fertilizer_raises_quality_and_seed_returns_vary() {
+        let crop = Crop::Carrot;
+        let mut g = Garden {
+            harvest_rng: 47,
+            ..Garden::default()
+        };
+        g.plots[0] = Plot::Tilled;
+        assert!(g.work(0, crop, Action::Fertilize).is_some());
+        assert!(g.work(0, crop, Action::Fertilize).is_none());
+        assert_eq!(g.fertilizer, 2);
+        let mut seeds_back = 0;
+        for _ in 0..32 {
+            g.plots[0] = Plot::Sown {
+                crop,
+                growth: crop.days(),
+                wet: false,
+            };
+            let previous = g.seed_count(crop);
+            assert!(g.work(0, crop, Action::Harvest).is_some());
+            seeds_back += g.seed_count(crop) - previous;
+        }
+        assert!((1..32).contains(&seeds_back));
+        assert_eq!(g.crop_total(crop), 96);
+        assert_eq!(g.stock(Product::Crop(crop, Quality::Normal)), 93);
+        assert!(!g.fertilized[0]);
+    }
+
+    #[test]
+    fn selling_a_stack_only_removes_the_selected_quality() {
+        let mut g = Garden::default();
+        let fine = Product::Crop(Crop::Carrot, Quality::Fine);
+        let regular = Product::Crop(Crop::Carrot, Quality::Normal);
+        g.add_stock(fine, 3);
+        g.add_stock(regular, 4);
+        let initial = g.farm.coins;
+        assert_eq!(g.sell_many(fine, 4), None);
+        assert_eq!(g.sell_many(fine, 0), None);
+        let price = 3 * fine.value();
+        assert_eq!(g.sell_many(fine, 3), Some(price));
+        assert_eq!((g.stock(fine), g.stock(regular)), (0, 4));
+        assert_eq!(g.farm.coins, initial + price);
+    }
+
     #[test]
     fn the_mainland_update_keeps_the_saved_town_position_and_harvests() {
         let path =
@@ -467,20 +642,20 @@ mod tests {
     fn growth_requires_water_on_each_game_day() {
         for crop in Crop::ALL {
             let mut g = Garden::default();
-            assert_eq!(g.work(0, crop).unwrap().0, Action::Till);
-            assert_eq!(g.work(0, crop).unwrap().0, Action::Sow);
+            assert_eq!(primary(&mut g, 0, crop).unwrap(), Action::Till);
+            assert_eq!(primary(&mut g, 0, crop).unwrap(), Action::Sow);
             g.sleep();
             assert_eq!(g.plots[0].remaining(), Some((crop.days(), false)));
             for _ in 0..crop.days() {
                 if g.plots[0].remaining().is_some_and(|(_, wet)| !wet) {
-                    assert_eq!(g.work(0, crop).unwrap().0, Action::Water);
+                    assert_eq!(primary(&mut g, 0, crop).unwrap(), Action::Water);
                 }
-                assert!(g.work(0, crop).is_none());
+                assert!(primary(&mut g, 0, crop).is_none());
                 g.sleep();
             }
-            assert_eq!(g.work(0, crop).unwrap().0, Action::Harvest);
-            assert_eq!(g.stock(Product::Crop(crop)), 3);
-            assert!(g.work(PLOT_COUNT, crop).is_none());
+            assert_eq!(primary(&mut g, 0, crop).unwrap(), Action::Harvest);
+            assert_eq!(g.stock(Product::Crop(crop, Quality::Normal)), 3);
+            assert!(primary(&mut g, PLOT_COUNT, crop).is_none());
         }
     }
 
@@ -488,8 +663,8 @@ mod tests {
     fn rain_waters_crops_until_the_next_day() {
         let mut g = Garden::default();
         g.sleep();
-        g.work(0, Crop::Tomato);
-        g.work(0, Crop::Tomato);
+        primary(&mut g, 0, Crop::Tomato);
+        primary(&mut g, 0, Crop::Tomato);
         assert_eq!(g.plots[0].remaining(), Some((3, false)));
         g.sleep();
         assert_eq!(Sky::at(g.day), Sky::Rain);

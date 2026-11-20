@@ -1,5 +1,6 @@
 use crate::{
     Controls, GardenFocus, Notice,
+    farm_ui::{FarmMenu, FarmPage},
     garden::{Crop, Garden, SavePath},
     homestead::{Animal, ORCHARD, Ore, Product, Village},
     session::Checkpoint,
@@ -15,6 +16,7 @@ const MINE: Vec2 = Vec2::new(400., 0.);
 pub const DOOR: Vec2 = Vec2::new(-2.08, 1.32);
 pub const PORTAL: Vec2 = Vec2::new(9., -8.90);
 pub const PIER: Vec2 = Vec2::new(5.8, 17.25);
+pub const SALE_CHEST: Vec2 = Vec2::new(0.66, 3.58);
 const MARKER: &str = "selection";
 const TILE: f32 = 2.4;
 const GRID: i16 = 9;
@@ -104,6 +106,7 @@ pub enum Target {
     Door,
     Portal,
     Pier,
+    SaleChest,
     Tree(usize),
     Rock(usize),
     MineRock(u16),
@@ -120,6 +123,25 @@ pub enum Target {
 }
 
 impl Target {
+    fn restriction(self, garden: &Garden) -> Option<&'static str> {
+        match self {
+            Self::Village(village) if village.closed(garden) => {
+                Some("Der Stand öffnet morgens um 06:00.")
+            }
+            Self::Tree(_)
+            | Self::Rock(_)
+            | Self::MineRock(_)
+            | Self::Portal
+            | Self::Down
+            | Self::Pier
+                if garden.clock.night() =>
+            {
+                Some("Für heute ist Feierabend. Schlaf in deiner Hütte.")
+            }
+            _ => None,
+        }
+    }
+
     fn tool(self) -> Tool {
         match self {
             Self::Tree(_) => Tool::Axe,
@@ -133,6 +155,7 @@ impl Target {
             Self::Door | Self::Exit => "Holzhütte",
             Self::Portal => "Minenstollen",
             Self::Pier => "Angelsteg",
+            Self::SaleChest => "Verkaufstruhe",
             Self::Tree(_) => "Kiefer",
             Self::Rock(_) => "Steinblock",
             Self::MineRock(_) => "Kupferader",
@@ -153,6 +176,7 @@ impl Target {
             Self::Exit => "Hinausgehen",
             Self::Portal => "Mine betreten",
             Self::Pier => "Auswerfen",
+            Self::SaleChest => "Truhe öffnen",
             Self::Tree(_) => "Baum fällen",
             Self::Rock(_) => "Stein abbauen",
             Self::MineRock(_) => "Kupfer abbauen",
@@ -172,6 +196,7 @@ impl Target {
         match self {
             Self::Door => 0.86,
             Self::Portal => 0.95,
+            Self::SaleChest => 0.53,
             Self::Tree(_) => 1.50,
             Self::Down | Self::Up => 0.65,
             Self::Village(target) => target.height(),
@@ -345,6 +370,7 @@ impl Adventure {
         match self.area {
             Area::Island | Area::District(_) => {
                 world::walkable(point)
+                    && !within(SALE_CHEST, 0.70)
                     && !TREES.iter().enumerate().any(|(i, &tree)| {
                         let radius = if garden.felled.contains(&i) {
                             STUMP_RADIUS
@@ -395,6 +421,7 @@ impl Adventure {
             Target::Tree(_) => TREE_RADIUS + 0.06,
             Target::Rock(_) => ROCK_RADIUS + 0.06,
             Target::MineRock(_) => ORE_RADIUS + 0.06,
+            Target::SaleChest => 0.74,
             Target::Bed => 1.10,
             Target::Bench => 0.91,
             Target::Slot(i) => {
@@ -421,7 +448,7 @@ impl Adventure {
         let limit = match target.tool() {
             Tool::Axe => 1.08,
             Tool::Pickaxe => 1.20,
-            Tool::Hoe => 1.49,
+            Tool::Hoe | Tool::WateringCan => 1.49,
         };
         Reach::target(self.position(target), clearance, limit)
     }
@@ -436,6 +463,7 @@ impl Adventure {
             Target::Door => DOOR,
             Target::Portal => PORTAL,
             Target::Pier => PIER,
+            Target::SaleChest => SALE_CHEST,
             Target::Tree(i) => TREES[i],
             Target::Rock(i) => ROCKS[i],
             Target::Bed => HOME + Vec2::new(-2.03, -1.74),
@@ -454,28 +482,33 @@ impl Adventure {
 
     fn targets(&self, garden: &Garden) -> Vec<Target> {
         match self.area {
-            Area::Island | Area::District(_) => [Target::Door, Target::Portal, Target::Pier]
-                .into_iter()
-                .chain(District::ALL.into_iter().map(Target::Travel))
-                .chain(Village::all().map(Target::Village))
-                .chain(Npc::ALL.into_iter().map(Target::Person))
-                .chain(FINDS.iter().enumerate().filter_map(|(i, _)| {
-                    garden
-                        .town
-                        .find_ready(i, garden.day)
-                        .then_some(Target::Find(i))
-                }))
-                .chain(
-                    (0..TREES.len())
-                        .filter(|i| !garden.felled.contains(i))
-                        .map(Target::Tree),
-                )
-                .chain(
-                    (0..ROCKS.len())
-                        .filter(|i| !garden.broken.contains(i))
-                        .map(Target::Rock),
-                )
-                .collect(),
+            Area::Island | Area::District(_) => [
+                Target::Door,
+                Target::Portal,
+                Target::Pier,
+                Target::SaleChest,
+            ]
+            .into_iter()
+            .chain(District::ALL.into_iter().map(Target::Travel))
+            .chain(Village::all().map(Target::Village))
+            .chain(Npc::ALL.into_iter().map(Target::Person))
+            .chain(FINDS.iter().enumerate().filter_map(|(i, _)| {
+                garden
+                    .town
+                    .find_ready(i, garden.day)
+                    .then_some(Target::Find(i))
+            }))
+            .chain(
+                (0..TREES.len())
+                    .filter(|i| !garden.felled.contains(i))
+                    .map(Target::Tree),
+            )
+            .chain(
+                (0..ROCKS.len())
+                    .filter(|i| !garden.broken.contains(i))
+                    .map(Target::Rock),
+            )
+            .collect(),
             Area::Home => [Target::Bed, Target::Exit, Target::Bench]
                 .into_iter()
                 .chain((0..SLOTS.len()).map(Target::Slot))
@@ -502,6 +535,21 @@ impl Adventure {
     ) -> (String, String, &'static str, bool) {
         if let Some(target) = self.focus {
             let walking = self.queued == Some(target);
+            if let Some(reason) = target.restriction(garden) {
+                return (target.name().into(), reason.into(), "Geschlossen", false);
+            }
+            if target == Target::Village(Village::Seeds) {
+                return (
+                    target.name().into(),
+                    if walking {
+                        "Auf dem Weg …".into()
+                    } else {
+                        "Saatgut für sechs Kulturen und Dünger.".into()
+                    },
+                    "Einkaufen",
+                    true,
+                );
+            }
             if let Target::Village(location) = target {
                 let (detail, action, enabled) =
                     location.describe(garden, self.crop, self.offer(garden));
@@ -567,6 +615,10 @@ impl Adventure {
                     "Schlafen",
                 ),
                 Target::Door => ("Über die Veranda gelangst du hinein.".into(), "Eintreten"),
+                Target::SaleChest => (
+                    "Waren auswählen und sofort verkaufen.".into(),
+                    "Truhe öffnen",
+                ),
                 Target::Tree(_) => ("Axt · +3 Holz".into(), "Baum fällen"),
                 Target::Rock(_) => ("Spitzhacke · +2 Stein".into(), "Stein abbauen"),
                 Target::Travel(district) => {
@@ -577,10 +629,7 @@ impl Adventure {
                     )
                 }
                 Target::Person(person) => (person.role().into(), target.label()),
-                Target::Find(i) => (
-                    format!("+{} {}", FINDS[i].quantity, FINDS[i].name()),
-                    target.label(),
-                ),
+                Target::Find(i) => (FINDS[i].reward(), target.label()),
                 _ => (String::new(), target.label()),
             };
             return (
@@ -749,6 +798,7 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
             hit(Vec2::splat(0.96), 1.0, 4.36).or_else(|| hit(Vec2::splat(0.49), 0., 1.0))
         }
         Target::Rock(_) | Target::MineRock(_) => hit(Vec2::splat(0.76), 0., 0.97),
+        Target::SaleChest => hit(Vec2::new(0.64, 0.46), 0., 0.84),
         Target::Bed => hit(BED_HALF_SIZE, 0., 1.03),
         Target::Bench => hit(BENCH_HALF_SIZE, 0., 1.1),
         Target::Slot(i) => {
@@ -827,12 +877,12 @@ pub fn select(
     // A board frame has priority over the scenery behind it.
     if landmark.is_none() && focus.selected.is_some() && adventure.area == Area::Island {
         adventure.focus = None;
+        player.stop();
         return;
     }
     adventure.focus = landmark.or(volume.map(|(_, target)| target)).or(best.1);
     adventure.sale = 0;
-    let position = player.position;
-    player.teleport(position);
+    player.stop();
     if let Some(target) = adventure.focus {
         if landmark.is_some() || matches!(target, Target::Travel(_)) {
             player.navigate(adventure.reach(target, &garden), &adventure, &garden);
@@ -845,7 +895,7 @@ pub fn select(
     }
     adventure.map = false;
     focus.selected = None;
-    focus.approach = None;
+    focus.pending = None;
 }
 
 pub fn interact(
@@ -858,6 +908,7 @@ pub fn interact(
     mut focus: ResMut<GardenFocus>,
     mut notice: ResMut<Notice>,
     mut dialog: ResMut<Dialog>,
+    mut farm_menu: ResMut<FarmMenu>,
 ) {
     if controls.zoom != 0. {
         adventure.map = false;
@@ -881,7 +932,11 @@ pub fn interact(
                 0
             };
         } else {
-            adventure.crop = Crop::ALL[(adventure.crop as usize + 1) % Crop::ALL.len()];
+            if focus.pending.take().is_some() {
+                player.0.stop();
+            }
+            farm_menu.show(FarmPage::Seeds);
+            return;
         }
     }
     let now = time.elapsed_secs();
@@ -925,6 +980,16 @@ pub fn interact(
         adventure.queued = None;
         return;
     };
+    if let Some(reason) = target.restriction(&garden) {
+        adventure.queued = None;
+        player.stop();
+        *notice = Notice {
+            message: reason.into(),
+            until: now + Notice::DURATION,
+            ..default()
+        };
+        return;
+    }
     if !adventure.can_reach(target, player.position, &garden) {
         if adventure.queued == Some(target) && player.approaching() {
             return;
@@ -944,7 +1009,7 @@ pub fn interact(
     }
     adventure.queued = None;
     let position = player.position;
-    player.teleport(position);
+    player.stop();
     let tool = target.tool();
     if tool != Tool::Hoe {
         let direction = adventure.position(target) - position;
@@ -954,6 +1019,14 @@ pub fn interact(
     let mut persistent = true;
     let message = match target {
         Target::Travel(_) => return,
+        Target::SaleChest | Target::Village(Village::Seeds) => {
+            farm_menu.show(if target == Target::SaleChest {
+                FarmPage::Sale
+            } else {
+                FarmPage::SeedShop
+            });
+            return;
+        }
         Target::Find(i) => {
             let Some(message) = travel::collect(&mut garden, i) else {
                 return;
@@ -1110,7 +1183,7 @@ pub fn interact(
         }
     };
     focus.selected = None;
-    focus.approach = None;
+    focus.pending = None;
     if persistent {
         commit(&garden, &path, &mut notice, now, message, None, None);
     } else {
@@ -1222,6 +1295,12 @@ pub fn draw(
                 animals,
                 finds,
             } => {
+                spawn(
+                    "sale_crate",
+                    SALE_CHEST,
+                    world::exterior_ground(SALE_CHEST),
+                    0.,
+                );
                 for (i, find) in FINDS.into_iter().enumerate() {
                     if finds[i] {
                         let point = find.position();

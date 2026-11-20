@@ -1,4 +1,6 @@
 mod adventure;
+mod day;
+mod farm_ui;
 mod garden;
 mod homestead;
 mod input;
@@ -29,6 +31,7 @@ struct Controls {
     zoom: f32,
     map: bool,
     choice: bool,
+    fertilize: bool,
     task: bool,
     inventory: bool,
     menu: bool,
@@ -37,7 +40,7 @@ struct Controls {
 #[derive(Resource, Default)]
 struct GardenFocus {
     selected: Option<usize>,
-    approach: Option<usize>,
+    pending: Option<(Action, garden::Crop)>,
 }
 
 #[derive(Resource, Default)]
@@ -83,6 +86,7 @@ pub fn main() {
     .insert_resource(slots)
     .init_resource::<session::Session>()
     .init_resource::<town::Dialog>()
+    .init_resource::<farm_ui::FarmMenu>()
     .init_resource::<Adventure>()
     .init_resource::<Ready>()
     .init_resource::<Controls>()
@@ -101,6 +105,7 @@ pub fn main() {
             weather::setup,
             session::setup,
             town::setup,
+            farm_ui::setup,
         ),
     )
     .add_systems(
@@ -109,6 +114,7 @@ pub fn main() {
             ui::resize,
             session::input,
             town::input,
+            farm_ui::input,
             input::collect,
             session::open_menu,
         )
@@ -117,9 +123,9 @@ pub fn main() {
     .add_systems(
         Update,
         (
+            day::tick,
             select_plot,
             adventure::select,
-            world::anticipate_walk,
             world::advance_player,
             act,
             adventure::interact,
@@ -129,11 +135,13 @@ pub fn main() {
                 world::show_exterior,
                 world::update_selection,
                 world::animate_gardener,
+                world::watering_effect,
                 world::move_clouds,
                 world::update_camera,
                 weather::update.after(world::update_camera),
                 adventure::animate_animals,
                 ui::update,
+                ui::update_fertilizer,
                 ui::map_labels.after(world::update_camera),
             ),
         )
@@ -143,7 +151,13 @@ pub fn main() {
     )
     .add_systems(
         Update,
-        (session::update, town::update, ui::sync_visibility).after(adventure::interact),
+        (
+            session::update,
+            town::update,
+            farm_ui::update,
+            ui::sync_visibility,
+        )
+            .after(adventure::interact),
     )
     .add_systems(PostUpdate, session::autosave);
     #[cfg(not(target_os = "android"))]
@@ -167,7 +181,7 @@ fn select_plot(
             .is_some_and(|index| PLOTS[index].distance(player.position) > 5.)
     {
         focus.selected = None;
-        focus.approach = None;
+        focus.pending = None;
     }
     let (camera, transform) = *camera;
     let next = if controls.cycle && player.position.length() < 16. {
@@ -182,22 +196,31 @@ fn select_plot(
         return;
     };
     focus.selected = next;
-    focus.approach = next;
+    focus.pending = None;
 }
 
 fn act(
     controls: Res<Controls>,
     adventure: Res<Adventure>,
     mut focus: ResMut<GardenFocus>,
-    player: Single<&Gardener>,
+    mut player: Single<(&mut Gardener, &mut Transform)>,
     time: Res<Time>,
     mut notice: ResMut<Notice>,
     mut garden: ResMut<Garden>,
     path: Res<SavePath>,
+    mut farm_menu: ResMut<farm_ui::FarmMenu>,
 ) {
-    if !controls.act || adventure.area != Area::Island || adventure.focus.is_some() {
+    if controls.move_axis != Vec2::ZERO
+        || adventure.area != Area::Island
+        || adventure.focus.is_some()
+    {
+        focus.pending = None;
         return;
     }
+    if !controls.act && !controls.fertilize && focus.pending.is_none() {
+        return;
+    }
+    let (player, transform) = &mut *player;
     let Some(index) = focus.selected else {
         let closest = PLOTS
             .iter()
@@ -209,19 +232,74 @@ fn act(
             .filter(|(_, point)| point.distance(player.position) < 4.5)
             .map(|(i, _)| i);
         focus.selected = closest;
-        focus.approach = closest;
+        return;
+    };
+    let now = time.elapsed_secs();
+    if controls.act
+        && !garden.clock.night()
+        && focus.pending.is_none()
+        && garden.plots[index].stage() == garden::Stage::Soil
+        && garden.seed_count(adventure.crop) == 0
+    {
+        farm_menu.show(farm_ui::FarmPage::Seeds);
+        return;
+    }
+    let requested = if controls.fertilize {
+        if garden.fertilizer == 0 && garden.fertilizable(index) {
+            *notice = Notice {
+                index: Some(index),
+                message: "Dünger gibt es am Saatgutstand.".into(),
+                until: now + Notice::DURATION,
+                ..default()
+            };
+        }
+        (garden.fertilizable(index) && garden.fertilizer > 0).then_some(Action::Fertilize)
+    } else if controls.act {
+        garden.action(index, adventure.crop)
+    } else {
+        None
+    };
+    if garden.clock.night() {
+        focus.pending = None;
+        player.stop();
+        return;
+    }
+    let Some((action, crop)) = requested
+        .map(|action| (action, adventure.crop))
+        .or(focus.pending)
+    else {
         return;
     };
     if !world::can_work(player.position, PLOTS[index], &adventure, &garden) {
-        focus.approach = Some(index);
+        if requested.is_some() {
+            focus.pending = player
+                .navigate(world::Reach::ground(PLOTS[index]), &adventure, &garden)
+                .then_some((action, crop));
+        }
+        if !player.approaching() {
+            focus.pending = None;
+            *notice = Notice {
+                index: Some(index),
+                message: "Von hier aus komme ich gerade nicht ans Beet.".into(),
+                until: now + Notice::DURATION,
+                ..default()
+            };
+        }
         return;
     }
-    if let Some((action, message)) = garden.work(index, adventure.crop) {
+    focus.pending = None;
+    if let Some(message) = garden.work(index, crop, action) {
+        let position = player.position;
+        player.stop();
+        let direction = PLOTS[index] - position;
+        if direction.length_squared() > 0.01 {
+            transform.rotation = Quat::from_rotation_y(direction.x.atan2(direction.y));
+        }
         adventure::commit(
             &garden,
             &path,
             &mut notice,
-            time.elapsed_secs(),
+            now,
             message,
             Some(index),
             Some(action),

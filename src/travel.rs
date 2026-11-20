@@ -1,7 +1,10 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{garden::Garden, homestead::Product};
+use crate::{
+    garden::{Crop, Garden},
+    homestead::Product,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum District {
@@ -70,10 +73,17 @@ impl District {
 }
 
 #[derive(Clone, Copy)]
+pub enum FindLoot {
+    Product(Product),
+    Wood,
+    Seeds(Crop),
+}
+
+#[derive(Clone, Copy)]
 pub struct Find {
     pub district: District,
     pub local: Vec2,
-    pub loot: Option<Product>,
+    pub loot: FindLoot,
     pub quantity: u32,
 }
 
@@ -83,174 +93,205 @@ impl Find {
     }
     pub fn name(self) -> &'static str {
         match self.loot {
-            Some(Product::Mushroom) => "Pilze",
-            Some(Product::Hazel) => "Haselnüsse",
-            Some(Product::Shell) => "Muscheln",
+            FindLoot::Product(Product::Mushroom) => "Pilze",
+            FindLoot::Product(Product::Hazel) => "Haselnüsse",
+            FindLoot::Product(Product::Shell) => "Muscheln",
+            FindLoot::Seeds(_) => "Wildes Saatgut",
             _ => "Treibholz",
         }
     }
     pub fn model(self) -> &'static str {
         match self.loot {
-            Some(Product::Mushroom) => "find_mushroom",
-            Some(Product::Hazel) => "find_hazel",
-            Some(Product::Shell) => "find_shell",
+            FindLoot::Product(Product::Mushroom) => "find_mushroom",
+            FindLoot::Product(Product::Hazel) => "find_hazel",
+            FindLoot::Product(Product::Shell) => "find_shell",
+            FindLoot::Seeds(_) => "find_seeds",
             _ => "find_driftwood",
         }
     }
     pub fn height(self) -> f32 {
-        0.25
+        if matches!(self.loot, FindLoot::Seeds(_)) {
+            0.39
+        } else {
+            0.25
+        }
+    }
+
+    pub fn reward(self) -> String {
+        match self.loot {
+            FindLoot::Seeds(crop) => format!("+{} Samen · {}", self.quantity, crop.name()),
+            _ => format!("+{} {}", self.quantity, self.name()),
+        }
     }
 }
 
-pub const FINDS: [Find; 25] = [
+pub const FINDS: [Find; 28] = [
     Find {
         district: District::Forest,
         local: Vec2::new(-6.8, 2.4),
-        loot: Some(Product::Mushroom),
+        loot: FindLoot::Product(Product::Mushroom),
         quantity: 2,
     },
     Find {
         district: District::Forest,
         local: Vec2::new(-4.50, -2.70),
-        loot: Some(Product::Mushroom),
+        loot: FindLoot::Product(Product::Mushroom),
         quantity: 2,
     },
     Find {
         district: District::Forest,
         local: Vec2::new(3.62, -2.82),
-        loot: Some(Product::Mushroom),
+        loot: FindLoot::Product(Product::Mushroom),
         quantity: 2,
     },
     Find {
         district: District::Forest,
         local: Vec2::new(7.65, 2.8),
-        loot: Some(Product::Mushroom),
+        loot: FindLoot::Product(Product::Mushroom),
         quantity: 2,
     },
     Find {
         district: District::Forest,
         local: Vec2::new(-5.65, 4.75),
-        loot: Some(Product::Hazel),
+        loot: FindLoot::Product(Product::Hazel),
         quantity: 2,
     },
     Find {
         district: District::Forest,
         local: Vec2::new(5.1, -3.9),
-        loot: Some(Product::Hazel),
+        loot: FindLoot::Product(Product::Hazel),
         quantity: 2,
     },
     Find {
         district: District::Forest,
         local: Vec2::new(6.8, 1.1),
-        loot: Some(Product::Hazel),
+        loot: FindLoot::Product(Product::Hazel),
         quantity: 2,
     },
     Find {
         district: District::Beach,
         local: Vec2::new(2.75, 4.15),
-        loot: Some(Product::Shell),
+        loot: FindLoot::Product(Product::Shell),
         quantity: 2,
     },
     Find {
         district: District::Beach,
         local: Vec2::new(4.25, 1.86),
-        loot: Some(Product::Shell),
+        loot: FindLoot::Product(Product::Shell),
         quantity: 2,
     },
     Find {
         district: District::Beach,
         local: Vec2::new(4.6, -1.7),
-        loot: Some(Product::Shell),
+        loot: FindLoot::Product(Product::Shell),
         quantity: 2,
     },
     Find {
         district: District::Beach,
         local: Vec2::new(-1.1, 4.8),
-        loot: Some(Product::Shell),
+        loot: FindLoot::Product(Product::Shell),
         quantity: 2,
     },
     Find {
         district: District::Beach,
         local: Vec2::new(-6.2, 2.8),
-        loot: None,
+        loot: FindLoot::Wood,
         quantity: 2,
     },
     Find {
         district: District::Beach,
         local: Vec2::new(-3.0, 4.55),
-        loot: None,
+        loot: FindLoot::Wood,
         quantity: 2,
     },
     Find {
         district: District::Forest,
         local: Vec2::new(-16.0, -11.5),
-        loot: Some(Product::Mushroom),
+        loot: FindLoot::Product(Product::Mushroom),
         quantity: 2,
     },
     Find {
         district: District::Forest,
         local: Vec2::new(-13.3, 11.1),
-        loot: Some(Product::Hazel),
+        loot: FindLoot::Product(Product::Hazel),
         quantity: 2,
     },
     Find {
         district: District::Forest,
         local: Vec2::new(12.45, -11.6),
-        loot: Some(Product::Mushroom),
+        loot: FindLoot::Product(Product::Mushroom),
         quantity: 2,
     },
     Find {
         district: District::Forest,
         local: Vec2::new(-17.3, -20.1),
-        loot: Some(Product::Hazel),
+        loot: FindLoot::Product(Product::Hazel),
         quantity: 2,
     },
     Find {
         district: District::Forest,
         local: Vec2::new(15.2, 11.96),
-        loot: Some(Product::Mushroom),
+        loot: FindLoot::Product(Product::Mushroom),
         quantity: 2,
     },
     Find {
         district: District::Forest,
         local: Vec2::new(-16.2, 11.15),
-        loot: Some(Product::Mushroom),
+        loot: FindLoot::Product(Product::Mushroom),
         quantity: 2,
     },
     Find {
         district: District::Beach,
         local: Vec2::new(-14.1, 11.8),
-        loot: Some(Product::Shell),
+        loot: FindLoot::Product(Product::Shell),
         quantity: 2,
     },
     Find {
         district: District::Beach,
         local: Vec2::new(-18.0, 5.4),
-        loot: None,
+        loot: FindLoot::Wood,
         quantity: 2,
     },
     Find {
         district: District::Beach,
         local: Vec2::new(-7.6, 15.2),
-        loot: Some(Product::Shell),
+        loot: FindLoot::Product(Product::Shell),
         quantity: 2,
     },
     Find {
         district: District::Beach,
         local: Vec2::new(0.2, 16.1),
-        loot: Some(Product::Shell),
+        loot: FindLoot::Product(Product::Shell),
         quantity: 2,
     },
     Find {
         district: District::Beach,
         local: Vec2::new(-17.8, -1.7),
-        loot: None,
+        loot: FindLoot::Wood,
         quantity: 2,
     },
     Find {
         district: District::Beach,
         local: Vec2::new(-9.3, 9.2),
-        loot: Some(Product::Shell),
+        loot: FindLoot::Product(Product::Shell),
+        quantity: 2,
+    },
+    Find {
+        district: District::Forest,
+        local: Vec2::new(-6.2, 3.7),
+        loot: FindLoot::Seeds(Crop::Carrot),
+        quantity: 2,
+    },
+    Find {
+        district: District::Forest,
+        local: Vec2::new(7.1, -1.45),
+        loot: FindLoot::Seeds(Crop::Tomato),
+        quantity: 2,
+    },
+    Find {
+        district: District::Beach,
+        local: Vec2::new(4., 2.75),
+        loot: FindLoot::Seeds(Crop::Sunflower),
         quantity: 2,
     },
 ];
@@ -261,12 +302,12 @@ pub fn collect(g: &mut Garden, index: usize) -> Option<String> {
         return None;
     }
     g.town.record_pick(index, g.day);
-    if let Some(item) = find.loot {
-        g.add_stock(item, find.quantity);
-    } else {
-        g.wood = g.wood.saturating_add(find.quantity);
+    match find.loot {
+        FindLoot::Product(item) => g.add_stock(item, find.quantity),
+        FindLoot::Seeds(crop) => g.add_seeds(crop, find.quantity),
+        FindLoot::Wood => g.wood = g.wood.saturating_add(find.quantity),
     }
-    Some(format!("+{} {}", find.quantity, find.name()))
+    Some(find.reward())
 }
 
 #[cfg(test)]

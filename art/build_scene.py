@@ -887,6 +887,56 @@ def resource_models():
     return [tree,stump,rock,copper,tile,wall,ladder,support,bobber,turnip,pumpkin,axe,pick]
 
 
+def farm_assets():
+    chest=Model("Verkaufstruhe · Holz, Leinwand und Messing","sale_crate")
+    for i in range(6):
+        x=(i-2.5)*.164
+        chest.box(x,0,.275,.156,.62,.43,["bc855a","c49165","aa754c"][i%3],.027)
+        chest.box(x,-.010,.61,.165,.69,.14,["cf9e70","c69462","d1a373"][i%3],.035)
+    for x in [-.44,.44]:
+        chest.box(x,0,.32,.14,.70,.53,"926446",.028)
+        chest.box(x,0,.617,.14,.74,.17,"a47450",.029)
+        chest.box(x,.371,.402,.108,.025,.329,"66796b",.015)
+        for y in [.27,.52]:
+            chest.ellipsoid(x,.386,y,.022,.012,.022,"deb27a",7,3)
+    chest.box(0,0,.075,.99,.66,.11,"8d6245",.028)
+    chest.box(0,.345,.454,.155,.066,.159,"d6ae6a",.023)
+    chest.pole((-.045,.392,.43),(.045,.392,.43),.016,"7b664e",6)
+    chest.box(0,.383,.241,.309,.025,.143,"668161",.012)
+    chest.pole((-.052,.402,.196),(.056,.402,.279),.012,"f1d8a4",6)
+    chest.ellipsoid(.025,.402,.257,.072,.016,.034,"dfd99f",8,4,angle=.45)
+
+    can=Model("Gießkanne · Grünes Email und Messing","watering_can")
+    can.ellipsoid(0,.029,-.155,.133,.142,.124,"638d7f",11,5)
+    can.pole((0,.029,-.266),(0,.029,-.234),.092,"537570",10,tip=.112)
+    can.pole((0,.030,-.060),(0,.030,-.026),.098,"a9b99a",11,tip=.091)
+    can.pole((0,.030,-.035),(0,.030,-.026),.071,"415e56",11)
+    can.pole((0,.099,-.185),(0,.270,-.106),.046,"648d80",9,tip=.032)
+    can.pole((0,.265,-.108),(0,.321,-.078),.042,"d1b27a",9,tip=.053)
+    for a,b in [(-.17,-.125),(-.125,-.086),(-.086,-.030),(-.03,.042)]:
+        can.pole((0,a,.032-math.sin((a+.03)*7)**2*.138),
+                 (0,b,.032-math.sin((b+.03)*7)**2*.138),.021,"7ea88f",7)
+    drop=Model("Gießwasser · Tropfen","water_drop")
+    drop.ellipsoid(0,0,0,.027,.027,.046,"a7ddd7",7,4,mode="raw")
+
+    mulch=Model("Mulch · Warme Holzspäne im Beet","fertilized_soil")
+    rng=random.Random(41)
+    for _ in range(33):
+        x,z=rng.uniform(-.61,.61),rng.uniform(-.60,.60)
+        size=rng.uniform(.024,.071)
+        mulch.ellipsoid(x,z,.086,size,size*.62,.022,
+                        rng.choice(["cda271","d8b180","ac7c58"]),6,3,angle=rng.random())
+
+    seeds=Model("Wilde Samenstände","find_seeds")
+    for x,z,h in [(-.20,-.09,.41),(.07,-.05,.54),(.19,.15,.38),(-.11,.18,.34)]:
+        seeds.pole((x*.45,z*.50,0),(x,z,h),.029,"a6945d",6,tip=.015)
+        seeds.pole((x,z,h*.48),(x-.13,z+.084,h*.66),.022,"819357",5,tip=.007)
+        seeds.ellipsoid(x,z,h,.075,.064,.102,"d0ad6d",8,4)
+        for dx,dy in [(-.047,-.02),(.036,.007),(.009,.05)]:
+            seeds.ellipsoid(x+dx,z+.044,h+dy,.033,.023,.034,"ead5a0",6,3)
+    return [chest,can,drop,mulch,seeds]
+
+
 ORCHARD_POINTS = [
     (-12.35,7.8),(-11.05,5.3),(-8.10,8.90),(-14.40,9.80),
     (-13.30,11.50),(-9.70,10.80),(-15.0,6.50),
@@ -1914,7 +1964,7 @@ def generate():
     terrain=landscape.terrain_models(SimpleNamespace(Model=Model, blend=blend))
     landscape.bake_heightmap(ROOT)
     resources=resource_models()
-    extra=[*garden(),*character(),*effects(),*furniture_models(),*resources,*new_game_models(),
+    extra=[*garden(),*character(),*effects(),*furniture_models(),*resources,*new_game_models(),*farm_assets(),
            *deep_mine_assets(resources),*find_assets(),*npc_models()]
     exterior=[*world,*districts,*terrain]
     exterior_assets={model.asset for model in exterior}

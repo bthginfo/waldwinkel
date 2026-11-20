@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     adventure::{Area, Target},
-    garden::{Crop, Garden},
+    garden::{Crop, Garden, Quality},
 };
 
 pub const SEED_SHOP: Vec2 = Vec2::new(16.15, 3.02);
@@ -35,6 +35,10 @@ pub enum Village {
 }
 
 impl Village {
+    pub fn closed(self, garden: &Garden) -> bool {
+        matches!(self, Self::Seeds | Self::Sell | Self::Smith) && !garden.clock.market_open()
+    }
+
     pub fn all() -> impl Iterator<Item = Self> {
         [
             Self::Seeds,
@@ -93,6 +97,9 @@ impl Village {
     ) -> (String, &'static str, bool) {
         let farm = &g.farm;
         let money = farm.coins;
+        if self.closed(g) {
+            return ("Wieder geöffnet ab 06:00.".into(), "Geschlossen", false);
+        }
         match self {
             Self::Seeds => (
                 format!("3 {}-Samen · {} Münzen", crop.name(), crop.price()),
@@ -111,7 +118,7 @@ impl Village {
                     (
                         format!(
                             "{} ×{} · +{} Münzen",
-                            item.name(),
+                            item.label(),
                             g.stock(item),
                             item.value()
                         ),
@@ -315,7 +322,7 @@ pub struct AnimalState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Product {
-    Crop(Crop),
+    Crop(Crop, Quality),
     Fish,
     Apple,
     Berry,
@@ -329,13 +336,7 @@ pub enum Product {
 }
 
 impl Product {
-    pub const ALL: [Self; 16] = [
-        Self::Crop(Crop::Carrot),
-        Self::Crop(Crop::Turnip),
-        Self::Crop(Crop::Pumpkin),
-        Self::Crop(Crop::Strawberry),
-        Self::Crop(Crop::Tomato),
-        Self::Crop(Crop::Sunflower),
+    const GATHERED: [Self; 10] = [
         Self::Fish,
         Self::Apple,
         Self::Berry,
@@ -349,7 +350,7 @@ impl Product {
     ];
     pub fn name(self) -> &'static str {
         match self {
-            Self::Crop(crop) => crop.name(),
+            Self::Crop(crop, _) => crop.name(),
             Self::Fish => "Fisch",
             Self::Apple => "Äpfel",
             Self::Berry => "Waldbeeren",
@@ -362,9 +363,23 @@ impl Product {
             Self::Shell => "Muscheln",
         }
     }
+    pub fn quality(self) -> Option<Quality> {
+        match self {
+            Self::Crop(_, quality) => Some(quality),
+            _ => None,
+        }
+    }
+
+    pub fn label(self) -> String {
+        match self.quality() {
+            Some(quality) => format!("{} · {}", self.name(), quality.name()),
+            None => self.name().into(),
+        }
+    }
+
     pub fn value(self) -> u32 {
         match self {
-            Self::Crop(crop) => crop.price().div_ceil(2),
+            Self::Crop(crop, quality) => quality.price(crop.price().div_ceil(2)),
             Self::Fish | Self::Egg => 5,
             Self::Apple | Self::Berry => 2,
             Self::Wool => 8,
@@ -374,11 +389,17 @@ impl Product {
             Self::Shell => 4,
         }
     }
-    pub fn at(index: usize, garden: &Garden) -> Option<Self> {
-        Self::ALL
+
+    pub fn stocked(garden: &Garden) -> impl Iterator<Item = Self> + '_ {
+        Crop::ALL
             .into_iter()
+            .flat_map(|crop| Quality::ALL.map(move |quality| Self::Crop(crop, quality)))
+            .chain(Self::GATHERED)
             .filter(|&item| garden.stock(item) > 0)
-            .nth(index)
+    }
+
+    pub fn at(index: usize, garden: &Garden) -> Option<Self> {
+        Self::stocked(garden).nth(index)
     }
 }
 

@@ -142,7 +142,7 @@ pub fn update(
             center.z + (particle.z - 0.5) * width * 0.73,
         );
     }
-    tint.0 = if !outdoor {
+    let weather = if !outdoor {
         Color::NONE
     } else {
         match (sky, season) {
@@ -154,6 +154,14 @@ pub fn update(
             (_, Season::Summer) => Color::srgba(0.99, 0.73, 0.35, 0.06),
             _ => Color::NONE,
         }
+    };
+    let dusk = if outdoor { garden.clock.dusk() } else { 0. };
+    let golden = Color::srgba(0.91, 0.52, 0.35, 0.24);
+    let night = Color::srgba(0.11, 0.17, 0.36, 0.54);
+    tint.0 = if dusk <= 0.55 {
+        weather.mix(&golden, dusk / 0.55)
+    } else {
+        golden.mix(&night, (dusk - 0.55) / 0.45)
     };
 }
 

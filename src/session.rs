@@ -162,6 +162,7 @@ pub struct Session {
     index: Option<usize>,
     message: String,
     last_saved: f32,
+    last_clock: u16,
     save_failed: bool,
 }
 
@@ -188,13 +189,18 @@ impl Session {
             garden.checkpoint = previous;
             return Err(error);
         }
+        self.last_clock = garden.clock.minute();
         slots.status[index] = SaveSlots::summary(garden);
         Ok(())
     }
 }
 
-pub fn playing(session: Res<Session>, dialog: Res<Dialog>) -> bool {
-    session.playing() && !dialog.open()
+pub fn playing(
+    session: Res<Session>,
+    dialog: Res<Dialog>,
+    farm_menu: Res<crate::farm_ui::FarmMenu>,
+) -> bool {
+    session.playing() && !dialog.open() && !farm_menu.open()
 }
 
 #[derive(Component)]
@@ -341,8 +347,15 @@ pub fn input(
     mut focus: ResMut<GardenFocus>,
     mut notice: ResMut<Notice>,
     mut dialog: ResMut<Dialog>,
+    mut farm_menu: ResMut<crate::farm_ui::FarmMenu>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
+        if farm_menu.open() {
+            farm_menu.close();
+            *gesture = Gesture::default();
+            *controls = Controls::default();
+            return;
+        }
         if dialog.open() {
             dialog.close();
             *gesture = Gesture::default();
@@ -389,9 +402,11 @@ pub fn input(
                 *focus = GardenFocus::default();
                 *notice = Notice::default();
                 dialog.close();
+                farm_menu.close();
                 session.screen = Screen::Playing;
                 session.index = Some(index);
                 session.last_saved = time.elapsed_secs();
+                session.last_clock = g.clock.minute();
                 session.save_failed = false;
                 session.message.clear();
             }
@@ -462,11 +477,13 @@ pub fn autosave(
     let moved = garden
         .checkpoint
         .is_none_or(|p| Vec2::from_array(p.position).distance_squared(player.position) > 0.35);
+    let clock_advanced = garden.clock.minute().abs_diff(session.last_clock) >= 25;
     if (background
         || suspended
         || close
         || changed_area && !session.save_failed
-        || now - session.last_saved >= SAVE_INTERVAL && (moved || session.save_failed))
+        || now - session.last_saved >= SAVE_INTERVAL
+            && (moved || clock_advanced || session.save_failed))
         && let Err(error) = session.save(&mut slots, &mut garden, checkpoint, now)
     {
         warn!("Automatisches Speichern fehlgeschlagen: {error}");
