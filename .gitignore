@@ -1,0 +1,9 @@
+/target/
+/build/
+*.blend1
+__pycache__/
+
+*.jks
+*.keystore
+*.p12
+.env

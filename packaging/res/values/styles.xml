@@ -1,0 +1,9 @@
+<resources>
+    <style name="Waldwinkel" parent="android:style/Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">#84CCC9</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">never</item>
+        <item name="android:colorAccent">#688056</item>
+        <item name="android:windowSwipeToDismiss">false</item>
+    </style>
+</resources>

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="game.waldwinkel"
+    android:versionCode="5"
+    android:versionName="0.5.0">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+    <uses-feature android:name="android.hardware.vulkan.version"
+        android:version="0x00400000" android:required="true" />
+    <application android:label="Waldwinkel"
+        android:icon="@drawable/icon"
+        android:theme="@style/Waldwinkel"
+        android:allowBackup="false"
+        android:debuggable="true"
+        android:extractNativeLibs="true">
+        <activity android:name=".GameActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|density|uiMode|smallestScreenSize"
+            android:exported="true"
+            android:screenOrientation="sensorLandscape">
+            <meta-data android:name="android.app.lib_name" android:value="waldwinkel" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
