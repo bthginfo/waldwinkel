@@ -1,4 +1,4 @@
-# Waldwinkel 1.10.1
+# Waldwinkel 1.10.2
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
@@ -6,8 +6,13 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 
 ## Installieren
 
-- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK 1.10.1](https://raw.githubusercontent.com/bthginfo/waldwinkel/9d11e7bf2226ca59fd6d1a935adff75e97612cdf/Waldwinkel-1.10.1.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
+- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK 1.10.2](https://raw.githubusercontent.com/bthginfo/waldwinkel/201196b5f2c77b343c80f709ce883ac75f995bfd/Waldwinkel-1.10.2.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
+
+## Neu in 1.10.2
+
+- Ein einzelner Zielrahmen markiert das gewählte Objekt. Beim Versetzen eines Möbels oder Hofgebäudes zeigt das Raster dessen aktuelle Vorschau. Android synchronisiert die Bildausgabe mit dem Bildschirm.
+- Der Tanuki schaut auch bei Kontakt mit einem Hindernis in die Richtung deiner Eingabe. Das Bett lässt sich von der Vorderseite und von der Seite direkt benutzen.
 
 ## Neu in 1.10.1
 
@@ -22,7 +27,7 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 - **Handel und Handwerk.** Die Marktauslage zeigt Waren und Preise als bebilderte Karten. Du kannst Einzelstücke oder ganze Stapel verkaufen. Für Möbel und Hofgebäude zeigen die Menüs Vorschaubilder der Blender-Modelle.
 - **Duell und Rückmeldung.** Die Karten haben neue Rahmen und Illustrationen. Im Übungsduell lernst du Schild, Angriff und Zugwechsel. Schlafen zeigt Tagwechsel, Ernte und Speicherstatus. Kauf, Verkauf und Aufträge bestätigen den Erfolg direkt im Spiel.
 
-[Saatgutrad](docs/110-saatgut.jpg) · [Einrichten im Raster](docs/110-einrichten.jpg) · [Auftragsgebiet](docs/110-auftragsgebiet.jpg) · [Kaufen](docs/110-markt.jpg) · [Verkaufen](docs/110-verkaufen.jpg) · [Übungsduell](docs/110-duell.jpg) · [Gespeichert nach dem Schlafen](docs/110-schlafen.jpg)
+[Werkzeugrad mit Xbox-Hinweisen](docs/110-xbox.jpg) · [Saatgutrad](docs/110-saatgut.jpg) · [Einrichten im Raster](docs/110-einrichten.jpg) · [Auftragsgebiet](docs/110-auftragsgebiet.jpg) · [Kaufen](docs/110-markt.jpg) · [Verkaufen](docs/110-verkaufen.jpg) · [Übungsduell](docs/110-duell.jpg) · [Gespeichert nach dem Schlafen](docs/110-schlafen.jpg)
 
 ## Neu in 1.9.2
 
@@ -254,7 +259,7 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 ## Tests
 
-95 Rust-Tests prüfen den Prolog bis zum Start der Geschichte, die Wegverbindungen, das Speichern, die Menünavigation und die Systeme für Hof, Handwerk und Kampf. Alle 227 GLB-Dateien sind lesbar. Ein Spieltest mit leerem Spielstand führte über die erste Aussaat, zwei Nächte, Werkbank, Ernte und Kochen bis zum Sieg im Übungsduell und zum Beginn der Hauptgeschichte. In weiteren Testspielständen ließ sich ein Möbel versetzen und drehen. Saatgutkauf, Einzelverkauf und die Reparatur des Fischerstegs mit Kupfer wurden im laufenden Spiel geprüft. Beim Update von 1.9.2 auf 1.10.0 blieben zwei Testspielstände auf Android 16 bytegenau erhalten. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen aus.
+98 Rust-Tests prüfen den Prolog bis zum Start der Geschichte, die Wegverbindungen, das Speichern, die Menünavigation und die Systeme für Hof, Handwerk und Kampf. Alle 227 GLB-Dateien sind lesbar. Ein Spieltest mit leerem Spielstand führte über die erste Aussaat, zwei Nächte, Werkbank, Ernte und Kochen bis zum Sieg im Übungsduell und zum Beginn der Hauptgeschichte. In weiteren Testspielständen ließ sich ein Möbel versetzen und drehen. Saatgutkauf, Einzelverkauf und die Reparatur des Fischerstegs mit Kupfer wurden im laufenden Spiel geprüft. Beim Update von 1.9.2 auf 1.10.0 blieben zwei Testspielstände auf Android 16 bytegenau erhalten. Beide Räder wurden mit einem virtuellen Xbox-Controller getestet. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen aus.
 
 Die Blender-Landschaften entstanden nach eigenen Bildreferenzen. [Insel und Pässe](art/references/insel.jpg) · [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)
 

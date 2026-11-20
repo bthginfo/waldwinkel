@@ -245,6 +245,13 @@ enum Source {
     Building,
 }
 
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+pub enum Original {
+    Legacy(usize),
+    Placed(usize),
+    Building(Building),
+}
+
 #[derive(Clone, Copy)]
 struct Proposal {
     area: Area,
@@ -327,6 +334,15 @@ impl Layout {
 }
 
 impl Proposal {
+    fn original(self) -> Option<Original> {
+        match (self.source, self.item) {
+            (Source::Legacy(index), _) => Some(Original::Legacy(index)),
+            (Source::Placed(index), _) => Some(Original::Placed(index)),
+            (Source::Building, Item::Building(building)) => Some(Original::Building(building)),
+            _ => None,
+        }
+    }
+
     fn reason(self, adventure: &Adventure, garden: &Garden, player: Vec2) -> Option<&'static str> {
         let point = self.pose.point();
         let half = self.pose.half(self.item.half()) + Vec2::splat(0.10);
@@ -518,6 +534,13 @@ pub fn setup(
         });
 }
 
+#[derive(Default)]
+pub struct EditorPointer {
+    already_editing: bool,
+    finger: Option<u64>,
+    mouse_down: bool,
+}
+
 pub fn input(
     mut layout: ResMut<Layout>,
     controller: Res<Controller>,
@@ -530,23 +553,50 @@ pub fn input(
     camera: Single<(&Camera, &GlobalTransform), With<IslandCamera>>,
     window: Single<&Window, With<PrimaryWindow>>,
     buttons: Query<(&ButtonAction, &Interaction)>,
-    mut touch: EventReader<TouchInput>,
-    mut mouse: EventReader<MouseButtonInput>,
+    input: (
+        EventReader<TouchInput>,
+        EventReader<MouseButtonInput>,
+        Local<EditorPointer>,
+    ),
     clock: Res<Time>,
     path: Res<SavePath>,
     mut notice: ResMut<Notice>,
 ) {
-    let finger = touch
-        .read()
-        .filter(|e| e.phase == TouchPhase::Ended)
-        .last()
-        .map(|e| e.position);
-    let click = mouse
-        .read()
-        .any(|e| e.button == MouseButton::Left && e.state == ButtonState::Released);
+    let (mut touch, mut mouse, mut pointer) = input;
     let Some(mut proposal) = layout.proposal else {
+        *pointer = EditorPointer::default();
+        touch.clear();
+        mouse.clear();
         return;
     };
+    if !pointer.already_editing {
+        pointer.already_editing = true;
+        touch.clear();
+        mouse.clear();
+    }
+    let mut finger = None;
+    for event in touch.read() {
+        match event.phase {
+            TouchPhase::Started if pointer.finger.is_none() => pointer.finger = Some(event.id),
+            TouchPhase::Ended | TouchPhase::Canceled if pointer.finger == Some(event.id) => {
+                pointer.finger = None;
+                if event.phase == TouchPhase::Ended {
+                    finger = Some(event.position);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut click = false;
+    for event in mouse
+        .read()
+        .filter(|event| event.button == MouseButton::Left)
+    {
+        match event.state {
+            ButtonState::Pressed => pointer.mouse_down = true,
+            ButtonState::Released => click |= std::mem::take(&mut pointer.mouse_down),
+        }
+    }
     if !session.playing() || proposal.area != adventure.area {
         layout.proposal = None;
         return;
@@ -688,9 +738,19 @@ pub fn draw(
             commands
                 .spawn(Transform::default())
                 .with_children(|furniture| {
-                    for piece in garden.decorations.iter().copied().filter(|p| p.here(area)) {
+                    for (index, piece) in garden
+                        .decorations
+                        .iter()
+                        .copied()
+                        .enumerate()
+                        .filter(|(_, p)| p.here(area))
+                    {
                         if let Some(design) = CATALOG.get(piece.design) {
-                            furniture.spawn((scene(design.model), transform(area, piece.pose)));
+                            furniture.spawn((
+                                Original::Placed(index),
+                                scene(design.model),
+                                transform(area, piece.pose),
+                            ));
                         }
                     }
                 })
@@ -758,5 +818,54 @@ pub fn draw(
             Display::Flex
         };
         color.0 = ui::button_color(hover, action != ButtonAction::Place || blocked.is_none());
+    }
+}
+
+pub fn originals(layout: Res<Layout>, mut scenes: Query<(&Original, &mut Visibility)>) {
+    let hidden = layout.proposal.and_then(Proposal::original);
+    for (original, mut visibility) in &mut scenes {
+        visibility.set_if_neq(if hidden == Some(*original) {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn editing_hides_only_the_original_and_cancel_restores_it() {
+        let mut layout = Layout::default();
+        layout.move_legacy(0, 0);
+
+        let mut app = App::new();
+        app.insert_resource(layout).add_systems(Update, originals);
+        let original = app
+            .world_mut()
+            .spawn((Original::Legacy(0), Visibility::Inherited))
+            .id();
+        let neighbour = app
+            .world_mut()
+            .spawn((Original::Legacy(1), Visibility::Inherited))
+            .id();
+        app.update();
+        assert_eq!(
+            app.world().get::<Visibility>(original),
+            Some(&Visibility::Hidden)
+        );
+        assert_eq!(
+            app.world().get::<Visibility>(neighbour),
+            Some(&Visibility::Inherited)
+        );
+
+        app.world_mut().resource_mut::<Layout>().proposal = None;
+        app.update();
+        assert_eq!(
+            app.world().get::<Visibility>(original),
+            Some(&Visibility::Inherited)
+        );
     }
 }

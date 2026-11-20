@@ -120,7 +120,11 @@ pub fn main() {
             primary_window: Some(Window {
                 title: "Waldwinkel".into(),
                 resolution: (1600.0f32, 900.0f32).into(),
-                present_mode: PresentMode::AutoVsync,
+                present_mode: if cfg!(target_os = "android") {
+                    PresentMode::Fifo
+                } else {
+                    PresentMode::AutoVsync
+                },
                 ..default()
             }),
             ..default()
@@ -226,6 +230,7 @@ pub fn main() {
             (night::update.after(adventure::interact).before(ui::update),
              wheel::update.after(wheel::input).before(ui::sync_visibility),
              decorate::draw.after(adventure::interact),
+             decorate::originals.after(decorate::draw).after(adventure::draw),
              feedback::update.after(adventure::interact)),
         )
         .add_systems(

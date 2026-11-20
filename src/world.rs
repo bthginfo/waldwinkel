@@ -505,11 +505,17 @@ pub fn update_camera(
         frame.width = width;
         transform.translation = frame.focus + Vec3::Y * frame.distance;
         transform.look_at(frame.focus, Vec3::NEG_Z);
-        **projection = Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::AutoMin { min_width: width, min_height: height },
-            far: 120.,
-            ..OrthographicProjection::default_3d()
-        });
+        let scaling_mode = ScalingMode::AutoMin { min_width: width, min_height: height };
+        if let Projection::Orthographic(current) = &mut **projection {
+            current.scaling_mode = scaling_mode;
+            current.far = 120.;
+        } else {
+            **projection = Projection::Orthographic(OrthographicProjection {
+                scaling_mode,
+                far: 120.,
+                ..OrthographicProjection::default_3d()
+            });
+        }
         *last = None;
         return;
     }
@@ -720,6 +726,8 @@ pub fn update_selection(
     focus: Res<GardenFocus>,
     adventure: Res<Adventure>,
     garden: Res<Garden>,
+    layout: Res<crate::decorate::Layout>,
+    menu: Res<crate::farm_ui::FarmMenu>,
     mut selection: Single<(&mut Visibility, &mut Transform), With<Selection>>,
 ) {
     let (visibility, transform) = &mut *selection;
@@ -733,8 +741,10 @@ pub fn update_selection(
             .then_some(lesson)
             .flatten()
             .map(|i| (PLOTS[i], 1.))
-    });
-    if let Some((point, scale)) = selection.filter(|_| !adventure.map) {
+    }).or_else(|| (adventure.area == Area::Home).then(|| {
+        (adventure.position(crate::adventure::Target::Exit, &garden), 1.)
+    }));
+    if let Some((point, scale)) = selection.filter(|_| !adventure.map && !layout.open() && menu.room_preview().is_none()) {
         let ground = if adventure.area.outdoors() {
             surface_height(point, &garden).max(0.)
         } else {
@@ -803,6 +813,7 @@ pub fn advance_player(
             player.route_goal = None;
         }
     }
+    let following = !player.route.is_empty();
     for _ in 0..steps {
         if let Some((&corner, &next)) = player.route.front().zip(player.route.get(1))
             && player.route_goal.is_some()
@@ -864,8 +875,14 @@ pub fn advance_player(
     let stride = 0.49 + 0.43 * speed;
     player.phase = (player.phase + distance / stride).fract();
     player.gait = player.gait.lerp(speed, 1.0 - (-delta * 13.0).exp());
-    if distance > 0.0004 {
-        let direction = moved - old;
+    let direction = if manual {
+        desired
+    } else if following {
+        moved - old
+    } else {
+        Vec2::ZERO
+    };
+    if direction.length_squared() > 0.0004_f32.powi(2) {
         let angle = direction.x.atan2(direction.y);
         transform.rotation = transform
             .rotation
@@ -1533,6 +1550,35 @@ mod tests {
             braking = drive_velocity(braking, Vec2::ZERO, step);
         }
         assert_eq!(braking, Vec2::ZERO);
+    }
+
+    #[test]
+    fn a_blocked_step_still_turns_the_tanuki_towards_the_target() {
+        let mut adventure = Adventure::default();
+        adventure.area = Area::Home;
+        let garden = Garden::default();
+        let bed = adventure.position(crate::adventure::Target::Bed, &garden);
+        let start = bed + Vec2::Y * 1.05;
+        let mut time = Time::<()>::default();
+        time.advance_by(Duration::from_millis(50));
+        let mut app = App::new();
+        app.insert_resource(Controls { move_axis: Vec2::Y, ..default() })
+            .insert_resource(time)
+            .insert_resource(garden)
+            .insert_resource(adventure)
+            .add_systems(Update, advance_player);
+        app.world_mut().spawn((IslandCamera, Transform::default()));
+        let player = app.world_mut().spawn((Gardener::new(start), Transform::from_translation(position3(start, 0.)))).id();
+        for _ in 0..5 {
+            app.update();
+        }
+        let rotation = app.world().get::<Transform>(player).unwrap().rotation;
+        assert!((rotation * Vec3::Z).dot(Vec3::NEG_Z) > 0.95);
+        assert!(app.world().get::<Gardener>(player).unwrap().position.distance(bed) > 0.9);
+
+        app.world_mut().resource_mut::<Controls>().move_axis = Vec2::ZERO;
+        app.update();
+        assert_eq!(app.world().get::<Transform>(player).unwrap().rotation, rotation);
     }
 
     #[test]

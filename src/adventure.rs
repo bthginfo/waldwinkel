@@ -35,7 +35,6 @@ const PATTERN_STALL: Vec2 = Vec2::new(18.36, 5.49);
 const DUSK_GATE: Vec2 = Vec2::new(-111., -35.);
 const DUSK_ARRIVAL: Vec2 = Vec2::new(-111., -33.54);
 const BINDER: Vec2 = Vec2::new(221.02, -2.23);
-const MARKER: &str = "selection";
 const TILE: f32 = 2.4;
 const GRID: i16 = 9;
 const START: u16 = 40;
@@ -855,8 +854,15 @@ impl Adventure {
     }
 
     fn can_reach(&self, target: Target, player: Vec2, garden: &Garden) -> bool {
-        self.reach(target, garden)
-            .reached(player, &|p| self.walkable(p, garden))
+        let reach = if target == Target::Bed {
+            let center = self.position(target, garden);
+            let edge = center + (player - center).clamp(-BED_HALF_SIZE, BED_HALF_SIZE);
+            let outside = edge + (player - edge).normalize_or_zero() * 0.01;
+            Reach::target(outside, 0., 0.49)
+        } else {
+            self.reach(target, garden)
+        };
+        reach.reached(player, &|p| self.walkable(p, garden))
     }
 
     pub fn position(&self, target: Target, garden: &Garden) -> Vec2 {
@@ -1672,12 +1678,12 @@ fn front_target(
             if distance > 3.2 || aim < 0.22 {
                 return None;
             }
-            let (reach, preferred) = match target {
+            let (reachable, preferred) = match target {
                 PadTarget::Plot(_) if matches!(tool, FieldTool::Axe | FieldTool::Pickaxe) => return None,
                 PadTarget::Plot(i) => {
                     let action = tool.action(garden, i, adventure.crop);
                     let reach = world::work_reach(world::PLOTS[i], action.unwrap_or(crate::garden::Action::Till), garden);
-                    (reach, action.is_some() && tool != FieldTool::Auto)
+                    (reach.reached(origin, &passable), action.is_some() && tool != FieldTool::Auto)
                 }
                 PadTarget::Place(place) => {
                     let preferred = match place.tool() {
@@ -1687,10 +1693,10 @@ fn front_target(
                         Tool::Pickaxe => tool == FieldTool::Pickaxe,
                         _ => false,
                     };
-                    (adventure.reach(place, garden), preferred)
+                    (adventure.can_reach(place, origin, garden), preferred)
                 }
             };
-            let step = if reach.reached(origin, &passable) { 0. } else { 0.65 };
+            let step = if reachable { 0. } else { 0.65 };
             let score = distance + (1. - aim) * 2.7 + step - if preferred { 0.55 } else { 0. };
             Some((score, target))
         })
@@ -2521,7 +2527,6 @@ enum Stamp {
 pub struct AreaDrawing {
     stamp: Option<Stamp>,
     root: Option<Entity>,
-    marker: Option<Entity>,
     bobber: Option<Entity>,
 }
 
@@ -2609,6 +2614,8 @@ pub fn draw(
         let root = commands
             .spawn((Transform::default(), Visibility::Inherited))
             .id();
+        use crate::decorate::Original;
+        let mut editable = Vec::new();
         let load = |name: &str| assets.load::<Scene>(format!("models/{name}.glb#Scene0"));
         let mut spawn = |asset: &str, point: Vec2, y: f32, angle: f32| {
             let child = commands
@@ -2644,7 +2651,7 @@ pub fn draw(
             } => {
                 use crate::decorate::Building;
                 let bench = Building::Bench.point(&garden);
-                spawn(
+                let bench_model = spawn(
                     if *restored {
                         "furniture_bench"
                     } else {
@@ -2654,23 +2661,26 @@ pub fn draw(
                     world::exterior_ground(bench),
                     Building::Bench.angle(&garden),
                 );
+                editable.push((bench_model, Original::Building(Building::Bench)));
                 if *forge {
                     let point = Building::Forge.point(&garden);
-                    spawn(
+                    let model = spawn(
                         "workshop_forge",
                         point,
                         world::exterior_ground(point),
                         Building::Forge.angle(&garden),
                     );
+                    editable.push((model, Original::Building(Building::Forge)));
                 }
                 if *loom {
                     let point = Building::Loom.point(&garden);
-                    spawn(
+                    let model = spawn(
                         "workshop_loom",
                         point,
                         world::exterior_ground(point),
                         Building::Loom.angle(&garden),
                     );
+                    editable.push((model, Original::Building(Building::Loom)));
                 }
                 for site in Watch::ALL {
                     let point = site.point();
@@ -2732,7 +2742,7 @@ pub fn draw(
                 for kind in Animal::ALL {
                     let building = Building::animal(kind);
                     let site = building.point(&garden);
-                    spawn(
+                    let model = spawn(
                         if housing[kind as usize] {
                             kind.housing_model()
                         } else {
@@ -2742,6 +2752,7 @@ pub fn draw(
                         world::exterior_ground(site),
                         building.angle(&garden),
                     );
+                    editable.push((model, Original::Building(building)));
                 }
                 for gate in Frontier::ALL {
                     let p = gate.position();
@@ -2900,15 +2911,10 @@ pub fn draw(
                         spawn("selection", HOME + SLOTS[i], 0.12, 0.);
                     }
                     if let Some(name) = kind.checked_sub(1).and_then(|v| CATALOG.get(v as usize)) {
-                        spawn(name.model, HOME + SLOTS[i], 0.08, 0.);
+                        let model = spawn(name.model, HOME + SLOTS[i], 0.08, 0.);
+                        editable.push((model, Original::Legacy(i)));
                     }
                 }
-                spawn(
-                    "selection",
-                    adventure.position(Target::Exit, &garden),
-                    0.05,
-                    0.,
-                );
                 Color::srgb_u8(184, 139, 115)
             }
             Stamp::Mine(depth, removed) => {
@@ -3066,31 +3072,11 @@ pub fn draw(
                 }
             }
         };
+        for (entity, original) in editable {
+            commands.entity(entity).insert(original);
+        }
         drawing.root = Some(root);
         drawing.stamp = Some(stamp);
-    }
-    if let Some(target) = adventure.focus {
-        let p = adventure.position(target, &garden);
-        let floor = if adventure.area.outdoors() {
-            world::surface_height(p, &garden)
-        } else {
-            0.
-        };
-        let transform = Transform::from_xyz(p.x, floor + 0.07, p.y);
-        if let Some(entity) = drawing.marker {
-            commands.entity(entity).insert(transform);
-        } else {
-            drawing.marker = Some(
-                commands
-                    .spawn((
-                        SceneRoot(assets.load(format!("models/{MARKER}.glb#Scene0"))),
-                        transform,
-                    ))
-                    .id(),
-            );
-        }
-    } else if let Some(entity) = drawing.marker.take() {
-        commands.entity(entity).despawn();
     }
     if let Some((spot, bite, _)) = adventure
         .waiting
@@ -3146,6 +3132,20 @@ pub fn animate_animals(time: Res<Time>, mut animals: Query<(&Critter, &mut Trans
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_bed_can_be_used_from_its_front_and_side() {
+        let garden = Garden::default();
+        let mut adventure = Adventure::default();
+        adventure.area = Area::Home;
+        let bed = adventure.position(Target::Bed, &garden);
+        for offset in [Vec2::new(0., 1.045), Vec2::new(0.81, 0.)] {
+            let position = bed + offset;
+            assert!(adventure.walkable(position, &garden));
+            assert!(adventure.can_reach(Target::Bed, position, &garden));
+        }
+        assert!(!adventure.can_reach(Target::Bed, bed + Vec2::Y * 1.8, &garden));
+    }
 
     #[test]
     fn the_five_watches_and_survey_marks_have_normal_walking_routes() {
