@@ -1,4 +1,4 @@
-# Waldwinkel 1.10.0
+# Waldwinkel 1.10.1
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
@@ -6,8 +6,12 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 
 ## Installieren
 
-- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK 1.10.0](https://raw.githubusercontent.com/bthginfo/waldwinkel/1681ef5649703f7d5b0e6e5b8ea3b44b07dd6e9f/Waldwinkel-1.10.0.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
+- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK 1.10.1](https://raw.githubusercontent.com/bthginfo/waldwinkel/9d11e7bf2226ca59fd6d1a935adff75e97612cdf/Waldwinkel-1.10.1.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
+
+## Neu in 1.10.1
+
+- Im Werkzeug- und Saatgutrad bleibt die Markierung stehen, sobald du das Steuerkreuz oder den Stick loslässt. Der Stick zeigt direkt auf den passenden Sektor.
 
 ## Neu in 1.10.0
 
@@ -250,7 +254,7 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 ## Tests
 
-94 Rust-Tests prüfen den Prolog bis zum Start der Geschichte, die Wegverbindungen, das Speichern, die Menünavigation und die Systeme für Hof, Handwerk und Kampf. Alle 227 GLB-Dateien sind lesbar. Ein Spieltest mit leerem Spielstand führte über die erste Aussaat, zwei Nächte, Werkbank, Ernte und Kochen bis zum Sieg im Übungsduell und zum Beginn der Hauptgeschichte. In weiteren Testspielständen ließ sich ein Möbel versetzen und drehen. Saatgutkauf, Einzelverkauf und die Reparatur des Fischerstegs mit Kupfer wurden im laufenden Spiel geprüft. Beim Update von 1.9.2 auf 1.10.0 blieben zwei Testspielstände auf Android 16 bytegenau erhalten. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen aus.
+95 Rust-Tests prüfen den Prolog bis zum Start der Geschichte, die Wegverbindungen, das Speichern, die Menünavigation und die Systeme für Hof, Handwerk und Kampf. Alle 227 GLB-Dateien sind lesbar. Ein Spieltest mit leerem Spielstand führte über die erste Aussaat, zwei Nächte, Werkbank, Ernte und Kochen bis zum Sieg im Übungsduell und zum Beginn der Hauptgeschichte. In weiteren Testspielständen ließ sich ein Möbel versetzen und drehen. Saatgutkauf, Einzelverkauf und die Reparatur des Fischerstegs mit Kupfer wurden im laufenden Spiel geprüft. Beim Update von 1.9.2 auf 1.10.0 blieben zwei Testspielstände auf Android 16 bytegenau erhalten. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen aus.
 
 Die Blender-Landschaften entstanden nach eigenen Bildreferenzen. [Insel und Pässe](art/references/insel.jpg) · [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)
 

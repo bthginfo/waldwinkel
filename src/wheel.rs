@@ -104,6 +104,17 @@ fn sector(direction: Vec2, count: usize) -> usize {
     ((angle / TAU * count as f32).round() as isize).rem_euclid(count as isize) as usize
 }
 
+fn move_highlight(index: usize, count: usize, step: Vec2, direction: Vec2) -> usize {
+    let offset = (step.x + step.y) as isize;
+    if offset != 0 {
+        return (index as isize + offset).rem_euclid(count as isize) as usize;
+    }
+    if direction.length_squared() >= 0.26 {
+        return sector(direction, count);
+    }
+    index
+}
+
 #[derive(Component)]
 pub struct WheelRoot;
 #[derive(Component)]
@@ -317,19 +328,13 @@ pub fn input(
         return;
     }
     let direction = controller.radial;
-    let step = controller.step;
-    let mut offset = (step.x + step.y).signum() as isize;
+    let mut step = controller.step;
     if keys.any_just_pressed([KeyCode::ArrowLeft, KeyCode::ArrowUp]) {
-        offset = -1;
+        step = Vec2::NEG_X;
     } else if keys.any_just_pressed([KeyCode::ArrowRight, KeyCode::ArrowDown]) {
-        offset = 1;
+        step = Vec2::X;
     }
-    let mut index = wheel.index;
-    if offset != 0 {
-        index = (index as isize + offset).rem_euclid(page.len() as isize) as usize;
-    } else if direction.length_squared() >= 0.26 {
-        index = sector(direction, page.len());
-    }
+    let mut index = move_highlight(wheel.index, page.len(), step, direction);
     if let Some((_, Some(slot), _)) = pressed {
         index = slot.0;
     }
@@ -459,5 +464,15 @@ mod tests {
         assert_eq!(sector(Vec2::new(1., -1.), 8), 1);
         assert_eq!(sector(Vec2::X, 8), 2);
         assert_eq!(sector(Vec2::NEG_X, 8), 6);
+    }
+
+    #[test]
+    fn the_wheel_keeps_its_selection_when_the_controls_return_to_neutral() {
+        let seed_pocket = move_highlight(0, 8, Vec2::ZERO, Vec2::X);
+        assert_eq!(seed_pocket, 2);
+        assert_eq!(move_highlight(seed_pocket, 8, Vec2::ZERO, Vec2::ZERO), 2);
+        assert_eq!(move_highlight(2, 8, Vec2::NEG_X, Vec2::ZERO), 1);
+        assert_eq!(move_highlight(5, 6, Vec2::X, Vec2::ZERO), 0);
+        assert_eq!(move_highlight(5, 6, Vec2::ZERO, Vec2::splat(0.1)), 5);
     }
 }
