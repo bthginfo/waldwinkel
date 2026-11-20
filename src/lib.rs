@@ -36,6 +36,7 @@ mod terrain;
 mod town;
 mod travel;
 mod ui;
+mod water;
 mod waywatch;
 mod weather;
 mod wildlife;
@@ -130,7 +131,8 @@ pub fn main() {
             ..default()
         })
     };
-    app.add_plugins(plugins);
+    app.add_plugins(plugins)
+        .add_plugins(bevy::pbr::MaterialPlugin::<water::WaterMaterial>::default());
     #[cfg(target_os = "android")]
     {
         use bevy::render::{

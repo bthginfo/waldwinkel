@@ -248,7 +248,8 @@ pub fn setup(
                 SceneRoot(model.clone()),
                 Transform::from_translation(position3(*origin, 0.)),
             ))
-            .observe(scene_ready);
+            .observe(scene_ready)
+            .observe(crate::water::bind);
     }
     for (season, model) in Season::ALL.into_iter().zip(&models.seasonal) {
         commands
@@ -473,9 +474,13 @@ pub fn update_camera(
         adventure.area
     };
     let map = preview.is_none() && adventure.map;
+    let town = area.outdoors() && !map && District::at(player.position) == Some(District::Town);
     let (base, center) = match (area, map) {
         (Area::Island | Area::District(_), true) => (258., Vec3::new(0., 3., 54.)),
-        (Area::Island | Area::District(_), false) => (12.3, position3(player.position, 0.89)),
+        (Area::Island | Area::District(_), false) => {
+            let eye = surface_height(player.position, &garden) + if town { 1.26 } else { 0.89 };
+            (12.3, position3(player.position, eye))
+        }
         (Area::Home, _) => {
             let (height, east) = match garden.workshop.house {
                 0 => (8.55, 0.),
@@ -511,11 +516,8 @@ pub fn update_camera(
     };
     let base_offset = camera_offset(area);
     let mut offset = base_offset;
-    if area.outdoors()
-        && !map
-        && crate::travel::District::at(player.position) == Some(crate::travel::District::Town)
-    {
-        offset.y *= 0.87 - adventure.zoom.max(0.) * 0.05;
+    if town {
+        offset.y *= 0.78 - adventure.zoom.max(0.) * 0.05;
         offset = offset.normalize() * base_offset.length();
     }
     let desired = center + offset;
@@ -1054,7 +1056,12 @@ pub fn exterior_ground(p: Vec2) -> f32 {
             0.145
         };
     }
-    terrain::ground(p)
+    let local = p - District::Town.origin();
+    let rim = (local / Vec2::new(10.72, 6.65)).length_squared();
+    let paving = ((1.0 - rim) / 0.16).clamp(0., 1.)
+        * ((local.y + 4.58) * 4.).clamp(0., 1.)
+        * ((5.55 - local.y) * 4.).clamp(0., 1.);
+    terrain::ground(p) + paving * 0.061
 }
 
 pub fn surface_height(point: Vec2, garden: &Garden) -> f32 {

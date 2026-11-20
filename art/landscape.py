@@ -259,8 +259,10 @@ def terrain_models(api):
     waterway=Model('Der Farnbach','mainland',casts=False)
 
     def water_color(x,z):
-        v=clamp(.54-z*.004+.13*math.cos(x*.06+z*.13))
-        return blend('53aeb3','92d7ca',v)
+        shelf=smooth((edge(x,z)+22.)/21.)
+        v=clamp(.49-z*.003+.17*math.cos(x*.052+z*.079))
+        deep=blend('397d96','529fb0',v)
+        return blend(deep,'79c8ba',shelf*.83)
 
     # The wide overview can see farther out to sea than the walking camera.
     for x in range(-590,591,22):
@@ -290,7 +292,7 @@ def terrain_models(api):
         x,z,h=(sum(v[c] for v in tri)/3 for c in range(3))
         forest=clamp((-x-17)/23)*clamp((22-z)/19)
         grain=.52+.22*math.sin(x*.16+z*.31)+.14*math.cos(z*.48-x*.62)+rng.uniform(-.09,.09)
-        grass=blend(blend('9fac65','c3c479',grain),blend('758a5e','aab569',grain),forest)
+        grass=blend(blend('8e9b55','bcc173',grain),blend('647c55','a0ab63',grain),forest)
         sand=blend('e4c088','f1dca1',grain)
         tint=frontier.tint(x,z,grain,blend(grass,sand,beach_mix(x,z)),blend)
         steep=max(v[2] for v in tri)-min(v[2] for v in tri)

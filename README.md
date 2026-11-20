@@ -1,4 +1,4 @@
-# Waldwinkel 1.6.0
+# Waldwinkel 1.7.0
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
@@ -8,6 +8,14 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 
 - Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://github.com/bthginfo/waldwinkel/releases/latest/download/Waldwinkel-Android.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
+
+## Neu in 1.7.0
+
+- **Licht und Atmosphäre.** Seitliches Sonnenlicht, weichere Bodenschatten und blaues Himmelslicht geben Geländen und Fassaden mehr Tiefe. Tageszeit, Jahreszeit und Wetter verändern die Beleuchtung der 3D-Szene. Am Abend erscheinen warme Fenster und Lichtkreise auf dem Pflaster.
+- **Eichenhafen.** Steinbögen, Kalkputz, unregelmäßige Pflastersteine, Kletterpflanzen und verzweigte Bäume prägen den Marktplatz und seine Nebenstraßen. Die Kamera zeigt mehr von den Fassaden und folgt der Höhe des Geländes.
+- **Hof und Küste.** Holzmaserung, ein gemauerter Sockel, bepflanzte Steinränder und Details am Tanuki ergänzen den Hof. Am Fischersteg wachsen Strandhafer und Küstenblumen zwischen geschichteten Uferfelsen. Tidenwasser, Farnbach, Teich und Brunnen haben animierte Lichtreflexe.
+
+[Marktplatz in 1.6.0](docs/170-eichenhafen-vorher.jpg) · [Marktplatz in 1.7.0](docs/170-eichenhafen.jpg) · [Abendlicht](docs/170-abendlicht.jpg) · [Hof](docs/170-hof.jpg) · [Küste](docs/170-kueste.jpg)
 
 ## Neu in 1.6.0
 

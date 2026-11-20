@@ -25,19 +25,21 @@ import geography
 import workshop_art
 import watch_art
 import market_art
+import surface_art
+import village_art
 from harvestable import Harvestables, LEAF
 from season_art import SeasonalArt, gathering_assets
 OUT = ROOT / "assets" / "models"
 RNG = random.Random(406)
 TAU = math.tau
-SUN = Vector((-0.51, -0.37, 0.77)).normalized()
+SUN = Vector((-.784, .276, .557)).normalized()
 AMBIENT_RAYS = [
     Vector(tuple(r)).normalized()
     for r in [(-.85, -.30, .45), (.77, -.43, .42), (.20, .83, .51),
               (-.35, .55, .70), (.19, -.22, .95)]
 ]
-SOFT_SUN = [SUN, (SUN + Vector((.11, .06, .05))).normalized(),
-            (SUN + Vector((-.06, -.13, .02))).normalized()]
+SOFT_SUN = [SUN, *((SUN + Vector(offset)).normalized() for offset in
+             [(.04,.056,-.016),(-.035,.048,.031),(.018,-.047,.054),(-.023,-.055,-.031)])]
 
 
 def rgb(color):
@@ -181,11 +183,15 @@ def window(m, x, z, h, w, v, side=False):
             m.box(x+u,z+d,h+y,a,c,k,tint,.023,mode=mode)
     d = -.06 if side else .06
     b(0,d,0,w+.14,.16,v+.17,"77513b")
-    b(0,d*2.25,0,w,.04,v,"edbb72","light")
+    outside=m.asset in landscape.ORIGINS or m.asset in ("island","mainland")
+    b(0,d*2.25,0,w,.04,v,"52685f" if outside else "edbb72","raw" if outside else "light")
     for tx in [-1,1]:
         for ty in [-1,1]:
+            glass=(("86a19b" if ty==1 else "607f79") if tx==-1 else
+                   ("b4b99e" if ty==1 else "78928a"))
             b(tx*w*.243,d*2.62,ty*v*.249,w*.43,.028,v*.419,
-              "ffe4a0" if tx+ty!=2 else "f5ca81","light")
+              glass if outside else ("ffe4a0" if tx+ty!=2 else "f5ca81"),
+              "lit" if outside else "light")
     b(0,d*2.87,0,.048,.048,v+.03,"a37548")
     b(0,d*2.87,0,w+.035,.049,.045,"a37548")
     for dx in [-1,1]:
@@ -209,10 +215,10 @@ def cabin():
         h=sill+.118+j*.231
         for z in [z0,z1]:
             split=cx+RNG.uniform(-.62,.62)
-            wood.box((x0+split)*.5,z,h,split-x0-.012,.14,.224,wood_colors[(j+(1 if z==z0 else 0))%7],.024)
-            wood.box((split+x1)*.5,z,h,x1-split-.012,.14,.224,wood_colors[(j+3)%7],.020)
+            wood.box((x0+split)*.5,z,h,split-x0-.012,.14,.224,wood_colors[(j+(1 if z==z0 else 0))%7],.024,mode="timber")
+            wood.box((split+x1)*.5,z,h,x1-split-.012,.14,.224,wood_colors[(j+3)%7],.020,mode="timber")
         for x in [x0,x1]:
-            wood.box(x,cz,h,.14,d,.224,wood_colors[(j+2)%7],.024)
+            wood.box(x,cz,h,.14,d,.224,wood_colors[(j+2)%7],.024,mode="timber")
     for x in [x0,x1]:
         for z in [z0,z1]:
             wood.box(x,z,.23,.38,.37,.44,"8a8180",.07)
@@ -223,7 +229,7 @@ def cabin():
         for j in range(7):
             y=top+.12+j*.238
             span=w*(1-(y-top)/(peak-top))
-            wood.box(cx,z,y,span,.15,.228,wood_colors[(j+3)%7],.020)
+            wood.box(cx,z,y,span,.15,.228,wood_colors[(j+3)%7],.020,mode="timber")
         zf=z+(.10 if z==z1 else -.10)
         wood.pole((x0,zf,top),(cx,zf,peak-.07),.089,"a8774e",4)
         wood.pole((x1,zf,top),(cx,zf,peak-.07),.089,"a8774e",4)
@@ -251,7 +257,7 @@ def cabin():
     wood.box(x,z1+.087,1.40,1.24,.14,1.92,"79573f")
     for j in range(6):
         tint=["406f68","4d8172","48776a","578574","4b7b6f","457569"][j]
-        wood.box(x+(.155*(j-2.5)),z1+.178,1.37,.153,.069,1.71,tint,.015)
+        wood.box(x+(.155*(j-2.5)),z1+.178,1.37,.153,.069,1.71,tint,.015,mode="timber")
     for dx in [-.53,.53]:
         wood.box(x+dx,z1+.204,1.4,.13,.16,1.98,"b07b51")
     wood.box(x,z1+.204,2.37,1.29,.18,.166,"bc8755")
@@ -259,6 +265,11 @@ def cabin():
     wood.box(x,z1+.24,.49,1.02,.24,.15,"926744")
     wood.ellipsoid(x+.32,z1+.25,1.27,.062,.041,.062,"daad55",8,3)
     wood.ellipsoid(x+.32,z1+.28,1.27,.032,.030,.032,"e4bd69",8,3)
+    for width,zs in [(w,z0-.067),(w,z1+.062)]:
+        for i in range(10):
+            pos=cx+(i-4.5)*width*.10
+            wood.box(pos,zs,.17,width*.098,.185,.315,
+                     ("a59887","b3a38d","aa9880","978b7a")[i%4],.032,mode="stone")
 
     eave=top-.20
     left,right=x0-.31,x1+.31
@@ -294,7 +305,7 @@ def cabin():
         for k in [-1,1]:
             shift=.027*(i%2)
             roof.box(x+k*.17+shift,z,y,.334,.555,.251,
-                     ["8f8c80","a49a8b","aba192","9b9287"][(i+k)%4],.035)
+                     ["8f8c80","a49a8b","aba192","9b9287"][(i+k)%4],.035,mode="stone")
     for k in [-1,1]:
         roof.box(x+k*.258,z,5.15,.19,.74,.205,"b0a898",.040)
         roof.box(x,z+k*.27,5.15,.44,.17,.205,"b6ac9b",.040)
@@ -486,6 +497,7 @@ def grounds():
     trail=Model("Schieferplatten und Trampelpfad")
     fences=Model("Gartenzaun, Kisten und Gartenschild")
     pond=Model("Teich · Wasser, Schilf und Seerosen")
+    pond_surface=Model("Teich · Wasseroberfläche",casts=False)
     for j in range(11):
         z=.77+j*.426
         x=-2.12+(2.76*(1-math.exp(-j*.123)))+.18*math.sin(j*.44)
@@ -538,7 +550,8 @@ def grounds():
             k=(j+1)%detail
             pond.face([rings[layer][j],rings[layer][k],rings[layer+1][k],rings[layer+1][j]],blend(*palette,RNG.random()),"ground")
     for j in range(detail):
-        pond.face([(x,z,.046),rings[3][j],rings[3][(j+1)%detail]],blend("4f9d98","6dbbb1", .47+.22*math.sin(j*.46)),"raw")
+        pond_surface.face([(x,z,.046),rings[3][j],rings[3][(j+1)%detail]],
+                          blend("377f87","7bb8a8",.50+.24*math.sin(j*.46)),"raw")
     for i,(dx,dz,s) in enumerate([(-1.35,.31,.28),(-.87,.83,.26),(.22,1.01,.24),(.97,.66,.31),
                                   (1.30,-.16,.29),(.74,-.83,.22),(-.65,-.92,.24),(-1.08,-.55,.19)]):
         pond.ellipsoid(x+dx,z+dz,s*.16,s,s*.74,s*.48,["a29c8d","8f8a81","a39889"][i%3],7,4,rough=.19)
@@ -565,7 +578,7 @@ def grounds():
     for dx,dz,l in [(-.40,-.56,.33),(.34,.46,.25),(.81,.21,.21),(-.25,-.38,.20)]:
         xx,zz=x+dx,z+dz
         pond.face([(xx-l,zz,.053),(xx,zz-.02,.053),(xx+l,zz,.053),(xx,zz+.016,.053)],"98d1c4","raw")
-    return [trail,fences,pond]
+    return [trail,fences,pond,pond_surface]
 
 
 def garden():
@@ -633,7 +646,10 @@ def character():
     body.box(0,.183,.653,.135,.024,.087,"537965",.020)
     for x in [-.137,.137]:
         body.box(x,.115,.826,.062,.08,.195,"6e8d6c",.021)
+        body.box(x,.169,.796,.055,.025,.047,"b68c55",.011)
         body.ellipsoid(x,.172,.768,.021,.015,.022,"e0b263",7,3)
+    for i in range(6):
+        body.box((i-2.5)*.022,.180,.683,.013,.026,.007,"a8ab82",.002)
     body.ellipsoid(0,0,.884,.205,.152,.095,"bd6450",10,4)
     body.pole((-.14,-.04,.900),(-.36,-.158,.775),.054,"b75a48",5,tip=.033)
     body.pole((-.155,-.022,.882),(-.343,-.126,.715),.047,"d4775d",5,tip=.022)
@@ -644,8 +660,10 @@ def character():
         body.ellipsoid(x,-.014,1.339,.088,.073,.10,"72513d",9,4)
         body.ellipsoid(x,.032,1.343,.053,.035,.060,"c98770",8,4)
         body.ellipsoid(side*.134,.228,1.162,.127,.070,.105,"5d4236",10,5,angle=side*.37)
-        body.ellipsoid(side*.093,.292,1.207,.038,.019,.054,"2f2826",9,4,mode="raw")
-        body.ellipsoid(side*.093-.008,.307,1.225,.011,.008,.013,"fff0d2",7,3,mode="raw")
+        body.ellipsoid(side*.095,.287,1.210,.050,.029,.060,"6b4d3e",12,5)
+        body.ellipsoid(side*.089,.309,1.211,.033,.017,.047,"302521",12,5,mode="raw")
+        body.ellipsoid(side*.089-.008,.325,1.229,.010,.006,.013,"fff0d2",7,3,mode="raw")
+        body.ellipsoid(side*.089+.009,.324,1.195,.006,.005,.007,"bca791",7,3,mode="raw")
         body.ellipsoid(side*.082,.249,1.061,.114,.094,.075,"edcb98",9,5)
     body.ellipsoid(0,.287,1.082,.111,.105,.081,"efd4a8",10,5)
     body.ellipsoid(0,.365,1.118,.044,.029,.028,"49342d",8,4)
@@ -663,6 +681,10 @@ def character():
     body.pole((0,-.02,1.455),(0,-.02,1.507),.276,"a87753",14,tip=.255)
     body.pole((0,-.02,1.463),(0,-.02,1.494),.274,"698675",16,tip=.264)
     body.ellipsoid(.123,.222,1.482,.051,.026,.045,"edc27d",8,4)
+    # A reed tucked through the band breaks up the silhouette.
+    body.pole((.207,.124,1.471),(.297,.069,1.616),.011,"749271",6,tip=.005)
+    body.face([(.252,.090,1.548),(.300,.036,1.583),(.308,.071,1.661),
+               (.293,.119,1.606)],"88a071","leaf")
     for i in range(16):
         a=i*TAU/16
         x,z=.350*math.cos(a),.301*math.sin(a)-.020
@@ -1695,20 +1717,29 @@ def muschelbucht():
 def city_house(m,x,z,w,d,plaster,roof,lift,detail):
     y=0.38
     wall=2.22+lift
-    m.box(x,z,.17,w+.09,d+.05,.39,"afa192",.052)
-    m.box(x,z,y+wall*.5,w,d,wall,plaster,.034)
+    front_wall=z+d*.5
+    m.box(x,z,.17,w+.09,d+.05,.39,"afa192",.052,mode="stone")
+    m.box(x,z,y+wall*.5,w,d,wall,plaster,.034,mode="plaster")
+    for i in range(8):
+        m.box(x+(i-3.5)*w*.124,front_wall+.029,.264,
+              w*.125,.11,.22,("c6bca9","baa991","bdad9a","a79483")[i%4],
+              .023,mode="stone")
     for sign in [-1,1]:
         m.box(x+sign*(w*.5-.062),z+d*.5+.037,1.49+lift*.5,.157,.15,2.37+lift,"9f7857",.026)
     m.box(x,z+d*.5+.07,.48,w+.13,.18,.23,"a98665",.026)
     m.box(x,z+d*.5+.07,2.48+lift,w+.16,.189,.22,"aa7b54",.030)
-    m.box(x,z+d*.5+.093,1.02,.69,.13,1.20,"89664e",.018)
-    for j in range(5):
-        m.box(x+(j-2)*.118,z+d*.5+.171,1.03,.115,.042,1.08,"6d7866",.012)
-    m.ellipsoid(x+.195,z+d*.5+.20,.98,.033,.023,.033,"d6b36c",7,4)
+    if m.asset=="district_town" and detail in ("bell","chimney","hip"):
+        accent={"bell":"647d71","chimney":"985e48","hip":"5e8276"}[detail]
+        village_art.doorway(m,blend,x,front_wall,lift,accent,detail=="bell")
+    else:
+        m.box(x,front_wall+.093,1.02,.69,.13,1.20,"89664e",.018,mode="timber")
+        for j in range(5):
+            m.box(x+(j-2)*.118,front_wall+.171,1.03,.115,.042,1.08,"6d7866",.012,mode="timber")
+        m.ellipsoid(x+.195,front_wall+.20,.98,.033,.023,.033,"d6b36c",7,4)
     for dx in [-w*.31,w*.31]:
         wx=x+dx
         window(m,wx,z+d*.5+.045,1.61,w*.193,.61)
-        m.box(wx,z+d*.5+.238,1.226,.61,.225,.13,"936a4b",.017)
+        m.box(wx,front_wall+.238,1.226,.61,.225,.13,"936a4b",.017,mode="timber")
         for j in range(4):
             flowers(m,wx+(j-1.5)*.138,z+d*.5+.25,1.30,.57,["fff0cb","ddaa95","f3cf86"][j%3])
     eave = 2.54 + lift
@@ -1717,7 +1748,7 @@ def city_house(m,x,z,w,d,plaster,roof,lift,detail):
     inset = .61 if detail == "hip" else 0.
     if not inset:
         for dz in [-d*.5,d*.5]:
-            m.face([(x-w*.5,z+dz,eave),(x+w*.5,z+dz,eave),(x,z+dz,ridge)],plaster)
+            m.face([(x-w*.5,z+dz,eave),(x+w*.5,z+dz,eave),(x,z+dz,ridge)],plaster,"plaster")
             for side in [-1,1]:
                 m.pole((x+side*w*.55,z+dz+.044,eave),(x,z+dz+.044,ridge+.03),.094,"ad8056",4)
     else:
@@ -1767,22 +1798,17 @@ def city_house(m,x,z,w,d,plaster,roof,lift,detail):
 def eichenhafen():
     town=Model("Eichenhafen · Giebelhäuser, Docks und Rathaus","district_town")
     court=Model("Eichenhafen · Pflaster, Brunnen und Marktstände","district_town")
-    for j in range(27):
-        z=-4.55+j*.385
-        for i in range(37):
-            x=(i-18)*.551+(j%2)*.105
-            if (x/10.72)**2+(z/6.65)**2>1.01:continue
-            court.box(x,z,.035,.538,.375,.077,
-                      ["d9c4a8","c9b8a5","d2c1ab","dfc9b0","bfae9e"][(j+2*i)%5],.036,RNG.uniform(-.042,.041))
-    for house in [(-7.47,-3.20,3.36,2.8,"c0cfad","ac795d",.14,"hip"),
-        (-3.44,-4.26,3.65,2.65,"dfbb95","ba775b",-.15,"chimney"),
-        (.61,-4.65,3.77,2.65,"f0d9af","b67552",.18,"bell"),
-        (4.61,-4.18,3.40,2.55,"c6c7a5","788974",.08,"loft"),
-        (8.19,-2.98,3.1,2.63,"d9b9a4","a67364",-.12,"hip")]:
+    fountain=Model("Brunnen · Wasseroberfläche","district_town",casts=False)
+    village_art.walkstones(court,blend,RNG)
+    for house in [(-7.47,-3.20,3.36,2.8,"cdd3b3","ab6954",.14,"hip"),
+        (-3.44,-4.26,3.65,2.65,"ebd3b2","b66a4b",-.15,"chimney"),
+        (.61,-4.65,3.77,2.65,"f2dfbb","b46a47",.18,"bell"),
+        (4.61,-4.18,3.40,2.55,"d6c6aa","657f6d",.08,"loft"),
+        (8.19,-2.98,3.1,2.63,"e3c6b2","ab6852",-.12,"hip")]:
         city_house(town,*house)
     town.box(.67,-4.55,3.59,1.22,1.24,.78,"ddc49d",.043)
     for y in (3.93,4.89):
-        town.box(.67,-4.55,y,1.35,1.35,.16,"c3a884",.041)
+        town.box(.67,-4.55,y,1.35,1.35,.16,"c3a884",.041,mode="stone")
     for dx in (-.51,.51):
         for dz in (-.51,.51):
             town.box(.67+dx,-4.55+dz,4.40,.22,.22,.88,"d2b88f",.038)
@@ -1810,10 +1836,10 @@ def eichenhafen():
         court.rings([ring(1.195,.17+j*.16),ring(1.16,.318+j*.16),
                      ring(1.049,.332+j*.16),ring(1.045,.26+j*.16)],
                     ["b1a59b","c1b29d","c9b9aa","a5988d"]*12,cap=False)
-    court.face(ring(1.046,.587),"86bbaf","raw")
+    fountain.face(ring(1.046,.587),"609b97","raw")
     court.pole((x,z,.28),(x,z,1.28),.245,"b4ad9c",10,tip=.13)
     court.pole((x,z,1.25),(x,z,1.37),.52,"c5b9a5",14,tip=.48)
-    court.pole((x,z,1.31),(x,z,1.39),.43,"92c5b2",14,mode="raw")
+    fountain.pole((x,z,1.365),(x,z,1.39),.43,"89b6a8",14,mode="raw")
     court.ellipsoid(x,z,1.55,.098,.31,.14,"a4b2a1",9,4,angle=.03)
     court.face([(x-.05,z-.25,1.58),(x-.17,z-.48,1.74),(x+.12,z-.47,1.73),(x+.052,z-.24,1.61)],"abb9aa")
     for i in range(5):
@@ -1861,7 +1887,7 @@ def eichenhafen():
     for dz in [-.48,.48]:
         town.box(boat_x,boat_z+dz,-.405,1.12,.23,.074,"cea67b",.022)
     town.pole((boat_x-.51,boat_z-.57,-.40),(10.19,23.51,.21),.026,"c7b38d",6)
-    return [town,court,*harbor_square()]
+    return [town,court,fountain,*harbor_square()]
 
 
 def harbor_square():
@@ -1935,6 +1961,8 @@ def harbor_square():
         for dx,dz,h,r in [(-.52,.07,1.73,.56),(.43,-.18,1.79,.53),(-.15,-.05,2.09,.63)]:
             seasonal.crown(walls,x+dx,z+dz,h,r,r*.81,r*.73,
                            rng.choice(["8a9e6e","9fa36e","7f956c"]),10,4,rough=.17)
+    village_art.planting(SimpleNamespace(seasonal=seasonal,grass=grass,flowers=flowers),
+                         walls,plants,landscape)
     RNG.setstate(rng_state)
     return [walls,plants]
 
@@ -2047,15 +2075,16 @@ def mainland_details():
 
     for house in landscape.TOWN_BUILDINGS:
         city_house(court,*house)
+    pavers=random.Random(91217)
     for x,z,width,length in [(-10.5,-4.55,2.0,12.), (11.3,-2.47,2.15,15.8),
                              (1.6,8.05,18.3,3.05), (9.2,14.7,2.18,11.1),(-2.26,-6.65,13.7,1.65)]:
         for i in range(max(3,int(width/.52))):
             for j in range(max(3,int(length/.45))):
-                wx=x-width/2+i*.52
+                wx=x-width/2+i*.52+(j%2)*.11
                 wz=z-length/2+j*.45
                 if landscape.height(tx+wx,tz+wz)<-.10:
                     continue
-                court.box(wx,wz,.022,.502,.43,.055,["d6c1a5","dfc9ab","c9b69d"][(i+2*j)%3],.018)
+                village_art.paver(court,blend,pavers,wx,wz,.52,.45,pavers.uniform(-.035,.035),.046)
     for i,(x,z) in enumerate([(-12.2,2.25),(-8.70,7.35),(-5.2,10.2),(-.35,10.0),(5.4,8.8),
                               (12.1,5.4),(14.15,9.55),(10.3,13.1),(-10.9,-3.5),(10.7,-5.2)]):
         court.pole((x,z,.04),(x,z,.35),.46,"9b8769",10,tip=.52)
@@ -2373,10 +2402,16 @@ def effects():
             marker.box(x*.727,z*.666,.030,.044,.252,.044,"fff0aa",.010,mode="raw")
             marker.box(x*.628,z*.778,.030,.231,.042,.044,"fff0aa",.010,mode="raw")
     shadow=Model("Gärtnerfigur · Bodenschatten","shadow")
-    for j in range(32):
-        a,b=j*TAU/32,(j+1)*TAU/32
-        shadow.face([(0,0,0),(math.cos(a), math.sin(a)*.77,0),(math.cos(b), math.sin(b)*.77,0)],
-                    "4c592f","raw")
+    center=(.17,.21,.21,.53)
+    mid=(.17,.21,.21,.34)
+    edge=(.17,.21,.21,0.)
+    for j in range(24):
+        a,b=j*TAU/24,(j+1)*TAU/24
+        def on_ring(r,t):
+            return (r*math.cos(t),r*.77*math.sin(t),0.)
+        al,bl,ah,bh=on_ring(.45,a),on_ring(.45,b),on_ring(1.,a),on_ring(1.,b)
+        shadow.gradient([(0,0,0),al,bl],[center,mid,mid])
+        shadow.gradient([al,ah,bh,bl],[mid,edge,edge,mid])
     return [*clouds, marker, shadow]
 
 
@@ -2385,29 +2420,30 @@ def light_color(color, normal, pos, mode, bvh):
         return (*map(linear,color[:3]), color[3] if len(color)==4 else 1)
     if mode=="light":
         return (*map(linear, blend(color,"fff1c3",.12)),1)
-    orient=abs(normal.dot(SUN)) if mode=="leaf" else max(0,normal.dot(SUN))
-    diffuse=.75+.32*orient+.041*max(0,normal.z)
-    shadow=0
-    ambient=0
+    upper = max(0., normal.z)
+    direct = abs(normal.dot(SUN)) if mode=="leaf" else max(0.,normal.dot(SUN))
+    occlusion = 0.
+    shadow = 0.
     if bvh and pos.z>-.50:
-        origin=pos+normal*.019
-        shadow=sum(bvh.ray_cast(origin,direction,16)[0] is not None for direction in SOFT_SUN)/3
-        if mode=="ground":
-            ambient=sum(bvh.ray_cast(origin,direction,1.15)[0] is not None for direction in AMBIENT_RAYS)/5
-        elif mode!="leaf":
-            ambient=sum(bvh.ray_cast(origin,direction,.48)[0] is not None
-                        for direction in AMBIENT_RAYS if direction.dot(normal)>.1)/5
-    harbor_square=bvh and 36.<pos.x<63. and -15.<pos.y<4.
-    shade=diffuse-(.095+.18*orient)*shadow-.16*ambient
-    if harbor_square:
-        shade+=.045*orient-(.084*shadow+.05*ambient)
-    warmth=(.062,.024,-.022) if harbor_square else (.049,.022,-.013)
-    result=tuple(linear(c*shade+warmth[i]*orient*(1-shadow)+.040*shadow*(i==2))
+        origin = pos+normal*.026
+        if direct > .01:
+            shadow=sum(bvh.ray_cast(origin,direction,28)[0] is not None
+                       for direction in SOFT_SUN)/len(SOFT_SUN)
+        reach = 1.25 if mode in ("ground","stone") and upper>.48 else .64
+        occlusion=sum(bvh.ray_cast(origin,direction,reach)[0] is not None
+                      for direction in AMBIENT_RAYS if direction.dot(normal)>.12)/len(AMBIENT_RAYS)
+    sunshine = direct*(1.-shadow)
+    skylight = .55 + .45*upper
+    shade = .59+.16*skylight + .51*sunshine - .25*occlusion
+    warmth = (.105,.056,-.015)
+    blue = (.004,.030,.067)
+    cool = (1.-sunshine) * (.50+.50*shadow) * (1.-.6*occlusion)
+    result=tuple(linear(c*shade + warmth[i]*sunshine + blue[i]*cool)
                  for i,c in enumerate(color))
     return (*result,1)
 
 
-def build_object(model, bvh, material, collection, offset=Vector((0,0,0))):
+def build_object(model, bvh, material, collection, offset, finishes):
     mesh=bpy.data.meshes.new(model.name)
     mesh.from_pydata(model.vertices,[],model.faces)
     mesh.update()
@@ -2416,13 +2452,23 @@ def build_object(model, bvh, material, collection, offset=Vector((0,0,0))):
     mesh.materials.append(material)
     attr=mesh.color_attributes.new(name="COLOR_0",type="FLOAT_COLOR",domain="CORNER")
     mesh.color_attributes.active_color=attr
+    finish_indices={}
+    for mode in sorted({style for _,style in model.colors} & finishes.keys()):
+        finish_indices[mode]=len(mesh.materials)
+        mesh.materials.append(finishes[mode])
+    uv=mesh.uv_layers.new(name="Oberfläche") if finish_indices else None
     for p,(color,mode) in zip(mesh.polygons,model.colors):
         normal=p.normal.copy()
         sampling=p.center*.12
+        if mode in finish_indices:
+            p.material_index=finish_indices[mode]
         for corner, loop_index in enumerate(p.loop_indices):
-            v=mesh.vertices[mesh.loops[loop_index].vertex_index].co*.88+sampling+offset
+            vertex=mesh.vertices[mesh.loops[loop_index].vertex_index]
+            v=vertex.co*.88+sampling+offset
             tint, style = (color[corner], "raw") if mode=="gradient" else (color, mode)
             attr.data[loop_index].color=light_color(tint,normal,v,style,bvh)
+            if mode in finish_indices:
+                uv.data[loop_index].uv=surface_art.uv(vertex.co,normal,mode)
     if model.pivot is not None:
         pivot=Vector(model.pivot)
         for vertex in mesh.vertices:
@@ -2753,6 +2799,10 @@ def generate():
         world=[*cabin(),*woods(),*grounds(),*expansion(),*homestead_models(),*travel_gates()]
         districts=[*farnwald(),*muschelbucht(),*eichenhafen(),*mainland_details()]
     existing_rng=RNG.getstate()
+    world.extend(village_art.farm_borders(SimpleNamespace(Model=Model,grass=grass,flowers=flowers)))
+    districts.extend(village_art.harbor_banks(
+        SimpleNamespace(Model=Model,blend=blend,grass=grass,flowers=flowers),landscape))
+    RNG.setstate(existing_rng)
     districts.extend(frontier.models(SimpleNamespace(Model=Model,blend=blend,landscape=landscape,
                                                      city_house=city_house,pine=pine,barrel=barrel,lantern=lantern,
                                                      seasonal=seasonal,harvest=harvest,
@@ -2797,6 +2847,7 @@ def generate():
     color.layer_name="COLOR_0"
     material.node_tree.links.new(color.outputs["Color"],nodes["Principled BSDF"].inputs["Base Color"])
     nodes["Principled BSDF"].inputs["Roughness"].default_value=.93
+    finishes=surface_art.finishes(material)
     lantern_light=material.copy()
     lantern_light.name="Laternenlicht mit weichem Rand"
     light_nodes=lantern_light.node_tree.nodes
@@ -2814,8 +2865,9 @@ def generate():
             coll=bpy.data.collections.new(name)
             master.children.link(coll)
             collections[m.asset]=coll
-        surface=lantern_light if m.asset=="evening_market_pool" else material
-        obj=build_object(m,shadow if m.asset in exterior_assets else None,surface,collections[m.asset],offsets.get(m.asset,zero))
+        surface=lantern_light if m.asset in ("evening_market_pool","shadow") else material
+        obj=build_object(m,shadow if m.asset in exterior_assets else None,surface,
+                         collections[m.asset],offsets.get(m.asset,zero),finishes)
         objects.setdefault(m.asset,[]).append(obj)
 
     for asset, selection in objects.items():
@@ -2826,7 +2878,7 @@ def generate():
         path=OUT/(asset+".glb")
         bpy.ops.export_scene.gltf(filepath=str(path),use_selection=True,export_format="GLB",
                                   export_yup=True,export_normals=True,export_vertex_color="ACTIVE")
-        glb_unlit(path, {"shadow":.30,"night_windows":.94,"evening_market_pool":1.}.get(asset))
+        glb_unlit(path, {"shadow":1.,"night_windows":.94,"evening_market_pool":1.}.get(asset))
 
     # Arrange the asset source pieces for inspection while leaving exported model origins intact.
     for asset, selection in objects.items():

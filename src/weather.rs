@@ -101,9 +101,6 @@ pub fn wind(sky: Sky, elapsed: f32) -> Vec2 {
 }
 
 #[derive(Component)]
-pub struct WeatherTint;
-
-#[derive(Component)]
 pub struct Particle {
     seed: u32,
     snow: bool,
@@ -175,19 +172,20 @@ pub fn setup(
         ..default()
     });
     let light_plane = meshes.add(Plane3d::default().mesh().size(1., 1.));
-    for (point, size) in [
-        (Vec2::new(-2.18, 1.45), 2.40),
-        (Vec2::new(-4.3, 0.5), 2.10),
-        (MEETING_POINT + Vec2::new(0.58, 0.28), 2.66),
-        (Vec2::new(45.4, 8.1), 2.66),
-        (Vec2::new(54.1, 12.8), 2.30),
+    for (point, size, lift) in [
+        (Vec2::new(-2.18, 1.45), 2.65, 0.084),
+        (Vec2::new(-4.3, 0.5), 2.30, 0.044),
+        (Vec2::new(44.9, 2.14), 2.35, 0.024),
+        (MEETING_POINT + Vec2::new(0.58, 0.28), 2.81, 0.024),
+        (Vec2::new(45.4, 8.1), 2.70, 0.032),
+        (Vec2::new(54.1, 12.8), 2.57, 0.041),
     ] {
         commands.spawn((
             NightGlow,
             Mesh3d(light_plane.clone()),
             MeshMaterial3d(lantern.clone()),
             Visibility::Hidden,
-            Transform::from_xyz(point.x, exterior_ground(point) + 0.029, point.y)
+            Transform::from_xyz(point.x, exterior_ground(point) + lift, point.y)
                 .with_scale(Vec3::new(size, 1., size)),
         ));
     }
@@ -200,17 +198,6 @@ pub fn setup(
         windows: assets.load("models/night_windows.glb"),
         lantern,
     });
-    commands.spawn((
-        WeatherTint,
-        Node {
-            position_type: PositionType::Absolute,
-            width: Val::Percent(100.),
-            height: Val::Percent(100.),
-            ..default()
-        },
-        BackgroundColor(Color::NONE),
-        GlobalZIndex(-2),
-    ));
 }
 
 fn lamp_texture(images: &mut Assets<Image>) -> Handle<Image> {
@@ -363,7 +350,6 @@ pub fn lighting(
     adventure: Res<Adventure>,
     time: Res<Time>,
     mut camera: Single<(&mut DistanceFog, &mut ColorGrading), With<IslandCamera>>,
-    mut tint: Single<&mut BackgroundColor, With<WeatherTint>>,
     lights: Res<NightMaterials>,
     gltfs: Res<Assets<Gltf>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -372,56 +358,46 @@ pub fn lighting(
     let outdoor = adventure.area.outdoors() && !adventure.map && menu.room_preview().is_none();
     let sky = Sky::at(garden.day);
     let season = Season::at(garden.day);
-    let weather = if !outdoor {
-        Color::NONE
-    } else {
-        match (sky, season) {
-            (Sky::Rain, _) => Color::srgba(0.21, 0.33, 0.43, 0.20),
-            (Sky::Mist, _) => Color::srgba(0.77, 0.82, 0.74, 0.11),
-            (Sky::Snow, _) => Color::srgba(0.78, 0.86, 0.91, 0.12),
-            (_, Season::Autumn) => Color::srgba(0.91, 0.58, 0.31, 0.061),
-            (_, Season::Winter) => Color::srgba(0.66, 0.82, 0.96, 0.092),
-            (_, Season::Summer) => Color::srgba(1., 0.81, 0.41, 0.042),
-            _ => Color::srgba(0.97, 0.81, 0.64, 0.022),
-        }
-    };
-    let dusk = if outdoor { garden.clock.dusk() } else { 0. };
-    let golden = Color::srgba(0.96, 0.56, 0.30, 0.21);
-    let night = Color::srgba(0.16, 0.27, 0.49, 0.31);
-    let target = if dusk <= 0.55 {
-        weather.mix(&golden, dusk / 0.55)
-    } else {
-        golden.mix(&night, (dusk - 0.55) / 0.45)
-    };
-    let ease = (1. - (-time.delta_secs() * 4.6).exp()).clamp(0., 1.);
-    tint.0 = if outdoor {
-        tint.0.mix(&target, ease)
-    } else {
-        Color::NONE
-    };
-
     let (fog, grading) = &mut *camera;
-    let moon = ((dusk - 0.46) / 0.54).clamp(0., 1.);
-    let sunset = (1. - ((dusk - 0.43) / 0.43).abs()).max(0.);
-    let overcast = if outdoor && sky == Sky::Rain {
-        0.10
+    let dusk = if outdoor { garden.clock.dusk() } else { 0. };
+    let moon = ((dusk - 0.35) / 0.65).clamp(0., 1.).powf(0.83);
+    let sunset = (1. - ((dusk - 0.41) / 0.41).abs()).max(0.);
+    let dawn = if outdoor {
+        (1. - (garden.clock.precise_minute() - 360.) / 105.).clamp(0., 1.)
     } else {
         0.
     };
-    grading.global.exposure = -moon * 0.91 - overcast + sunset * 0.095;
-    grading.global.temperature = sunset * 0.017 - moon * 0.052;
-    grading.global.tint = moon * 0.010;
-    grading.global.post_saturation = 1. - moon * 0.19;
+    let (exposure, warmth, saturation) = if outdoor {
+        match (sky, season) {
+            (Sky::Rain, _) => (-0.23, -0.020, 0.86),
+            (Sky::Snow, _) => (0.12, -0.018, 0.91),
+            (Sky::Mist, _) => (-0.04, -0.005, 0.88),
+            (_, Season::Autumn | Season::Summer) => (0.08, 0.008, 1.07),
+            (_, Season::Winter) => (0.12, -0.011, 1.01),
+            _ => (0.10, 0., 1.06),
+        }
+    } else {
+        (0.02, 0., 1.)
+    };
+    grading.global.exposure = exposure - moon * 1.58 + sunset * 0.13 - dawn * 0.21;
+    grading.global.temperature = warmth + sunset * 0.029 - moon * 0.054 + dawn * 0.012;
+    grading.global.tint = moon * 0.007 + sunset * 0.004;
+    grading.global.post_saturation = saturation - moon * 0.15;
+    grading.shadows.contrast = if outdoor { 1.065 } else { 1. };
+    grading.shadows.gain = 1. - moon * 0.14;
+    grading.midtones.contrast = if outdoor { 1.04 } else { 1. };
+    grading.highlights.gain = 1. + sunset * 0.075;
 
     let distance = camera_offset(adventure.area).length();
     let (haze, near, far) = match sky {
-        Sky::Sun => (Color::srgba(0.79, 0.91, 0.84, 0.24), 7., 54.),
-        Sky::Mist => (Color::srgba(0.78, 0.86, 0.80, 0.82), -10., 28.),
-        Sky::Rain => (Color::srgba(0.55, 0.67, 0.74, 0.51), -4., 42.),
-        Sky::Snow => (Color::srgba(0.79, 0.87, 0.91, 0.57), -6., 35.),
+        Sky::Sun => (Color::srgba(0.66, 0.80, 0.84, 0.49), 8., 64.),
+        Sky::Mist => (Color::srgba(0.73, 0.84, 0.83, 0.83), -4., 31.),
+        Sky::Rain => (Color::srgba(0.46, 0.62, 0.70, 0.62), -1., 42.),
+        Sky::Snow => (Color::srgba(0.78, 0.88, 0.93, 0.64), -3., 36.),
     };
     fog.color = if outdoor {
-        haze.mix(&Color::srgba(0.19, 0.29, 0.46, 0.53), dusk)
+        haze.mix(&Color::srgba(0.78, 0.62, 0.58, 0.57), sunset * 0.62)
+            .mix(&Color::srgba(0.20, 0.29, 0.49, 0.69), moon)
     } else {
         Color::NONE
     };
@@ -430,14 +406,14 @@ pub fn lighting(
         end: distance + far,
     };
 
-    let glow = ((dusk - 0.43) / 0.57).clamp(0., 1.);
+    let glow = ((dusk - 0.21) / 0.79).clamp(0., 1.);
     for mut visibility in &mut glows {
         set_visible(&mut visibility, glow > 0.025);
     }
     if glow > 0.025 {
         let flicker = 0.94 + (time.elapsed_secs() * 2.3).sin() * 0.04;
         if let Some(lantern) = materials.get_mut(&lights.lantern) {
-            lantern.base_color = Color::srgba(1., 0.62, 0.25, glow * flicker * 0.44);
+            lantern.base_color = Color::srgba(1., 0.58, 0.24, glow * flicker * 0.62);
         }
         if let Some(source) = gltfs.get(&lights.windows) {
             for handle in &source.materials {
@@ -446,7 +422,7 @@ pub fn lighting(
                     material.fog_enabled || (material.base_color.alpha() - alpha).abs() > 0.007
                 }) && let Some(window) = materials.get_mut(handle)
                 {
-                    window.base_color = Color::linear_rgba(3.2, 2.72, 2.14, alpha);
+                    window.base_color = Color::linear_rgba(3.4, 2.55, 1.84, alpha);
                     window.fog_enabled = false;
                 }
             }
