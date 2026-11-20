@@ -59,6 +59,7 @@ pub struct Gardener {
     pub position: Vec2,
     velocity: Vec2,
     route: VecDeque<Vec2>,
+    route_goal: Option<Reach>,
     phase: f32,
     gait: f32,
 }
@@ -599,6 +600,7 @@ pub fn advance_player(
     let manual = controls.move_axis != Vec2::ZERO;
     let desired = if manual {
         player.route.clear();
+        player.route_goal = None;
         let right = camera.right().xz().normalize_or_zero();
         let forward = camera.forward().xz().normalize_or_zero();
         (right * controls.move_axis.x + forward * controls.move_axis.y).clamp_length_max(1.) * SPEED
@@ -612,6 +614,7 @@ pub fn advance_player(
     let passable = |p| adventure.walkable(p, &garden);
     for _ in 0..steps {
         if let Some((&corner, &next)) = player.route.front().zip(player.route.get(1))
+            && player.route_goal.is_some()
             && corner.distance_squared(player.position) < 0.55 * 0.55
             && clear_walk(player.position, next, &passable)
         {
@@ -625,6 +628,7 @@ pub fn advance_player(
             player.route.pop_front();
             if player.route.is_empty() {
                 player.velocity = Vec2::ZERO;
+                player.route_goal = None;
             }
         }
         if let Some(point) = player.route.front() {
@@ -656,7 +660,19 @@ pub fn advance_player(
         if (actual - advance).length_squared() > 1e-8 {
             player.velocity = actual / step_time;
             if actual == Vec2::ZERO && !manual {
-                player.route.clear();
+                player.route = player
+                    .route_goal
+                    .take()
+                    .map_or_else(VecDeque::new, |reach| {
+                        search_route(
+                            player.position,
+                            reach,
+                            adventure.area.origin(),
+                            &passable,
+                            false,
+                        )
+                    });
+                break;
             }
         }
         player.position = moved;
@@ -753,6 +769,7 @@ pub fn animate_gardener(
     let swing = adventure.swing(now);
     let work_time = Notice::DURATION + now - notice.until;
     let pouring = notice.action == Some(Action::Water) && (0.0..0.86).contains(&work_time);
+    let harvest = notice.action == Some(Action::Harvest) && (0.0..0.64).contains(&work_time);
     let held = if matches!(adventure.area, Area::Expedition(_)) {
         Tool::Weapon(garden.rpg.gear)
     } else if let Some((tool, _)) = swing {
@@ -776,16 +793,28 @@ pub fn animate_gardener(
     let work = if pouring {
         (work_time / 0.86 * std::f32::consts::PI).sin().sqrt()
     } else if let Some((_, elapsed)) = swing {
-        (elapsed / 0.52 * std::f32::consts::PI).sin()
+        if elapsed < 0.23 {
+            let lift = (elapsed / 0.23).clamp(0., 1.);
+            lift * lift * (3. - 2. * lift)
+        } else {
+            let release = ((elapsed - 0.23) / 0.29).clamp(0., 1.);
+            (1. - release).powi(2)
+        }
+    } else if harvest {
+        (work_time / 0.64 * std::f32::consts::PI).sin() * (1. - player.gait)
     } else if notice.action.is_some() && (0.0..0.55).contains(&work_time) {
         (work_time / 0.55 * std::f32::consts::PI).sin() * (1.0 - player.gait)
     } else {
         0.0
     };
-    body.translation.y = 0.023 * wave.abs() * player.gait
+    body.translation.y = 0.027 * wave.abs() * player.gait
         + 0.009 * (time.elapsed_secs() * 2.0).sin() * (1.0 - player.gait);
-    body.rotation =
-        Quat::from_rotation_x(0.11 * work) * Quat::from_rotation_z(0.035 * wave * player.gait);
+    if harvest {
+        body.translation.y -= 0.074 * work;
+    }
+    let lean = if harvest { 0.30 } else { 0.11 };
+    body.rotation = Quat::from_rotation_x(lean * work + 0.045 * player.gait)
+        * Quat::from_rotation_z(0.035 * wave * player.gait);
     for (joint, mut transform) in &mut joints {
         let phase = step_phase(player.phase, joint.side);
         let pitch = if joint.is_arm {
@@ -989,7 +1018,16 @@ pub fn walkable(p: Vec2) -> bool {
 }
 
 fn clear_walk(a: Vec2, b: Vec2, passable: &impl Fn(Vec2) -> bool) -> bool {
-    let steps = (a.distance(b) / 0.08).ceil().max(1.) as usize;
+    let distance = a.distance(b);
+    // A saved position can lie beside a very thin collision boundary.
+    // Check the first steps of a route as well as the regular samples.
+    if [0.004, 0.012]
+        .into_iter()
+        .any(|step| step < distance && !passable(a.lerp(b, step / distance)))
+    {
+        return false;
+    }
+    let steps = (distance / 0.05).ceil().max(1.) as usize;
     (1..=steps).all(|i| passable(a.lerp(b, i as f32 / steps as f32)))
 }
 
@@ -1051,6 +1089,7 @@ impl Gardener {
             position,
             velocity: Vec2::ZERO,
             route: VecDeque::new(),
+            route_goal: None,
             phase: 0.,
             gait: 0.,
         }
@@ -1064,12 +1103,14 @@ impl Gardener {
     pub fn stop(&mut self) {
         self.velocity = Vec2::ZERO;
         self.route.clear();
+        self.route_goal = None;
     }
 
     pub fn navigate(&mut self, reach: Reach, adventure: &Adventure, garden: &Garden) -> bool {
         self.route = approach(self.position, reach, adventure.area.origin(), |p| {
             adventure.walkable(p, garden)
         });
+        self.route_goal = (!self.route.is_empty()).then_some(reach);
         !self.route.is_empty()
     }
 
@@ -1084,6 +1125,16 @@ fn approach(
     origin: Vec2,
     passable: impl Fn(Vec2) -> bool,
 ) -> VecDeque<Vec2> {
+    search_route(start, reach, origin, passable, true)
+}
+
+fn search_route(
+    start: Vec2,
+    reach: Reach,
+    origin: Vec2,
+    passable: impl Fn(Vec2) -> bool,
+    shortcuts: bool,
+) -> VecDeque<Vec2> {
     let target = reach.point;
     if reach.reached(start, &passable) {
         return VecDeque::new();
@@ -1096,7 +1147,7 @@ fn approach(
     let near = |p: Vec2| goal.reached(p, &passable);
     let radius = (reach.clearance + 0.22).max(0.94).min(reach.limit - 0.08);
     let direct = target + (start - target).normalize_or_zero() * radius;
-    if near(direct) && clear_walk(start, direct, &passable) {
+    if shortcuts && near(direct) && clear_walk(start, direct, &passable) {
         return VecDeque::from([direct]);
     }
     let reachable = if reach.clearance == 0. {
@@ -1125,26 +1176,23 @@ fn approach(
     let cell = |p: Vec2| ((p - origin) / STEP).round().as_ivec2();
     let base = cell(start);
     let goal = cell(target);
-    let first = (-2..=2)
-        .flat_map(|x| (-2..=2).map(move |z| base + IVec2::new(x, z)))
-        .filter(|&c| clear_walk(start, position(c), &passable))
-        .min_by(|&a, &b| {
-            start
-                .distance_squared(position(a))
-                .total_cmp(&start.distance_squared(position(b)))
-        });
-    let Some(first) = first else {
-        return VecDeque::new();
-    };
     let estimate = |c: IVec2| {
         let delta = (goal - c).abs();
         let diagonal = delta.min_element() as u32;
         let straight = (delta.max_element() - delta.min_element()) as u32;
         (diagonal * 1414 + straight * 1000).saturating_sub((reach.limit / STEP * 1100.) as u32)
     };
-    let h = estimate(first);
-    let mut open = BinaryHeap::from([Reverse((h, h, 0, first.x, first.y))]);
-    let mut visited = HashMap::from([(first, (0u32, first))]);
+    let mut open = BinaryHeap::new();
+    let mut visited = HashMap::new();
+    for cell in (-2..=2).flat_map(|x| (-2..=2).map(move |z| base + IVec2::new(x, z))) {
+        let point = position(cell);
+        if clear_walk(start, point, &passable) {
+            let cost = (start.distance(point) / STEP * 1000.).round() as u32;
+            let h = estimate(cell);
+            visited.insert(cell, (cost, cell));
+            open.push(Reverse((cost + h, h, cost, cell.x, cell.y)));
+        }
+    }
     while let Some(Reverse((_, _, cost, x, z))) = open.pop() {
         let at = IVec2::new(x, z);
         if visited[&at].0 != cost {
@@ -1154,11 +1202,14 @@ fn approach(
         if near(from) {
             let mut trail = vec![from];
             let mut cursor = at;
-            while cursor != first {
+            while visited[&cursor].1 != cursor {
                 cursor = visited[&cursor].1;
                 trail.push(position(cursor));
             }
             trail.reverse();
+            if !shortcuts {
+                return trail.into();
+            }
             let mut route = VecDeque::new();
             let mut next = 0;
             let mut anchor = start;
@@ -1251,6 +1302,60 @@ mod tests {
             from = point;
         }
         assert!(Reach::ground(target).reached(from, &walkable));
+    }
+
+    #[test]
+    fn the_marked_first_wacht_is_reachable_from_the_harbor_walkway() {
+        let exterior = Adventure::default();
+        let start = Vec2::new(43.5054, 2.879982);
+        let reach = Reach::target(crate::waywatch::Watch::Fern.point(), 2.08, 2.95);
+        for minute in [434, 862, 1190] {
+            let garden: Garden =
+                serde_json::from_value(serde_json::json!({"clock": minute})).unwrap();
+            let passable = |p| exterior.walkable(p, &garden);
+            assert!(passable(start));
+            let route = approach(start, reach, Vec2::ZERO, passable);
+            assert!(
+                route
+                    .back()
+                    .is_some_and(|point| reach.reached(*point, &passable)),
+                "Minute {minute}"
+            );
+        }
+    }
+
+    #[test]
+    fn actual_walking_reaches_the_first_wacht_from_the_harbor() {
+        let garden = serde_json::from_str::<Garden>(r#"{"clock":510.0}"#).unwrap();
+        let adventure = Adventure::default();
+        let reach = Reach::target(crate::waywatch::Watch::Fern.point(), 2.08, 2.95);
+        let mut gardener = Gardener::new(Vec2::new(43.5054, 2.879982));
+        assert!(gardener.navigate(reach, &adventure, &garden));
+        let mut app = App::new();
+        app.insert_resource(Time::<()>::default())
+            .insert_resource(Controls::default())
+            .insert_resource(garden)
+            .insert_resource(adventure)
+            .add_systems(Update, advance_player);
+        app.world_mut().spawn((IslandCamera, Transform::default()));
+        let entity = app.world_mut().spawn((gardener, Transform::default())).id();
+        for _ in 0..3000 {
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_millis(16));
+            app.update();
+            if !app.world().get::<Gardener>(entity).unwrap().approaching() {
+                break;
+            }
+        }
+        let end = app.world().get::<Gardener>(entity).unwrap().position;
+        assert!(
+            reach.reached(end, &|point| app
+                .world()
+                .resource::<Adventure>()
+                .walkable(point, app.world().resource::<Garden>())),
+            "{end:?}"
+        );
     }
 
     #[test]

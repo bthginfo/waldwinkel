@@ -73,9 +73,52 @@ def step(name,tones,decay,grit,seed):
         return (.39*grunt+grit*dust[i])*attack*exp(-t*decay) + .13*grit*raw[i]*exp(-abs(t-.06)*75)
     save(name,(sample(i) for i in range(len(raw))))
 
+def score(name, notes, beats, interval, base):
+    samples = [0.] * round(RATE * beats * interval)
+    for beat, semi, strength in notes:
+        frequency = base * 2**(semi / 12)
+        start = round(RATE * beat * interval)
+        tail = min(round(RATE * interval * 3.8), len(samples) - start)
+        for i in range(tail):
+            t = i / RATE
+            fade = min(1., (tail-i) / (RATE*.1))
+            attack = (1-exp(-t*46)) * exp(-t*2.9)
+            pluck = .78*sin(2*pi*t*frequency) + .18*sin(2*pi*t*frequency*2.01)
+            overtone = .045*sin(2*pi*t*frequency*3.96)*exp(-t*7.4)
+            samples[start+i] += strength * fade * attack * (pluck + overtone)
+    save(name, samples)
+
+
+def forest():
+    rng = Random(283)
+    count = RATE * 12
+    breeze = low([rng.uniform(-1, 1) for _ in range(count)], .026)
+    signal = [x * .44 * (.68 + .32*sin(2*pi*i/count)) for i,x in enumerate(breeze)]
+    for offset, pitches in [(1.2, (1680, 2220)), (5.8, (1960, 1510, 1950)), (9.7, (1760, 2080))]:
+        for j, pitch in enumerate(pitches):
+            for i in range(round(RATE*.16)):
+                t = i/RATE
+                phase = 2*pi*(pitch*t+940*t*t)
+                signal[round(RATE*(offset+j*.22))+i] += .07 * sin(phase) * sin(pi*t/.16)**2
+    save("fernwind", signal)
+
 
 waves()
 rain()
+forest()
+score("farm_theme", [(0,-12,.27),(0,0,.24),(2,7,.22),(3,9,.26),(5,4,.24),
+                      (7,-8,.20),(8,2,.23),(10,7,.25),(11,4,.18),(13,0,.24),
+                      (16,-12,.23),(16,4,.25),(18,7,.22),(19,12,.24),(21,9,.20),
+                      (24,-5,.25),(24,7,.25),(26,2,.21),(28,0,.23)],
+      32,.86,261.626)
+score("harbor_theme", [(0,-12,.25),(0,4,.22),(2,7,.20),(4,11,.25),(5,12,.28),
+                        (8,-7,.19),(8,11,.22),(10,7,.22),(11,4,.24),(14,2,.22),
+                        (16,-12,.22),(16,7,.26),(18,11,.23),(19,16,.24),(21,12,.22),
+                        (24,-5,.21),(24,9,.23),(26,7,.22),(28,4,.21),(30,0,.26)],
+      35,.76,293.665)
+score("harvest_sound", [(0,0,.49),(1,4,.37),(2,7,.35)], 5,.075,440.)
+score("card_shield", [(0,-12,.47),(1,-5,.35)], 4,.075,293.665)
+step("card_hit",[(129,.58),(319,.21),(742,.12)],25.,.64,194)
 step("step_grass",[(109,.34),(55,.31)],37.,.44,863)
 step("step_wood",[(213,.57),(391,.23),(88,.28)],31.,.16,281)
 step("step_snow",[(142,.16)],28.,.67,639)

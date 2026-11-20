@@ -1,4 +1,4 @@
-# Waldwinkel 1.4
+# Waldwinkel 1.5
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
@@ -8,6 +8,16 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 
 - Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://github.com/bthginfo/waldwinkel/releases/latest/download/Waldwinkel-Android.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
+
+## Neu in 1.5
+
+- **Eine Kampagne bis zum Lichtfest.** Das Journal zeigt Kapitel, nächstes Ziel und fehlende Materialien. Nach dem ersten Beet schickt Bo dich mit Baumaterial zur Farnwacht. Fischersteg, regionale Wachten und Klangsteine führen anschließend bis zur Hafenleuchte. Die 25 Dämmer-Ebenen sind als Expedition neben der Kampagne spielbar.
+- **Kampfstile.** Der erste Wachtsieg schaltet am Kartenbinder Rindenwacht, Windspur und Herdfeuer frei. Schutz und Konter, kurze Kartenfolgen und Proviant eröffnen verschiedene Spielweisen. Die ersten Duelle der drei bewachten Wachten haben eigene Angriffsfolgen.
+- **Wiederaufbau.** Vollendete Wachten öffnen regionale Wegglocken. Bo geht nach der Wiedereröffnung regelmäßig bis ans Ende des Fischerstegs. Das Dach der Farnwacht, die Hofveranda und das Modell der Hafenleuchte wurden in Blender überarbeitet. Eigene Klangkulissen erklingen am Hof, im Farnwald und am geöffneten Hafen.
+- **Sicherungen auf Android.** Öffne im Pausenmenü **Spielstand exportieren**, um eine Datei über die Android-Dateiauswahl zu speichern. Im Hauptmenü kannst du sie mit **Spielstand importieren** in einen freien Platz laden. Bei einer unlesbaren Hauptdatei erscheint **Wiederherstellen**, sobald eine gültige lokale Sicherung verfügbar ist.
+- **Android 16.** Der Build zielt auf API 36. Der Randabstand des HUD berücksichtigt Displayausschnitte. Wenn Android einen Controller als getrennt meldet, werden gehaltene Tasten und Stickpositionen zurückgesetzt.
+
+[Hof auf Android 16](docs/15-hof.jpg) · [Kapitel und Journal](docs/15-kampagne.jpg) · [Farnwacht](docs/15-farnwacht.jpg) · [Lichtfest](docs/15-lichtfest.jpg) · [Xbox-Menüfokus](docs/15-xbox.jpg) · [Importierte Sicherung](docs/15-sicherung.jpg)
 
 ## Neu in 1.4
 
@@ -145,13 +155,13 @@ rustup target add aarch64-linux-android x86_64-linux-android
 tools/build-android.sh
 ```
 
-Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rust-Spiel. Die kleine Android-Activity setzt die Systemleisten auf Vollbild.
+Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rust-Spiel. Die Android-Activity verwaltet den Vollbildmodus und die Systemdialoge für Spielstanddateien. Mit `WALDWINKEL_BUNDLETOOL=/pfad/bundletool.jar` erzeugt und prüft das Skript zusätzlich ein lokales App Bundle mit dem Entwicklungsschlüssel.
 
 ## Blender und Weiterentwicklung
 
 - `art/Waldwinkel.blend` enthält die Modelle und eine Gesamtansicht der Landschaft. `blender -b -P art/build_scene.py` exportiert die Modelle als GLB und erzeugt das Höhenfeld für Ufer, Brücken und Hindernisse. Bevy animiert Beine, Schuhe, Arme und den Schweif des Tanuki über getrennte Drehpunkte.
 - `art/draw_icons.py` zeichnet die HUD-Symbole und das App-Icon. Die verwendeten Schriften sind DM Sans und DM Serif Text mit beigefügter OFL-Lizenz.
-- `art/draw_inventory.py` zeichnet die Gegenstandsbilder. `art/build_audio.py` erzeugt Schritte, Regen und Wellen.
+- `art/draw_inventory.py` zeichnet die Gegenstandsbilder. `art/build_audio.py` erzeugt Originalmusik, Umgebungsklänge und Effekte.
 - Android leitet Controller-Ereignisse aus der NDK-Eingabewarteschlange an dasselbe Spiel- und UI-Eingabesystem weiter wie Touch. Die Schnittstelle liegt in `src/controller.rs`.
 - Blender liefert die Regen- und Schneemodelle. Bevy animiert den Niederschlag, färbt die Außenansicht nach Wetter und Jahreszeit und zeigt gegossenen Boden.
 - Blender exportiert saisonales Laub, Schneeauflagen und Fensterlicht als getrennte GLB-Ebenen. Beim Backen entsteht auch ein Höhenfeld für Regendach und Baumkronen. Die Wiesen verwenden ein gemeinsames Mesh mit saisonalen Vertexfarben. Die Niederschlagspartikel werden wiederverwendet.
@@ -166,7 +176,7 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 ## Tests
 
-68 Rust-Tests prüfen die Wege, den Hof und die Geschichte, den Fortschritt aller fünf Wachten, Fertigung, rotierende Aufträge, Proviant, die Dämmergänge und den Controller-Fokus. Die Android-Builds werden im Android-14-Emulator über die vorherige Installation geprüft. Die Aufnahmen stammen aus dem laufenden Bevy-Spiel.
+74 Rust-Tests prüfen neben Hof, Handwerk und Dämmergängen die neuen Kampfstile, das Lichtfest ohne Expedition, den Weg vom Hafen zur Farnwacht und das Wiederherstellen einer Sicherung. Einstieg und Navigation wurden im Spiel getestet. Die Lichtfest-Szene wurde mit einem vorbereiteten Spielstand aufgerufen. Im Android-14-Emulator blieben drei Testspielstände beim Update erhalten. Im Android-16-Emulator wurde ein Spielstand über den internen Speicher exportiert und in einen freien Platz importiert. Bewegung, Tasche und Karte funktionierten mit einem virtuellen Xbox-Profil. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen als Geräte- und Spielzeitprüfungen aus.
 
 Die Blender-Landschaften entstanden nach eigenen Bildreferenzen. [Insel und Pässe](art/references/insel.jpg) · [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)
 

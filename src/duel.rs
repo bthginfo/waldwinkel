@@ -317,6 +317,7 @@ pub struct Progress {
     pub cleared: u32,
     pub hp: u16,
     pub trophies: [u32; Loot::ALL.len()],
+    pub style: Style,
 }
 
 impl Default for Progress {
@@ -332,6 +333,44 @@ impl Default for Progress {
             cleared: 0,
             hp: 34,
             trophies: [0; 3],
+            style: Style::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+pub enum Style {
+    #[default]
+    Wanderer,
+    Warden,
+    Trail,
+    Hearth,
+}
+
+impl Style {
+    pub const ALL: [Self; 3] = [Self::Warden, Self::Trail, Self::Hearth];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Wanderer => "Wanderer",
+            Self::Warden => "Rindenwacht",
+            Self::Trail => "Windspur",
+            Self::Hearth => "Herdfeuer",
+        }
+    }
+
+    pub fn detail(self) -> &'static str {
+        match self {
+            Self::Wanderer => "Dein vertrauter Wanderstab.",
+            Self::Warden => {
+                "Der erste Schild im Zug gibt +3 Schutz. Hält er einen Angriff vollständig auf, konterst du mit 4 Schaden. Passt zu Rindenschild und Regenschritt."
+            }
+            Self::Trail => {
+                "Deine dritte Karte im Zug zieht eine weitere Karte. Samenwurf und Spuren lesen halten deine Kartenfolge in Gang."
+            }
+            Self::Hearth => {
+                "Dein Proviant gibt zusätzlich +1 Kraft und +4 Schild. Bereite daheim ein Gericht vor."
+            }
         }
     }
 }
@@ -690,6 +729,9 @@ pub struct Battle {
     pub trial: Option<crate::waywatch::Trial>,
     pub pack_open: bool,
     pub ration_used: bool,
+    pub style: Style,
+    played_this_turn: u8,
+    warden_ready: bool,
     resistance: u8,
     strength: u8,
     hand_size: u8,
@@ -736,6 +778,9 @@ impl Battle {
             trial: None,
             pack_open: false,
             ration_used: false,
+            style: progress.style,
+            played_this_turn: 0,
+            warden_ready: true,
             resistance: progress.ranks[Talent::Shell as usize] + progress.gear.resistance(),
             strength: progress.gear.damage(),
             hand_size: 5 + u8::from(focus >= 1),
@@ -768,6 +813,11 @@ impl Battle {
         self.energy = self.energy.saturating_add(power);
         self.draw(draw);
         self.message = format!("{} · {}", ration.dish().name(), ration.effect());
+        if self.style == Style::Hearth {
+            self.energy = self.energy.saturating_add(1);
+            self.guard = self.guard.saturating_add(4);
+            self.message.push_str(" · Herdfeuer +1 Kraft, +4 Schild");
+        }
         true
     }
 
@@ -778,6 +828,9 @@ impl Battle {
             } else {
                 Intent::Attack(damage)
             };
+        }
+        if let Some(trial) = self.trial.filter(|trial| trial.rank == 0) {
+            return trial.story_intent(self.round);
         }
         self.enemy.intent(self.level, self.round)
     }
@@ -834,7 +887,12 @@ impl Battle {
         self.energy -= spec.cost;
         self.hand.remove(index);
         let (old_hp, old_enemy_hp, old_enemy_guard) = (self.hp, self.enemy_hp, self.enemy_guard);
-        self.guard = self.guard.saturating_add(u16::from(spec.guard));
+        let warden = spec.guard > 0 && self.style == Style::Warden && self.warden_ready;
+        let shield = spec.guard + if warden { 3 } else { 0 };
+        if warden {
+            self.warden_ready = false;
+        }
+        self.guard = self.guard.saturating_add(u16::from(shield));
         self.hp = self
             .hp
             .saturating_add(u16::from(spec.healing))
@@ -854,7 +912,12 @@ impl Battle {
         }
         self.draw(spec.draw);
         self.used.push(card);
+        self.played_this_turn = self.played_this_turn.saturating_add(1);
         let mut effects = Vec::new();
+        if self.style == Style::Trail && self.played_this_turn == 3 {
+            self.draw(1);
+            effects.push("Windspur · eine Karte ziehen".into());
+        }
         if self.enemy_hp < old_enemy_hp {
             effects.push(format!(
                 "−{} Leben beim Hüter",
@@ -867,8 +930,8 @@ impl Battle {
         if self.hp > old_hp {
             effects.push(format!("+{} Leben", self.hp - old_hp));
         }
-        if spec.guard > 0 {
-            effects.push(format!("+{} Schild", spec.guard));
+        if shield > 0 {
+            effects.push(format!("+{shield} Schild"));
         }
         if spec.spores > 0 {
             effects.push(format!("{} Sporen pro Zug", spec.spores));
@@ -925,6 +988,18 @@ impl Battle {
             }
             Intent::Stagger => "Die gebrochene Rüstung unterbricht den Schlag.".into(),
         };
+        if self.style == Style::Warden
+            && self.guard > 0
+            && matches!(intent, Intent::Attack(_) | Intent::Flurry(_))
+            && self.incoming(intent) == 0
+        {
+            self.enemy_hp = self.enemy_hp.saturating_sub(4);
+            self.message.push_str(" · Rindenwacht kontert für 4");
+            if self.enemy_hp == 0 {
+                self.outcome = Outcome::Won;
+                return;
+            }
+        }
         use crate::waywatch::Watch;
         let watch = self.trial.map(|trial| trial.watch);
         if watch == Some(Watch::Fern) && self.guard == 0 && self.hp > 0 {
@@ -937,6 +1012,8 @@ impl Battle {
         }
         self.used.append(&mut self.hand);
         self.round = self.round.saturating_add(1);
+        self.played_this_turn = 0;
+        self.warden_ready = true;
         self.guard = 0;
         self.energy = self.energy_limit;
         if watch == Some(Watch::Kiln) && self.round % 2 == 1 && self.charged.is_none() {
@@ -949,6 +1026,35 @@ impl Battle {
         }
         self.draw(self.hand_size);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn each_style_rewards_its_own_tactic_once_per_trigger() {
+    let mut progress = Progress::default();
+    progress.style = Style::Warden;
+    let mut warden = Battle::new(1, &progress);
+    warden.hand = vec![Card::BarkShield, Card::BarkShield];
+    warden.enemy_guard = 3;
+    warden.charged = Some(10);
+    assert!(warden.play(0) && warden.play(0));
+    assert_eq!(warden.guard, 19);
+    let enemy = warden.enemy_hp;
+    warden.end_turn();
+    assert_eq!(warden.enemy_hp, enemy - 4);
+
+    progress.style = Style::Trail;
+    let mut trail = Battle::new(1, &progress);
+    trail.hand = vec![Card::SeedShot, Card::SeedShot, Card::TwigStrike];
+    assert!(trail.play(0) && trail.play(0) && trail.play(0));
+    assert_eq!(trail.hand.len(), 1);
+    assert!(trail.message.contains("Windspur"));
+
+    progress.style = Style::Hearth;
+    let mut hearth = Battle::new(1, &progress);
+    assert!(hearth.eat(Ration::Soup));
+    assert_eq!((hearth.energy, hearth.guard), (4, 4));
+    assert!(!hearth.eat(Ration::Jam));
 }
 
 fn shuffle(items: &mut [Card], rng: &mut u64) {

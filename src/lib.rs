@@ -1,5 +1,6 @@
 mod adventure;
 mod battle_ui;
+mod campaign;
 mod cinematic;
 mod commissions;
 mod controller;
@@ -15,6 +16,8 @@ mod harvest_fx;
 mod homestead;
 mod input;
 mod inventory;
+#[cfg(target_os = "android")]
+mod mobile;
 mod onboarding;
 mod processing;
 mod progression;
@@ -146,6 +149,7 @@ pub fn main() {
         .init_resource::<Notice>()
         .init_resource::<input::Gesture>()
         .init_resource::<ui::HudLayout>()
+        .init_resource::<ui::SafeInsets>()
         .init_resource::<world::Models>()
         .init_resource::<ui::Icons>()
         .init_resource::<ui::UiFonts>()
@@ -239,12 +243,20 @@ pub fn main() {
         )
         .add_systems(PostUpdate, session::autosave);
     #[cfg(target_os = "android")]
-    app.add_systems(Startup, controller::setup).add_systems(
-        PreUpdate,
-        (controller::poll, controller::hide_after_touch)
-            .chain()
-            .before(bevy::input::InputSystem),
-    );
+    app.add_systems(Startup, controller::setup)
+        .add_systems(
+            Update,
+            (
+                session::finish_document.before(session::input),
+                mobile::refresh_insets.before(ui::resize),
+            ),
+        )
+        .add_systems(
+            PreUpdate,
+            (controller::poll, controller::hide_after_touch)
+                .chain()
+                .before(bevy::input::InputSystem),
+        );
     #[cfg(not(target_os = "android"))]
     app.add_systems(Update, capture);
     app.run();

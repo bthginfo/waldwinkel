@@ -367,6 +367,9 @@ pub fn tracked_pin(
         let height = match target {
             Target::Watch(_) => 3.36,
             Target::WatchTrace(_) => 1.12,
+            Target::Person(_) => 2.18,
+            Target::Bench | Target::Forge | Target::Loom | Target::HarborBoard => 1.72,
+            Target::Resonator(_) => 2.54,
             _ => return None,
         };
         camera
@@ -567,7 +570,9 @@ fn dusk_cell(cell: u16) -> Vec2 {
 
 impl Adventure {
     pub fn tracked_target(&self, garden: &Garden) -> Option<Target> {
-        self.tracked.and_then(|guide| guide.target(garden))
+        self.tracked
+            .and_then(|guide| guide.target(garden))
+            .or_else(|| Guide::Campaign.target(garden))
     }
 
     pub fn offer(&self, garden: &Garden) -> Option<Product> {
@@ -1463,6 +1468,7 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
         ),
         Target::Bed => hit(BED_HALF_SIZE, 0., 1.03),
         Target::Bench | Target::Forge | Target::Loom => hit(BENCH_HALF_SIZE, 0., 1.16),
+        Target::Watch(Watch::Fern) => hit(Vec2::new(2.0, 1.35), 0., 3.66),
         Target::Watch(_) => hit(Vec2::new(2.0, 1.35), 0., 2.87),
         Target::WatchTrace(_) => hit(Vec2::splat(0.47), 0., 0.65),
         Target::Binder => hit(Vec2::new(0.52, 0.35), 0., 1.03),
@@ -1548,12 +1554,24 @@ pub fn select(
                 },
             );
         let chosen = if auto {
-            adventure
-                .tracked_target(&garden)
-                .and_then(|goal| {
-                    targets
-                        .iter()
-                        .position(|(_, entry)| *entry == PadTarget::Place(goal))
+            let tutorial_plot = match garden.onboarding {
+                Onboarding::Till => Some(crate::garden::Action::Till),
+                Onboarding::Sow => Some(crate::garden::Action::Sow),
+                Onboarding::Water => Some(crate::garden::Action::Water),
+                _ => None,
+            };
+            targets
+                .iter()
+                .position(|(_, entry)| {
+                    matches!(entry, PadTarget::Plot(i) if tutorial_plot.is_some()
+                    && garden.action(*i, adventure.crop) == tutorial_plot)
+                })
+                .or_else(|| {
+                    adventure.tracked_target(&garden).and_then(|goal| {
+                        targets
+                            .iter()
+                            .position(|(_, entry)| *entry == PadTarget::Place(goal))
+                    })
                 })
                 .unwrap_or(chosen)
         } else {
@@ -1749,12 +1767,7 @@ pub fn interact(
     if controls.task {
         adventure.queued = None;
         player.0.stop();
-        let tab = if garden.onboarding == Onboarding::Done {
-            GuideTab::Story
-        } else {
-            GuideTab::Orders
-        };
-        farm_menu.show(FarmPage::Journal(tab));
+        farm_menu.show(FarmPage::Journal(GuideTab::Story));
         return;
     }
     if controls.move_axis != Vec2::ZERO || focus.selected.is_some() {
@@ -1868,7 +1881,12 @@ pub fn interact(
             }
         }
         Target::Resonator(site) => match site.work(&mut garden) {
-            Ok(message) => message,
+            Ok(message) => {
+                if site == Resonator::Harbor {
+                    farm_menu.show(FarmPage::Cinematic(crate::cinematic::Clip::Festival));
+                }
+                message
+            }
             Err(message) => {
                 persistent = false;
                 message
@@ -1973,7 +1991,7 @@ pub fn interact(
                 return;
             };
             adventure.focus = None;
-            adventure.tracked = Some(Guide::Watch(site));
+            adventure.tracked = Some(Guide::for_watch(site, &garden));
             message
         }
         Target::HarborDriftwood => {
@@ -1993,7 +2011,7 @@ pub fn interact(
                     &path,
                     &mut notice,
                     now,
-                    "Dein erster Morgen · +3 Rübensamen".into(),
+                    "Bo zeigt dir die Farnwacht · 5 Holz, 1 Stein und 3 Rübensamen".into(),
                     None,
                     None,
                 );

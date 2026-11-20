@@ -13,7 +13,8 @@ use crate::{
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
-    fs, io,
+    fs,
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -21,7 +22,8 @@ use std::{
 pub const PLOT_COUNT: usize = 12;
 pub const FERTILIZER_PRICE: u32 = 4;
 const FERTILIZER_PACK: u32 = 2;
-const SAVE_VERSION: u8 = 14;
+const SAVE_VERSION: u8 = 15;
+pub const MAX_SAVE_SIZE: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Quality {
@@ -592,8 +594,23 @@ impl Garden {
     }
 
     pub fn load(path: &Path) -> io::Result<Self> {
-        let mut garden: Self = serde_json::from_slice(&fs::read(path)?)?;
-        if !matches!(garden.version, 1..=SAVE_VERSION) {
+        Self::decode(&read_save(path)?)
+    }
+
+    pub(crate) fn decode(bytes: &[u8]) -> io::Result<Self> {
+        #[derive(Deserialize)]
+        struct Header {
+            version: u8,
+        }
+        if bytes.len() > MAX_SAVE_SIZE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Die Sicherung ist zu groß.",
+            ));
+        }
+        let header: Header = serde_json::from_slice(bytes)?;
+        let mut garden: Self = serde_json::from_slice(bytes)?;
+        if !matches!(header.version, 1..=SAVE_VERSION) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Unbekannte Spielstandversion",
@@ -642,6 +659,9 @@ impl Garden {
                 furniture::learn(&mut garden, plan);
             }
         }
+        if garden.version < 15 {
+            crate::waywatch::restore_bells(&mut garden);
+        }
         if garden.onboarding == Onboarding::Water
             && garden
                 .plots
@@ -659,10 +679,37 @@ impl Garden {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let tmp = path.with_extension("tmp");
-        fs::write(&tmp, serde_json::to_vec(self)?)?;
-        fs::rename(&tmp, path)
+        let next = serde_json::to_vec(self)?;
+        if let Ok(previous) = read_save(path) {
+            if previous == next {
+                return Ok(());
+            }
+            if Self::decode(&previous).is_ok() {
+                write_save(&Self::backup_path(path), &previous)?;
+            }
+        }
+        write_save(path, &next)
     }
+
+    pub(crate) fn backup_path(path: &Path) -> PathBuf {
+        path.with_extension("backup.json")
+    }
+}
+
+fn read_save(path: &Path) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    fs::File::open(path)?
+        .take(MAX_SAVE_SIZE as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+fn write_save(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let tmp = path.with_extension("json.tmp");
+    let mut file = fs::File::create(&tmp)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    fs::rename(tmp, path)
 }
 
 #[derive(Resource)]

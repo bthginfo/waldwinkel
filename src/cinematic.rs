@@ -13,6 +13,7 @@ pub enum Clip {
     Arrival,
     Opening,
     Watches,
+    Festival,
 }
 
 impl Clip {
@@ -21,6 +22,7 @@ impl Clip {
             Self::Arrival => 13.5,
             Self::Opening => 9.,
             Self::Watches => 11.,
+            Self::Festival => 14.,
         }
     }
 
@@ -33,7 +35,7 @@ impl Clip {
                 "Bo · Vor der Hütte steht eine alte Werkbank. Neben der Veranda ist Platz für deine ersten Beete."
             }
             Self::Arrival => {
-                "Bo · Lockere ein Beet, säe und gieße es. Danach findest du mich in Eichenhafen."
+                "Bo · Leg dein erstes Beet an. Komm dann in den Hafen. Die Farnwacht braucht heute Abend wieder Licht."
             }
             Self::Watches if time < 5.5 => {
                 "Juna · Als die Glocken schwiegen, wiesen diese fünf Lichter den Menschen den Heimweg."
@@ -46,6 +48,15 @@ impl Clip {
             }
             Self::Opening => {
                 "Fiete · Siehst du die Laternen an der Seeseite? Dort kannst du jetzt Hafenhering angeln."
+            }
+            Self::Festival if time < 4.5 => {
+                "Bo · Früher haben wir am Wasser gewartet, bis irgendwo ein Licht anging."
+            }
+            Self::Festival if time < 9. => {
+                "Juna · Jetzt kennen wir wieder jede Stimme zwischen Moor und Hafen."
+            }
+            Self::Festival => {
+                "Bo · Die Leuchte gehört dem ganzen Dorf. Dein Hof bleibt dein Zuhause."
             }
         }
     }
@@ -65,6 +76,10 @@ impl Clip {
             Self::Opening => (
                 Vec3::new(57.7, 0.38, 26.5).lerp(Vec3::new(58.08, 0.69, 32.5), t),
                 16.2_f32.lerp(12.6, t),
+            ),
+            Self::Festival => (
+                Vec3::new(51.5, 1.5, 15.8).lerp(Vec3::new(56.8, 0.95, 11.2), t),
+                22.0_f32.lerp(13.2, t),
             ),
         }
     }

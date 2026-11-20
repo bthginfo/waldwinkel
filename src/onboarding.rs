@@ -19,12 +19,10 @@ pub enum Onboarding {
 impl Onboarding {
     pub fn hint(self) -> &'static str {
         match self {
-            Self::Welcome | Self::Till => "Tippe auf ein leeres Beet und wähle „Hacken“.",
+            Self::Welcome | Self::Till => "Wähle ein leeres Beet und lockere den Boden.",
             Self::Sow => "Wähle das gehackte Beet und säe deine Möhren.",
             Self::Water => "Gieße deine Saat. Im Bett beginnst du später den nächsten Tag.",
-            Self::Harbor => {
-                "Sprich mit Bo in Eichenhafen. Er kennt die Geschichte des alten Fischerstegs."
-            }
+            Self::Harbor => "Sprich mit Bo in Eichenhafen. Er kennt den Weg zur Farnwacht.",
             Self::Done => "Erfüllt · Dein Hof ist angelegt. Gegossene Pflanzen wachsen über Nacht.",
         }
     }
@@ -45,6 +43,8 @@ impl Onboarding {
         }
         garden.onboarding = Self::Done;
         garden.add_seeds(Crop::Turnip, 3);
+        garden.wood = garden.wood.saturating_add(5);
+        garden.stone = garden.stone.saturating_add(1);
         true
     }
 }

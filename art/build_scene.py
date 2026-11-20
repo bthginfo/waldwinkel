@@ -231,6 +231,19 @@ def cabin():
     window(wood,x0-.025,cz-.64,1.74,.85,.80,True)
     window(wood,x0-.025,cz+.55,1.74,.85,.80,True)
     window(wood,x1+.24,cz+.43,1.68,.75,.85,True)
+    # The blue-green shutters tie the porch to the cottage door and garden.
+    for dx in [-.52,.52]:
+        for st in range(4):
+            xx=cx-.97+dx+(st-1.5)*.058
+            decor.box(xx,z1+.138,1.64,.060,.056,.76,
+                      ["53766b","5c8272","62877b","5a7d71"][st],.008)
+        for h in [1.39,1.90]:
+            decor.box(cx-.97+dx,z1+.169,h,.280,.024,.062,"9fa284",.013)
+    for i,color in enumerate(["9aa66d","d6af66","b48b65"]):
+        xx=cx-1.70+i*.25
+        decor.pole((xx,z1+.19,2.51),(xx-.055,z1+.23,2.30),.018,"a48453",5)
+        for j in range(3):
+            decor.ellipsoid(xx+.044*j-.08,z1+.24,2.31-j*.043,.076,.039,.034,color,7,4)
 
     x=cx+.57
     wood.box(x,z1+.087,1.40,1.24,.14,1.92,"79573f")

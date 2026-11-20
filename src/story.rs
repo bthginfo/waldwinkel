@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     adventure::{Target, dusk_open},
+    campaign,
     duel::LAST_LEVEL,
     garden::{Crop, Garden},
     regions::{self, Frontier},
@@ -133,12 +134,9 @@ impl Resonator {
                 false,
             );
         }
-        if garden.rpg.cleared < LAST_LEVEL {
+        if !campaign::festival_ready(garden) {
             return (
-                format!(
-                    "Das Echo reicht bis Ebene {} der Dämmergänge.",
-                    garden.rpg.cleared
-                ),
+                "Öffne den Fischersteg und bring Juna die Geschichten der fünf Wegwachten.".into(),
                 "Verstummt",
                 false,
             );
@@ -183,6 +181,7 @@ pub enum GuideTab {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Guide {
+    Campaign,
     Juna,
     Echo(Frontier),
     Dusk,
@@ -200,9 +199,18 @@ pub enum Guide {
 }
 
 impl Guide {
+    pub fn for_watch(site: crate::waywatch::Watch, garden: &Garden) -> Self {
+        if campaign::next(garden) == campaign::Step::Watch(site) {
+            Self::Campaign
+        } else {
+            Self::Watch(site)
+        }
+    }
+
     pub fn entries(tab: GuideTab) -> impl Iterator<Item = Guide> {
         let entries: &[Guide] = match tab {
             GuideTab::Story => &[
+                Self::Campaign,
                 Self::Juna,
                 Self::Echo(Frontier::Copper),
                 Self::Echo(Frontier::Wind),
@@ -244,9 +252,10 @@ impl Guide {
 
     pub fn title(self, garden: &Garden) -> &'static str {
         match self {
+            Self::Campaign => campaign::next(garden).title(),
             Self::Juna => "Eine verstummte Küste",
             Self::Echo(frontier) => Resonator::from_frontier(frontier).name(),
-            Self::Dusk => "Unter dem Nebelmoor",
+            Self::Dusk => "Die Dämmergänge",
             Self::Festival => "Lichtfest in Eichenhafen",
             Self::SeasonMeeting => "Dorftisch in Eichenhafen",
             Self::Farm => garden.task().0,
@@ -266,6 +275,7 @@ impl Guide {
 
     pub fn detail(self, garden: &Garden) -> String {
         match self {
+            Self::Campaign => campaign::next(garden).detail(garden),
             Self::Juna if garden.story.met_juna => {
                 "Erfüllt · Juna hat dir von den Klangsteinen erzählt.".into()
             }
@@ -313,11 +323,11 @@ impl Guide {
             Self::Festival if garden.story.harbor_lit => {
                 "Erfüllt · Die Hafenleuchte brennt in Eichenhafen.".into()
             }
-            Self::Festival if garden.story.voices() == 3 && garden.rpg.cleared >= LAST_LEVEL => {
+            Self::Festival if campaign::festival_ready(garden) => {
                 "Geh zur Hafenleuchte und entzünde das Lichtfest.".into()
             }
             Self::Festival => {
-                "Stimme alle drei Klangsteine und erreiche die letzte Dämmerglocke.".into()
+                "Öffne den Fischersteg, stimme die Klangsteine und vervollständige Junas Inselkarte.".into()
             }
             Self::SeasonMeeting => crate::seasons::meeting_status(garden),
             Self::Farm if garden.task().1 => "Abgabebereit · +5 Münzen und Saatgut".into(),
@@ -363,6 +373,7 @@ impl Guide {
             Some(Target::Gate(region))
         };
         match self {
+            Self::Campaign => campaign::next(garden).target(garden),
             Self::Juna => (!garden.story.met_juna).then_some(Target::Person(Npc::Juna)),
             Self::Echo(_) if !garden.story.met_juna => person(Npc::Juna),
             Self::Echo(frontier) if garden.story.tuned(frontier) => None,
@@ -373,7 +384,7 @@ impl Guide {
             Self::Dusk if Frontier::Moor.unlocked(garden) => person(Npc::Edda),
             Self::Dusk => gateway(Frontier::Moor),
             Self::Festival if garden.story.harbor_lit => None,
-            Self::Festival if garden.story.voices() == 3 && garden.rpg.cleared >= LAST_LEVEL => {
+            Self::Festival if campaign::festival_ready(garden) => {
                 Some(Target::Resonator(Resonator::Harbor))
             }
             Self::Festival | Self::Farm => None,

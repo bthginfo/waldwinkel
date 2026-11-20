@@ -65,6 +65,10 @@ enum SlotStatus {
         place: &'static str,
         quests: usize,
     },
+    Recoverable {
+        day: u32,
+        place: &'static str,
+    },
     Unreadable,
 }
 
@@ -82,7 +86,10 @@ impl SaveSlots {
         });
         let mut note = String::new();
         let inherited = (|| -> io::Result<bool> {
-            if files[0].try_exists()? || !legacy.try_exists()? {
+            if files[0].try_exists()?
+                || Garden::backup_path(&files[0]).try_exists()?
+                || !legacy.try_exists()?
+            {
                 return Ok(false);
             }
             Garden::load(&legacy)?.save(&files[0])?;
@@ -106,10 +113,20 @@ impl SaveSlots {
     }
 
     fn inspect(file: &std::path::Path) -> SlotStatus {
-        match Garden::load(file) {
-            Ok(garden) => Self::summary(&garden),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => SlotStatus::Empty,
-            Err(_) => SlotStatus::Unreadable,
+        let error = match Garden::load(file) {
+            Ok(garden) => return Self::summary(&garden),
+            Err(error) => error,
+        };
+        if let Ok(garden) = Garden::load(&Garden::backup_path(file)) {
+            return SlotStatus::Recoverable {
+                day: garden.day,
+                place: garden.checkpoint.map_or("Waldwinkel", Checkpoint::place),
+            };
+        }
+        if error.kind() == io::ErrorKind::NotFound {
+            SlotStatus::Empty
+        } else {
+            SlotStatus::Unreadable
         }
     }
 
@@ -125,6 +142,17 @@ impl SaveSlots {
     }
 
     fn open(&mut self, index: usize) -> io::Result<Garden> {
+        let file = &self.files[index];
+        if matches!(Self::inspect(file), SlotStatus::Recoverable { .. }) {
+            let garden = Garden::load(&Garden::backup_path(file))?;
+            let damaged = file.with_extension("beschaedigt.json");
+            if file.try_exists()? && !damaged.try_exists()? {
+                std::fs::copy(file, damaged)?;
+            }
+            garden.save(file)?;
+            self.status[index] = Self::summary(&garden);
+            return Ok(garden);
+        }
         if matches!(self.status[index], SlotStatus::Unreadable) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -146,6 +174,21 @@ impl SaveSlots {
         self.status[index] = Self::summary(&garden);
         Ok(garden)
     }
+
+    #[cfg(any(target_os = "android", test))]
+    fn import(&mut self, slot: usize, data: &[u8]) -> io::Result<()> {
+        let file = &self.files[slot];
+        if !matches!(Self::inspect(file), SlotStatus::Empty) {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "Der Platz ist belegt.",
+            ));
+        }
+        let garden = Garden::decode(data)?;
+        garden.save(file)?;
+        self.status[slot] = Self::summary(&garden);
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -164,6 +207,17 @@ pub struct Session {
     last_saved: f32,
     last_clock: u16,
     save_failed: bool,
+    #[cfg(target_os = "android")]
+    importing: bool,
+    #[cfg(target_os = "android")]
+    document: Option<DocumentTask>,
+}
+
+#[cfg(target_os = "android")]
+#[derive(Clone, Copy)]
+enum DocumentTask {
+    Export,
+    Import(usize),
 }
 
 impl Session {
@@ -214,10 +268,15 @@ pub enum MenuButton {
     Title,
     UiSize,
     Sound,
+    #[cfg(target_os = "android")]
+    Import,
+    #[cfg(target_os = "android")]
+    Export,
 }
 
 #[derive(Component)]
 pub enum MenuText {
+    TitlePrompt,
     SlotMeta(usize),
     SlotAction(usize),
     Message(Screen),
@@ -225,6 +284,8 @@ pub enum MenuText {
     PadHelp(Screen),
     UiSize,
     Sound,
+    #[cfg(target_os = "android")]
+    Import,
 }
 
 pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
@@ -276,7 +337,10 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                             39.,
                         ));
                         if screen == Screen::Title {
-                            panel.spawn(fonts.body("Wähle deinen Spielstand.", 16.));
+                            panel.spawn((
+                                MenuText::TitlePrompt,
+                                fonts.body("Wähle deinen Spielstand.", 16.),
+                            ));
                             for index in 0..SLOT_COUNT {
                                 panel
                                     .spawn((
@@ -319,6 +383,13 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                                         ));
                                     });
                             }
+                            #[cfg(target_os = "android")]
+                            panel
+                                .spawn((MenuButton::Import, ui::dialog_button(236.)))
+                                .with_child((
+                                    MenuText::Import,
+                                    fonts.button("Spielstand importieren", 16.),
+                                ));
                         } else {
                             panel.spawn((MenuText::ActiveSlot, fonts.body("", 15.)));
                             for (action, label) in [
@@ -337,6 +408,10 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                                     button.with_child(fonts.button(label, 16.));
                                 }
                             }
+                            #[cfg(target_os = "android")]
+                            panel
+                                .spawn((MenuButton::Export, ui::dialog_button(350.)))
+                                .with_child(fonts.button("Spielstand exportieren", 16.));
                         }
                         panel.spawn((MenuText::Message(screen), fonts.body("", 13.)));
                         panel.spawn((MenuText::PadHelp(screen), fonts.body("", 13.)));
@@ -363,7 +438,17 @@ pub fn input(
     mut dialog: ResMut<Dialog>,
     mut farm_menu: ResMut<crate::farm_ui::FarmMenu>,
 ) {
+    #[cfg(target_os = "android")]
+    if session.document.is_some() {
+        return;
+    }
     if keys.just_pressed(KeyCode::Escape) {
+        #[cfg(target_os = "android")]
+        if session.screen == Screen::Title && session.importing {
+            session.importing = false;
+            session.message.clear();
+            return;
+        }
         if farm_menu.battle().is_some() {
             return;
         }
@@ -422,6 +507,43 @@ pub fn input(
     };
     let (player, transform) = &mut *player;
     match (session.screen, action) {
+        #[cfg(target_os = "android")]
+        (Screen::Title, MenuButton::Import) if ready.0 => {
+            session.importing = !session.importing;
+            session.message.clear();
+        }
+        #[cfg(target_os = "android")]
+        (Screen::Title, MenuButton::Slot(index)) if ready.0 && session.importing => {
+            if matches!(slots.status[index], SlotStatus::Empty) {
+                match crate::mobile::open_document(index, None) {
+                    Ok(()) => session.document = Some(DocumentTask::Import(index)),
+                    Err(error) => {
+                        warn!("Importdialog konnte nicht geöffnet werden: {error}");
+                        session.message = "Die Dateiauswahl konnte nicht geöffnet werden.".into();
+                    }
+                }
+            } else {
+                session.message = "Wähle zum Importieren einen freien Platz.".into();
+            }
+        }
+        #[cfg(target_os = "android")]
+        (Screen::Pause, MenuButton::Export) => {
+            let Some(index) = session.index else { return };
+            let checkpoint = Checkpoint::new(adventure.area, player.position);
+            let result = session
+                .save(&mut slots, &mut g, checkpoint, time.elapsed_secs())
+                .and_then(|_| serde_json::to_vec(&*g).map_err(io::Error::from))
+                .and_then(|bytes| {
+                    crate::mobile::open_document(index, Some(&bytes)).map_err(io::Error::other)
+                });
+            match result {
+                Ok(()) => session.document = Some(DocumentTask::Export),
+                Err(error) => {
+                    warn!("Export fehlgeschlagen: {error}");
+                    session.message = "Der Spielstand konnte nicht exportiert werden.".into();
+                }
+            }
+        }
         (Screen::Title, MenuButton::Slot(index)) if ready.0 => match slots.open(index) {
             Ok(garden) => {
                 let checkpoint = garden.checkpoint;
@@ -484,6 +606,35 @@ pub fn input(
         }
         _ => {}
     }
+}
+
+#[cfg(target_os = "android")]
+pub fn finish_document(mut session: ResMut<Session>, mut slots: ResMut<SaveSlots>) {
+    let Some(task) = session.document else { return };
+    let payload = match crate::mobile::document_result() {
+        Ok(None) => return,
+        Ok(Some(bytes)) => bytes,
+        Err(error) => {
+            warn!("Dateiauswahl fehlgeschlagen: {error}");
+            vec![0]
+        }
+    };
+    session.document = None;
+    session.message = match (task, payload.split_first()) {
+        (_, None) => "Dateiauswahl abgebrochen.".into(),
+        (DocumentTask::Export, Some((1, _))) => "Spielstand als Datei exportiert.".into(),
+        (DocumentTask::Import(slot), Some((1, bytes))) => match slots.import(slot, bytes) {
+            Ok(()) => {
+                session.importing = false;
+                format!("Sicherung in Spielstand {} importiert.", slot + 1)
+            }
+            Err(error) => {
+                warn!("Sicherung konnte nicht importiert werden: {error}");
+                "Die Sicherung ist nicht lesbar oder der Platz ist belegt.".into()
+            }
+        },
+        _ => "Die Datei konnte nicht gelesen oder geschrieben werden.".into(),
+    };
 }
 
 pub fn open_menu(
@@ -560,9 +711,31 @@ pub fn update(
     }
     for (query, mut text) in &mut texts {
         let value = match *query {
+            MenuText::TitlePrompt => {
+                #[cfg(target_os = "android")]
+                if session.importing {
+                    text.0 = "Wähle einen freien Platz für die Sicherung.".into();
+                    continue;
+                }
+                "Wähle deinen Spielstand.".into()
+            }
+            #[cfg(target_os = "android")]
+            MenuText::Import => if session.importing {
+                "Zurück"
+            } else {
+                "Spielstand importieren"
+            }
+            .into(),
+            #[cfg(target_os = "android")]
+            MenuText::SlotAction(i)
+                if session.importing && slots.status[i] == SlotStatus::Empty =>
+            {
+                "Hier importieren".into()
+            }
             MenuText::SlotAction(i) => match slots.status[i] {
                 SlotStatus::Empty => "Neues Spiel",
                 SlotStatus::Saved { .. } => "Fortsetzen",
+                SlotStatus::Recoverable { .. } => "Wiederherstellen",
                 SlotStatus::Unreadable => "Nicht lesbar",
             }
             .into(),
@@ -570,6 +743,9 @@ pub fn update(
                 SlotStatus::Empty => "Freier Platz".into(),
                 SlotStatus::Saved { day, place, quests } => {
                     format!("Tag {day} · {place} · Aufträge {quests}/3")
+                }
+                SlotStatus::Recoverable { day, place } => {
+                    format!("Sicherung · Tag {day} · {place}")
                 }
                 SlotStatus::Unreadable => "Datei bleibt erhalten.".into(),
             },
@@ -617,7 +793,14 @@ pub fn update(
     }
     for (button, interaction, mut bg) in &mut buttons {
         let enabled = match button {
-            MenuButton::Slot(i) => ready.0 && !matches!(slots.status[*i], SlotStatus::Unreadable),
+            MenuButton::Slot(i) => {
+                #[cfg(target_os = "android")]
+                let unavailable = session.document.is_some()
+                    || session.importing && slots.status[*i] != SlotStatus::Empty;
+                #[cfg(not(target_os = "android"))]
+                let unavailable = false;
+                ready.0 && !unavailable && slots.status[*i] != SlotStatus::Unreadable
+            }
             _ => true,
         };
         let color = ui::button_color(*interaction, enabled);
@@ -632,6 +815,36 @@ mod tests {
     use super::*;
     use crate::world::SPAWN;
     use std::fs;
+
+    #[test]
+    fn an_import_preserves_occupied_slots_and_recovers_the_previous_save() {
+        let root = std::env::temp_dir().join(format!("waldwinkel-recovery-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let mut slots = SaveSlots::new(root.join("garten.json"));
+        assert!(slots.import(0, b"{}").is_err());
+        assert!(!slots.files[0].exists());
+        assert!(slots.import(0, br#"{"version":99}"#).is_err());
+        slots
+            .import(0, br#"{"version":14,"day":8,"wood":11}"#)
+            .unwrap();
+        assert!(slots.import(0, br#"{"version":14,"day":1}"#).is_err());
+        let mut garden = slots.open(0).unwrap();
+        assert_eq!((garden.day, garden.wood), (8, 11));
+        garden.day = 9;
+        garden.save(&slots.files[0]).unwrap();
+        fs::write(&slots.files[0], "interrupted").unwrap();
+        assert!(matches!(
+            SaveSlots::inspect(&slots.files[0]),
+            SlotStatus::Recoverable { day: 8, .. }
+        ));
+        assert!(slots.import(0, br#"{"version":14,"day":1}"#).is_err());
+        assert_eq!(slots.open(0).unwrap().day, 8);
+        assert_eq!(
+            fs::read_to_string(slots.files[0].with_extension("beschaedigt.json")).unwrap(),
+            "interrupted"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn legacy_import_and_new_games_keep_progress_independent() {

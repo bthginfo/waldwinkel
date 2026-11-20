@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="game.waldwinkel"
-    android:versionCode="17"
-    android:versionName="1.4.2">
-    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+    android:versionCode="18"
+    android:versionName="1.5.0">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
     <uses-feature android:name="android.hardware.vulkan.version"
         android:version="0x00400000" android:required="true" />
     <application android:label="Waldwinkel"
+        android:appCategory="game"
         android:icon="@drawable/icon"
         android:theme="@style/Waldwinkel"
         android:allowBackup="false"

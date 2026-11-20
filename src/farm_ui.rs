@@ -6,7 +6,7 @@ use crate::{
     cinematic::Clip,
     commissions::Order,
     craft::{Bench, Recipe},
-    duel::{Battle, CAMP_INTERVAL, Card, DECK_SIZE, Gear, Talent},
+    duel::{Battle, CAMP_INTERVAL, Card, DECK_SIZE, Gear, Style, Talent},
     furniture::{self, Blueprint, CATALOG},
     garden::{Crop, FERTILIZER_PRICE, Garden, SavePath},
     harbor::{self, Phase},
@@ -47,6 +47,7 @@ pub enum FarmPage {
     Travel(Bell),
     Inventory,
     Binder,
+    Styles,
     Talents,
     CardShop,
     Gear(GearSource),
@@ -199,6 +200,7 @@ impl FarmMenu {
                 .map(Entry::CombatCard)
                 .collect(),
             FarmPage::Talents => Talent::ALL.into_iter().map(Entry::Talent).collect(),
+            FarmPage::Styles => Style::ALL.into_iter().map(Entry::Style).collect(),
             FarmPage::CardShop => CARDS_FOR_SALE.into_iter().map(Entry::CombatCard).collect(),
             FarmPage::Gear(_) => Gear::ALL.into_iter().map(Entry::Gear).collect(),
             FarmPage::Expedition => std::iter::once(1)
@@ -235,6 +237,7 @@ enum Entry {
     Step(&'static str),
     Destination(Bell),
     CombatCard(Card),
+    Style(Style),
     Talent(Talent),
     Gear(Gear),
     Level(u32),
@@ -259,6 +262,7 @@ impl Entry {
             Self::Step(text) => text.into(),
             Self::Destination(bell) => bell.name().into(),
             Self::CombatCard(card) => card.name().into(),
+            Self::Style(style) => style.name().into(),
             Self::Talent(talent) => talent.name().into(),
             Self::Gear(gear) => gear.name().into(),
             Self::Level(1) => "Ebene 1".into(),
@@ -330,6 +334,7 @@ impl Entry {
                 format!("{cost} · {}", card.description())
             }
             Self::CombatCard(card) => format!("Kraft {} · {}", card.cost(), card.description()),
+            Self::Style(style) => style.detail().into(),
             Self::Talent(talent) => format!(
                 "Rang {} · {}",
                 garden.rpg.ranks[talent as usize],
@@ -378,6 +383,7 @@ pub enum Choice {
     AddCopy,
     RemoveCopy,
     SaveDeck,
+    Styles,
     Talents,
     Gear,
     Projects,
@@ -565,6 +571,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                             (Choice::AddCopy, "+ Karte", 84.),
                             (Choice::RemoveCopy, "− Karte", 84.),
                             (Choice::SaveDeck, "Deck speichern", 129.),
+                            (Choice::Styles, "Kampfstile", 105.),
                             (Choice::Talents, "Talente", 84.),
                             (Choice::Gear, "Ausrüstung", 106.),
                             (Choice::Projects, "Bauprojekte", 110.),
@@ -789,6 +796,10 @@ pub fn input(
             menu.navigate(FarmPage::Talents);
             None
         }
+        Choice::Styles if page == FarmPage::Binder => {
+            menu.navigate(FarmPage::Styles);
+            None
+        }
         Choice::Projects
             if page == FarmPage::Workbench || page == (FarmPage::Tools { at_forge: false }) =>
         {
@@ -822,7 +833,7 @@ pub fn input(
         }
         Choice::Return => {
             match page {
-                FarmPage::Talents => menu.navigate(FarmPage::Binder),
+                FarmPage::Talents | FarmPage::Styles => menu.navigate(FarmPage::Binder),
                 FarmPage::Gear(GearSource::Workbench) => menu.navigate(FarmPage::Workbench),
                 FarmPage::Gear(GearSource::Smith) => menu.navigate(FarmPage::CardShop),
                 FarmPage::Materials(Bench::Work) => menu.navigate(FarmPage::Workbench),
@@ -862,6 +873,16 @@ pub fn input(
                 return;
             };
             Some(progression::buy_card(&mut garden, card))
+        }
+        Choice::Work if page == FarmPage::Styles && adventure.area == Area::Home => {
+            if let Some(Entry::Style(style)) = menu.selected
+                && styles_unlocked(&garden)
+            {
+                garden.rpg.style = style;
+                Some(Ok(format!("Kampfstil gewählt · {}", style.name())))
+            } else {
+                None
+            }
         }
         Choice::Work if page == FarmPage::Talents => {
             let Some(Entry::Talent(talent)) = menu.selected else {
@@ -960,13 +981,13 @@ pub fn input(
             match site.stage(&garden) {
                 WatchStage::Unheard => {
                     site.begin(&mut garden);
-                    adventure.tracked = Some(Guide::Watch(site));
+                    adventure.tracked = Some(Guide::for_watch(site, &garden));
                     Some(Ok(
                         "Spur aufgenommen · Das Wegzeichen steht im Journal.".into()
                     ))
                 }
                 WatchStage::Surveying => {
-                    adventure.tracked = Some(Guide::Watch(site));
+                    adventure.tracked = Some(Guide::for_watch(site, &garden));
                     adventure.map = true;
                     player.0.stop();
                     menu.close();
@@ -1195,6 +1216,7 @@ pub fn update(
                 FarmPage::Travel(_) => "Wegglocken",
                 FarmPage::Inventory => "Deine Tasche",
                 FarmPage::Binder => "Kartenbinder",
+                FarmPage::Styles => "Kampfstile",
                 FarmPage::Talents => "Kampftalente",
                 FarmPage::CardShop => "Runas Karten",
                 FarmPage::Gear(_) => "Ausrüstung",
@@ -1279,6 +1301,13 @@ pub fn update(
                     menu.list_page + 1,
                     pages + 1
                 ),
+                FarmPage::Styles if !styles_unlocked(&garden) => {
+                    "Das erste Duell an der Farnwacht schaltet die Kampfstile frei.".into()
+                }
+                FarmPage::Styles => format!(
+                    "Aktiv · {}. Wechsle deinen Stil hier am Kartenbinder.",
+                    garden.rpg.style.name()
+                ),
                 FarmPage::Talents => format!(
                     "{} Talentpunkte · {} / {} Leben · Siege geben Talentpunkte",
                     garden.rpg.points,
@@ -1300,10 +1329,7 @@ pub fn update(
                     garden.rpg.hp,
                     garden.rpg.max_hp()
                 ),
-                FarmPage::Journal(GuideTab::Story) => format!(
-                    "{}/3 Klangsteine · Wähle ein Ziel, um es auf der Karte zu sehen.",
-                    garden.story.voices()
-                ),
+                FarmPage::Journal(GuideTab::Story) => crate::campaign::next(&garden).chapter().into(),
                 FarmPage::Journal(GuideTab::Orders) => {
                     "Hof, Eichenhafen und die Außenregionen".into()
                 }
@@ -1456,6 +1482,7 @@ pub fn update(
                 (FarmPage::Tools { .. }, _) => "Verbessern",
                 (FarmPage::CardShop, _) => "Karte kaufen",
                 (FarmPage::Talents, _) => "Rang steigern",
+                (FarmPage::Styles, _) => "Stil wählen",
                 (FarmPage::Gear(_), Some(Entry::Gear(gear)))
                     if garden.rpg.gear_owned[gear as usize] =>
                 {
@@ -1492,6 +1519,7 @@ pub fn update(
             Choice::Next => (pages > 0, menu.list_page < pages),
             Choice::SellOne | Choice::SellAll => (page == FarmPage::Sale, selected.is_some()),
             Choice::Talents => (page == FarmPage::Binder, true),
+            Choice::Styles => (page == FarmPage::Binder, true),
             Choice::Projects => (
                 page == FarmPage::Workbench || page == (FarmPage::Tools { at_forge: false }),
                 true,
@@ -1516,6 +1544,7 @@ pub fn update(
                 matches!(
                     page,
                     FarmPage::Talents
+                        | FarmPage::Styles
                         | FarmPage::Gear(_)
                         | FarmPage::Materials(Bench::Work | Bench::Forge)
                 ),
@@ -1587,6 +1616,9 @@ pub fn update(
                         .rpg
                         .train_cost(talent)
                         .is_some_and(|cost| garden.rpg.points >= cost),
+                    (FarmPage::Styles, Some(Entry::Style(style))) => {
+                        styles_unlocked(&garden) && garden.rpg.style != style
+                    }
                     (FarmPage::Gear(source), Some(Entry::Gear(gear))) => {
                         source.ready(&garden, gear)
                     }
@@ -1617,6 +1649,7 @@ pub fn update(
                             | FarmPage::BlueprintShop
                             | FarmPage::CardShop
                             | FarmPage::Talents
+                            | FarmPage::Styles
                             | FarmPage::Gear(_)
                             | FarmPage::Journal(_)
                             | FarmPage::Calendar
@@ -1652,4 +1685,8 @@ pub fn update(
             ui::button_color(interaction, enabled)
         };
     }
+}
+
+fn styles_unlocked(garden: &Garden) -> bool {
+    garden.rpg.cleared > 0 || Watch::Fern.stage(garden) == WatchStage::Complete
 }

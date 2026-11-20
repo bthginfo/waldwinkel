@@ -44,16 +44,29 @@ def decking(m, width=3.70, depth=2.45):
 
 def shingle_roof(m):
     frame(m,-.12,-.18,2.21,2.96,1.75)
-    for i in range(13):
-        x=(i-6)*.265-.12
-        for j in range(5):
-            z=-1.26+j*.41
-            y=2.65-j*.084+.022*(i%3)
-            tint=["879354","a0a365","7e8f55","b0a665","8e984f"][(i*3+j)%5]
-            m.box(x,z,y,.28,.52,.081,tint,.020,.023*(j%2))
-    for z in [-1.31,.93]:
-        m.pole((-1.99,z,2.50 if z < 0 else 2.26),(1.77,z,2.53 if z < 0 else 2.25),
-               .099,"b38653",7)
+    ridge, peak, eave = -.12, 3.53, 2.25
+    front, back = 1.08, -1.39
+    for side in (-1,1):
+        edge=ridge+side*1.87
+        for j in range(10):
+            z=back+(front-back)*(j+.5)/10
+            for i in range(5):
+                dx=(edge-ridge)/5
+                dy=(eave-peak)/5
+                color=["637b55","76905d","879666","718562","97a573"][(i+j*3)%5]
+                m.pole((ridge+dx*i,z,peak+dy*i),(ridge+dx*(i+1),z,peak+dy*(i+1)),
+                       .132,color,7,tip=.143)
+        for z in (front+.055,back-.055):
+            m.pole((edge,z,eave),(ridge,z,peak+.03),.114,"b0895a",6)
+            m.pole((edge*.53,z,2.26),(ridge,z,peak-.28),.071,"8c6c48",6)
+    m.pole((ridge,back-.10,peak+.084),(ridge,front+.10,peak+.084),.126,"a9a37a",8)
+    m.box(-.12,front-.015,2.59,.56,.15,.43,"9b7148",.049)
+    m.pole((-.25,front+.08,2.48),(.04,front+.08,2.72),.019,"e0ca87",6)
+    for i in range(3):
+        x=-.20+i*.094
+        y=2.52+i*.077
+        m.ellipsoid(x-.046,front+.095,y+.077,.084,.020,.044,"c6cf90",7,4)
+        m.ellipsoid(x+.068,front+.095,y-.015,.076,.020,.046,"a9bf77",7,4)
 
 
 def cloth_roof(m, wind=False):

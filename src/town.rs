@@ -25,6 +25,13 @@ const BO_ROUTE: &[Vec2] = &[
     Vec2::new(57.25, 24.00),
     Vec2::new(56.75, 25.00),
 ];
+const PIER_ROUTE: &[Vec2] = &[
+    Vec2::new(56.75, 25.00),
+    Vec2::new(58.00, 26.60),
+    Vec2::new(58.00, 30.90),
+    Vec2::new(57.70, 33.25),
+    Vec2::new(57.50, 35.78),
+];
 const SHORE_ROUTE: &[Vec2] = &[
     Vec2::new(52.75, 7.25),
     Vec2::new(50.00, 10.25),
@@ -162,11 +169,15 @@ impl Npc {
             (point, if reverse { -face } else { face })
         };
         let opening = garden.harbor.celebrating(garden.day) && !garden.clock.night();
+        let pier_open = garden.harbor.phase == harbor::Phase::Open;
         match (self, minute) {
             (Self::Bo, _) if opening => fixed(Vec2::new(57.50, 35.78)),
             (Self::Fiete, _) if opening => fixed(Vec2::new(58.69, 34.12)),
             (Self::Bo, 0..780 | 1194..) => fixed(BO_ROUTE[0]),
             (Self::Bo, 780..804) => walk(BO_ROUTE, 780, 24., false),
+            (Self::Bo, 804..820) if pier_open => walk(PIER_ROUTE, 804, 16., false),
+            (Self::Bo, 820..1154) if pier_open => fixed(*PIER_ROUTE.last().unwrap()),
+            (Self::Bo, 1154..1170) if pier_open => walk(PIER_ROUTE, 1154, 16., true),
             (Self::Bo, 804..1170) => fixed(*BO_ROUTE.last().unwrap()),
             (Self::Bo, _) => walk(BO_ROUTE, 1170, 24., true),
             (Self::Fiete, 0..600) => fixed(*SHORE_ROUTE.last().unwrap()),
@@ -188,6 +199,9 @@ impl Npc {
         match (self, garden.clock.minute()) {
             (Self::Bo, 0..780) => "Am Rathaus · bis 13:00",
             (Self::Bo, 780..804) => "Unterwegs zum Fischersteg",
+            (Self::Bo, 804..1170) if garden.harbor.phase == harbor::Phase::Open => {
+                "Auf dem Fischersteg · nachmittags an der Seeseite"
+            }
             (Self::Bo, 804..1170) => "Am Fischersteg · bis 19:30",
             (Self::Bo, 1170..1194) => "Unterwegs zum Rathaus",
             (Self::Bo, _) => "Am Rathaus",
@@ -224,6 +238,13 @@ impl Npc {
     fn harbor_greeting(self, garden: &Garden) -> Option<String> {
         if !matches!(self, Self::Bo | Self::Fiete) {
             return None;
+        }
+        if self == Self::Bo
+            && garden.onboarding == crate::onboarding::Onboarding::Done
+            && crate::waywatch::Watch::Fern.stage(garden) == crate::waywatch::Stage::Unheard
+            && !garden.harbor.started
+        {
+            return Some("Meine Familie zählte an der Farnwacht die Lichter vor jedem Sturm. Nimm Holz und Stein für deine Werkbank. Folge der Markierung in den Farnwald und schau unter das grüne Dach.".into());
         }
         let phase = garden.harbor.phase;
         let greeting = match (self, phase) {

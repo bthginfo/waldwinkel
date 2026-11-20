@@ -241,6 +241,21 @@ def story_models(Model, lantern):
                     model.ellipsoid(.36*math.cos(angle),.36*math.sin(angle),1.16+.12*j,
                                     .045,.045,.046,shade,6,3,mode="light")
                 if i == 3:
+                    # The assembled harbor light gains a copper sun and cloth pennants.
+                    model.pole((0,0,1.47),(0,0,2.58),.097,"a97a51",8,tip=.062)
+                    for k in range(12):
+                        a=k*math.tau/12
+                        b=(k+1)*math.tau/12
+                        p=(.43*math.cos(a),.018,2.48+.43*math.sin(a))
+                        q=(.43*math.cos(b),.018,2.48+.43*math.sin(b))
+                        model.pole(p,q,.051,"c49658",6)
+                        model.pole(p,(p[0]*1.27,.023,2.48+(p[2]-2.48)*1.27),
+                                   .025,"e3bb69",5,tip=.012)
+                    model.ellipsoid(0,.036,2.48,.24,.095,.24,"f4d992",12,6,mode="light")
+                    for sign in [-1,1]:
+                        model.pole((sign*.30,.11,1.82),(sign*.85,.09,1.70),.022,"b29166",5)
+                        model.face([(sign*.46,.115,1.80),(sign*.76,.097,1.73),
+                                    (sign*.66,.12,1.41)],"b77c58",mode="leaf")
                     lantern(model,.65,-.18,.26)
                     lantern(model,-.65,-.18,.26)
                     for a in (-1,1):

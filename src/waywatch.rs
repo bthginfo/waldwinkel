@@ -4,12 +4,12 @@ use serde::{Deserialize, Serialize};
 use crate::{
     adventure::Target,
     craft::{self, Need, Recipe},
-    duel::{Card, Enemy},
+    duel::{Card, Enemy, Intent},
     furniture::{self, WATCH_LAMP},
     garden::{Crop, Garden},
     homestead::Product,
     processing::Dish,
-    regions::Frontier,
+    regions::{Bell, Frontier},
     town::Npc,
 };
 
@@ -113,6 +113,20 @@ impl Watch {
 
     pub fn accessible(self, garden: &Garden) -> bool {
         self.gate().is_none_or(|gate| gate.unlocked(garden))
+    }
+
+    fn open_bells(self, garden: &mut Garden) {
+        let bell = match self {
+            Self::Fern => Bell::Forest,
+            Self::Tide => Bell::Beach,
+            Self::Kiln => Bell::Copper,
+            Self::Wind => Bell::Wind,
+            Self::Fen => Bell::Moor,
+        };
+        bell.light(garden);
+        if self == Self::Fern {
+            Bell::Farm.light(garden);
+        }
     }
 
     pub fn route(self, garden: &Garden) -> Option<Target> {
@@ -293,6 +307,7 @@ impl Watch {
             return Ok("Die Wacht antwortet. Ihr Hüter wartet auf ein Kartenduell.".into());
         }
         garden.watches.stages[self as usize] = Stage::Complete;
+        self.open_bells(garden);
         garden.farm.coins = garden.farm.coins.saturating_add(34);
         let seed = if self == Self::Tide {
             Crop::Turnip
@@ -301,7 +316,7 @@ impl Watch {
         };
         garden.add_seeds(seed, 3);
         Ok(format!(
-            "{} entzündet · +34 Münzen und Saatgut",
+            "{} entzündet · Wegglocke geöffnet · +34 Münzen und Saatgut",
             self.name()
         ))
     }
@@ -353,11 +368,46 @@ impl Trial {
         self.watch.trial_enemy().expect("guarded watch")
     }
 
+    pub fn story_intent(self, round: u16) -> Intent {
+        let phase = round.saturating_sub(1) % 4;
+        match self.watch {
+            Watch::Fern => [
+                Intent::Brace(3),
+                Intent::Attack(7),
+                Intent::Charge {
+                    guard: 5,
+                    damage: 11,
+                },
+                Intent::Attack(9),
+            ][phase as usize],
+            Watch::Kiln => [
+                Intent::Charge {
+                    guard: 8,
+                    damage: 14,
+                },
+                Intent::Flurry(6),
+                Intent::Brace(5),
+                Intent::Attack(12),
+            ][phase as usize],
+            Watch::Fen => [
+                Intent::Mend(5),
+                Intent::Charge {
+                    guard: 7,
+                    damage: 16,
+                },
+                Intent::Flurry(7),
+                Intent::Attack(13),
+            ][phase as usize],
+            _ => unreachable!("Only guarded watches offer trials"),
+        }
+    }
+
     pub fn reward(self, g: &mut Garden) -> Option<String> {
         if self.watch.trial(g) != Some(self) {
             return None;
         }
         g.watches.stages[self.watch as usize] = Stage::Complete;
+        self.watch.open_bells(g);
         g.watches.ranks[self.watch as usize] += 1;
         let xp = if self.rank == 0 { 1 } else { 2 };
         g.rpg.points = g.rpg.points.saturating_add(xp);
@@ -378,7 +428,18 @@ impl Trial {
         if let Some(card) = card {
             result.push_str(&format!(" · Karte {}", card.name()));
         }
+        if (self.watch, self.rank) == (Watch::Fern, 0) {
+            result.push_str(" · Wegglocken zum Hof · Kampfstile am Kartenbinder");
+        }
         Some(result)
+    }
+}
+
+pub(crate) fn restore_bells(garden: &mut Garden) {
+    for watch in Watch::ALL {
+        if watch.stage(garden) == Stage::Complete {
+            watch.open_bells(garden);
+        }
     }
 }
 

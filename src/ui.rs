@@ -96,6 +96,7 @@ fn px(val: f32) -> Val {
 #[derive(Clone, Copy, Resource)]
 pub struct HudLayout {
     size: Vec2,
+    origin: Vec2,
     pub scale: f32,
     context_height: f32,
     fertilizer: bool,
@@ -106,6 +107,7 @@ impl Default for HudLayout {
     fn default() -> Self {
         Self {
             size: Vec2::new(1280.0, 720.0),
+            origin: Vec2::ZERO,
             scale: 1.0,
             context_height: 65.,
             fertilizer: false,
@@ -114,12 +116,16 @@ impl Default for HudLayout {
     }
 }
 
+#[derive(Resource, Default)]
+pub struct SafeInsets(pub [f32; 4]);
+
 impl HudLayout {
     pub fn stick_center(self) -> Vec2 {
-        Vec2::new(
-            (MARGIN + STICK_SIZE * 0.5) * self.scale,
-            self.size.y - (MARGIN + STICK_SIZE * 0.5) * self.scale,
-        )
+        self.origin
+            + Vec2::new(
+                (MARGIN + STICK_SIZE * 0.5) * self.scale,
+                self.size.y - (MARGIN + STICK_SIZE * 0.5) * self.scale,
+            )
     }
 
     pub fn on_stick(self, at: Vec2) -> bool {
@@ -127,6 +133,7 @@ impl HudLayout {
     }
 
     pub fn on_action(self, at: Vec2) -> bool {
+        let at = at - self.origin;
         let right = (self.size.x - at.x) / self.scale;
         let bottom = (self.size.y - at.y) / self.scale;
         (MARGIN..=MARGIN + BUTTON_WIDTH).contains(&right)
@@ -134,6 +141,7 @@ impl HudLayout {
     }
 
     pub fn utility(self, at: Vec2) -> Option<Utility> {
+        let at = at - self.origin;
         let right = (self.size.x - at.x) / self.scale;
         let bottom = (self.size.y - at.y) / self.scale;
         let top = at.y / self.scale;
@@ -189,6 +197,7 @@ impl HudLayout {
         if self.utility(at).is_some() {
             return true;
         }
+        let at = at - self.origin;
         let top = at.y / self.scale;
         let left = at.x / self.scale;
         let right = (self.size.x - at.x) / self.scale;
@@ -205,14 +214,23 @@ pub fn resize(
     focus: Res<GardenFocus>,
     garden: Res<Garden>,
     window: Single<&Window, With<PrimaryWindow>>,
+    insets: Res<SafeInsets>,
     mut layout: ResMut<HudLayout>,
     mut scale: ResMut<UiScale>,
+    mut hud: Single<&mut Node, With<Hud>>,
 ) {
-    let size = Vec2::new(window.width(), window.height());
+    let [left, top, right, bottom] = insets.0.map(|v| v / window.scale_factor());
+    let origin = Vec2::new(left, top);
+    let size = Vec2::new(
+        window.width() - left - right,
+        window.height() - top - bottom,
+    )
+    .max(Vec2::ONE);
     let context_height = 65.;
     let fertilizer =
         focus.selected.is_some_and(|i| garden.fertilizable(i)) && !garden.clock.night();
     if size != layout.size
+        || origin != layout.origin
         || layout.context_height != context_height
         || layout.fertilizer != fertilizer
         || layout.large != garden.large_ui
@@ -224,12 +242,18 @@ pub fn resize(
             .clamp(0.42, 1.48);
         *layout = HudLayout {
             size,
+            origin,
             scale: fit,
             context_height,
             fertilizer,
             large: garden.large_ui,
         };
         scale.0 = fit;
+        hud.position_type = PositionType::Absolute;
+        hud.left = px(origin.x / fit);
+        hud.top = px(origin.y / fit);
+        hud.width = px(size.x / fit);
+        hud.height = px(size.y / fit);
     }
 }
 
@@ -261,6 +285,7 @@ pub fn map_labels(
             None
         };
         if let Some(p) = position {
+            let p = p - layout.origin;
             *visible = Visibility::Inherited;
             node.left = px(p.x / layout.scale - 53.);
             node.top = px(p.y / layout.scale - 12.);
@@ -272,6 +297,7 @@ pub fn map_labels(
     let point =
         tracked_pin(&adventure, &garden, camera, view, layout.scale).map(|(_, point)| point);
     if let Some(p) = point {
+        let p = p - layout.origin;
         **visible = Visibility::Inherited;
         node.left = px(p.x / layout.scale - 53.);
         node.top = px(p.y / layout.scale - 14.);
@@ -1019,12 +1045,16 @@ pub fn update(
     } else if garden.clock.night() && adventure.focus.is_none() && adventure.area.outdoors() {
         panel.detail = "Die Feldarbeit ruht bis morgen. Schlaf in deiner Hütte.".into();
     }
-    if panel.pad && focus.selected.is_none() && adventure.focus.is_none() && !garden.clock.night() {
-        panel.detail = if adventure.map {
-            "Rechter Stick · Kartenzeiger   A · Ziel   B · Nahansicht".into()
-        } else {
-            "← → Ziel wählen · A benutzen · ↑ Journal · Y Karte".into()
-        };
+    if focus.selected.is_none() && adventure.focus.is_none() && !garden.clock.night() {
+        let step = crate::campaign::next(&garden);
+        if panel.pad && adventure.map {
+            panel.detail = "Rechter Stick · Kartenzeiger   A · Ziel   B · Nahansicht".into();
+        } else if adventure.area.outdoors() && step != crate::campaign::Step::Done {
+            panel.title = step.title().into();
+            panel.detail = step.hint(&garden, panel.pad);
+        } else if panel.pad {
+            panel.detail = "← → Ziel wählen · A benutzen · ↑ Journal · Y Karte".into();
+        }
     }
     if (notice.index.is_none() || notice.index == focus.selected) && now < notice.until {
         panel.detail.clone_from(&notice.message);

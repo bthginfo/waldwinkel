@@ -237,6 +237,7 @@ mod android {
         direction: Vec2,
         repeat_at: f32,
         triggers: (bool, bool),
+        check_device_at: f32,
     }
 
     #[derive(bevy::ecs::system::SystemParam)]
@@ -292,7 +293,13 @@ mod android {
             keyboard.write(escape(entity, ButtonState::Released));
             last.release_escape = false;
         }
-        if unfocused || suspended {
+        let removed = if time.elapsed_secs() >= last.check_device_at {
+            last.check_device_at = time.elapsed_secs() + 0.25;
+            crate::mobile::input_removed()
+        } else {
+            false
+        };
+        if unfocused || suspended || removed {
             if let Some(position) = controller.release.take() {
                 send_touch(position, TouchPhase::Canceled);
             }

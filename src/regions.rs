@@ -244,6 +244,10 @@ impl Bell {
         garden.regions.bells[self as usize] >= 2
     }
 
+    pub(crate) fn light(self, garden: &mut Garden) {
+        garden.regions.bells[self as usize] = 2;
+    }
+
     pub fn describe(self, g: &Garden) -> (String, &'static str, bool) {
         match g.regions.bells[self as usize] {
             0 => (
@@ -274,7 +278,7 @@ impl Bell {
             return Ok(format!("Auftrag angenommen · Wegglocke {}", self.name()));
         }
         take_supplies(self.supplies(), g);
-        g.regions.bells[self as usize] = 2;
+        self.light(g);
         Ok(format!("Schnellreise freigeschaltet · {}", self.name()))
     }
 }

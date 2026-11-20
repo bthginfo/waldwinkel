@@ -45,7 +45,7 @@ done
     -o "$out/linked.apk" "$out/resources.zip"
 java -m jdk.compiler/com.sun.tools.javac.Main -source 8 -target 8 -Xlint:-options -bootclasspath "$platform" \
     -d "$out/classes" packaging/java/game/waldwinkel/GameActivity.java
-"$tools/d8" --min-api 26 --lib "$platform" --output "$out" "$out/classes/game/waldwinkel/GameActivity.class"
+"$tools/d8" --min-api 26 --lib "$platform" --output "$out" "$out/classes/game/waldwinkel/"GameActivity*.class
 
 python3 - "$out" "${architectures[@]}" <<'PY'
 import sys
@@ -70,3 +70,32 @@ fi
 "$tools/apksigner" verify --verbose "$apk"
 "$tools/zipalign" -c -P 16 4 "$apk"
 printf 'APK: %s\n' "$apk"
+
+if [[ -n "${WALDWINKEL_BUNDLETOOL:-}" ]]; then
+    bundle="$out/Waldwinkel-$version.aab"
+    "$tools/aapt2" link --proto-format --manifest packaging/AndroidManifest.xml \
+        -I "$platform" -A assets -o "$out/bundle-resources.zip" "$out/resources.zip"
+    python3 - "$out" "${architectures[@]}" <<'PY'
+import sys
+from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
+
+directory = Path(sys.argv[1])
+with ZipFile(directory / "bundle-resources.zip") as resources, \
+     ZipFile(directory / "base-module.zip", "w", compression=ZIP_DEFLATED) as module:
+    for resource in resources.namelist():
+        if resource.endswith("/"):
+            continue
+        path = f"manifest/{resource}" if resource == "AndroidManifest.xml" else resource
+        module.writestr(path, resources.read(resource))
+    module.write(directory / "classes.dex", "dex/classes.dex")
+    for abi in sys.argv[2:]:
+        module.write(directory / "native" / abi / "libwaldwinkel.so", f"lib/{abi}/libwaldwinkel.so")
+PY
+    java -jar "$WALDWINKEL_BUNDLETOOL" build-bundle --modules="$out/base-module.zip" \
+        --output="$bundle" --overwrite
+    java -m jdk.jartool/sun.security.tools.jarsigner.Main \
+        -keystore "$key" -storepass android "$bundle" waldwinkel-test
+    java -jar "$WALDWINKEL_BUNDLETOOL" validate --bundle="$bundle"
+    printf 'AAB: %s\n' "$bundle"
+fi
