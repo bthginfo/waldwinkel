@@ -1,4 +1,4 @@
-# Waldwinkel 1.10.2
+# Waldwinkel 1.11.0
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
@@ -6,8 +6,17 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 
 ## Installieren
 
-- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK 1.10.2](https://raw.githubusercontent.com/bthginfo/waldwinkel/201196b5f2c77b343c80f709ce883ac75f995bfd/Waldwinkel-1.10.2.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
+- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK 1.11.0](https://raw.githubusercontent.com/bthginfo/waldwinkel/58673690f9377d1522b067fbaf3744bab6eb75dc/Waldwinkel-1.11.0.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
+
+## Neu in 1.11.0
+
+- **Eine Aktion direkt am Ziel.** Schau mit dem Tanuki zu einem Beet, zum Bett oder zu einer Figur. Das kleine Menü neben dem Objekt zeigt, was du tun kannst. Tippe auf die Aktion oder drücke die angezeigte Xbox-Taste. Auf Touchscreens kannst du ein sichtbares Objekt auch von weiter weg antippen.
+- **Ein Beet bestellen.** Auf lockerer Erde öffnet **Saatgut** die Sortenauswahl. **Düngen** erscheint, wenn der Boden Dünger aufnehmen kann und du welchen dabeihast. Nach der Aussaat bietet ein trockenes Beet **Gießen** an. Bei Regen ist es bereits nass. Für einzelne Handgriffe merkt sich das Spiel dein ausgerüstetes Reihenwerkzeug.
+- **Angeln am Steg.** Wirf aus und beobachte die Pose. Beim Biss hörst du Wasser. Neben **Einholen!** zeigt ein goldener Balken die verbleibende Zeit. Ein zu früher Tastendruck lässt die Angel im Wasser.
+- **Übersicht.** Der Prolog erklärt die Aktionen am Beet. In der Einrichtung blendet das Spiel die Minikarte und die Sammelhinweise aus.
+
+[Kontextmenü am Beet](docs/111-beetmenue.jpg) · [Xbox-Tasten am Beet auf Android](docs/111-xbox-kontext.jpg) · [Biss am Angelsteg](docs/111-angelsteg.jpg)
 
 ## Neu in 1.10.2
 
@@ -259,7 +268,9 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 ## Tests
 
-98 Rust-Tests prüfen den Prolog bis zum Start der Geschichte, die Wegverbindungen, das Speichern, die Menünavigation und die Systeme für Hof, Handwerk und Kampf. Alle 227 GLB-Dateien sind lesbar. Ein Spieltest mit leerem Spielstand führte über die erste Aussaat, zwei Nächte, Werkbank, Ernte und Kochen bis zum Sieg im Übungsduell und zum Beginn der Hauptgeschichte. In weiteren Testspielständen ließ sich ein Möbel versetzen und drehen. Saatgutkauf, Einzelverkauf und die Reparatur des Fischerstegs mit Kupfer wurden im laufenden Spiel geprüft. Beim Update von 1.9.2 auf 1.10.0 blieben zwei Testspielstände auf Android 16 bytegenau erhalten. Beide Räder wurden mit einem virtuellen Xbox-Controller getestet. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen aus.
+Beim Spieltest von 1.11.0 ließ sich ein Beet über das Menü am Ziel anlegen, düngen, besäen und gießen. Beim Angeln wechselte die Anzeige von der Wartephase ins Bissfenster. Ein rechtzeitiges Einholen erhöhte den Fischbestand. Zwei bestehende Android-Testspielstände blieben beim Update von 1.10.2 auf 1.11.0 bytegleich.
+
+102 Rust-Tests prüfen den Prolog bis zum Start der Geschichte, die Wegverbindungen, das Speichern, die Menünavigation und die Systeme für Hof, Handwerk und Kampf. Alle 227 GLB-Dateien sind lesbar. Ein Spieltest mit leerem Spielstand führte über die erste Aussaat, zwei Nächte, Werkbank, Ernte und Kochen bis zum Sieg im Übungsduell und zum Beginn der Hauptgeschichte. In weiteren Testspielständen ließ sich ein Möbel versetzen und drehen. Saatgutkauf, Einzelverkauf und die Reparatur des Fischerstegs mit Kupfer wurden im laufenden Spiel geprüft. Beim Update von 1.9.2 auf 1.10.0 blieben zwei Testspielstände auf Android 16 bytegenau erhalten. Beide Räder wurden mit einem virtuellen Xbox-Controller getestet. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen aus.
 
 Die Blender-Landschaften entstanden nach eigenen Bildreferenzen. [Insel und Pässe](art/references/insel.jpg) · [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)
 

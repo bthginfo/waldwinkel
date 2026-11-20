@@ -102,6 +102,7 @@ pub struct HudLayout {
     size: Vec2,
     origin: Vec2,
     pub scale: f32,
+    pub(crate) bubble: Option<crate::context_menu::HitArea>,
     context_height: f32,
     fertilizer: bool,
     field_tools: bool,
@@ -114,6 +115,7 @@ impl Default for HudLayout {
             size: Vec2::new(1280.0, 720.0),
             origin: Vec2::ZERO,
             scale: 1.0,
+            bubble: None,
             context_height: 65.,
             fertilizer: false,
             field_tools: false,
@@ -141,6 +143,10 @@ impl HudLayout {
             && [center, center - half, center + half]
                 .into_iter()
                 .all(|at| !self.on_other_ui(at) && !self.on_action(at) && !self.on_stick(at))
+    }
+
+    pub(crate) fn safe_rect(self) -> Rect {
+        Rect::from_corners(self.origin, self.origin + self.size)
     }
 
     pub fn stick_center(self) -> Vec2 {
@@ -287,6 +293,7 @@ pub fn resize(
             size,
             origin,
             scale: fit,
+            bubble: None,
             context_height,
             fertilizer,
             field_tools,
@@ -1026,17 +1033,20 @@ pub fn update_fertilizer(
     zoom.bottom = px(layout.zoom_bottom());
 }
 
+#[derive(Resource, Default)]
+pub(crate) struct HudPanel(pub Option<Panel>);
+
 #[derive(PartialEq)]
 pub(crate) struct Panel {
-    action: Option<Action>,
-    beds: usize,
-    pad: bool,
-    enabled: bool,
+    pub(crate) action: Option<Action>,
+    pub(crate) beds: usize,
+    pub(crate) pad: bool,
+    pub(crate) enabled: bool,
     pressed: bool,
-    title: String,
+    pub(crate) title: String,
     place: &'static str,
     detail: String,
-    fallback: &'static str,
+    pub(crate) fallback: &'static str,
     counters: (u32, u32),
     minute: u16,
     sky: Sky,
@@ -1059,7 +1069,7 @@ pub fn update(
     mut progress: Single<&mut Node, (With<Progress>, Without<ProgressTrack>, Without<Thumb>)>,
     mut progress_track: Single<&mut Node, (With<ProgressTrack>, Without<Progress>, Without<Thumb>)>,
     mut thumb: Single<&mut Node, (With<Thumb>, Without<ProgressTrack>, Without<Progress>)>,
-    mut old_panel: Local<Option<Panel>>,
+    mut old_panel: ResMut<HudPanel>,
 ) {
     let (gesture, controller) = input;
     thumb.left = px(30.0 + gesture.stick_axis.x * 32.0);
@@ -1089,7 +1099,8 @@ pub fn update(
     if let Some(index) = focus.selected {
         let plot = garden.plots[index];
         let stage = plot.stage();
-        panel.action = focus.tool.action(&garden, index, adventure.crop);
+        let tool = focus.tool.for_bed(&garden, index, adventure.crop);
+        panel.action = tool.action(&garden, index, adventure.crop);
         panel.enabled = panel.action.is_some();
         let label = match stage {
             Stage::Grass => "Wiesenplatz",
@@ -1132,11 +1143,11 @@ pub fn update(
                 panel.detail.push_str(" · Bestäubt");
             }
         }
-        if focus.tool != crate::fieldwork::FieldTool::Auto
+        if tool != crate::fieldwork::FieldTool::Auto
             && let Some(action) = panel.action
         {
             let stroke =
-                crate::fieldwork::stroke(&garden, index, adventure.crop, action, focus.tool);
+                crate::fieldwork::stroke(&garden, index, adventure.crop, action, tool);
             panel.beds = stroke.targets().len();
             if panel.beds > 1 {
                 panel.detail = format!("{} markierte Beete · {}", panel.beds, focus.tool.name());
@@ -1148,6 +1159,8 @@ pub fn update(
             }
         }
         panel.fallback = if garden.clock.night() {
+            panel.action = None;
+            panel.enabled = false;
             panel.detail = "Zeit zum Schlafen. Im Bett beginnt der nächste Tag.".into();
             "Morgen weiter"
         } else if focus.pending.is_some_and(|(action, _)| {
@@ -1159,14 +1172,14 @@ pub fn update(
         } else if stage == Stage::Soil
             && garden.seed_count(adventure.crop) == 0
             && matches!(
-                focus.tool,
+                tool,
                 crate::fieldwork::FieldTool::Auto | crate::fieldwork::FieldTool::Seeds
             )
         {
             panel.enabled = true;
             "Saatgut wählen"
-        } else if panel.action.is_none() && focus.tool != crate::fieldwork::FieldTool::Auto {
-            "Passendes Beet wählen"
+        } else if plot.remaining().is_some_and(|(left, wet)| left > 0 && wet) {
+            "Heute gegossen"
         } else {
             "Wächst …"
         };
@@ -1184,7 +1197,9 @@ pub fn update(
             panel.detail = "A · Interagieren   X · Werkzeugrad   ↑ · Journal".into();
         }
     }
-    if notice.toast.is_none() && (notice.index.is_none() || notice.index == focus.selected) && now < notice.until {
+    if adventure.bite_remaining(now).is_none() && notice.toast.is_none()
+        && (notice.index.is_none() || notice.index == focus.selected) && now < notice.until
+    {
         panel.detail.clone_from(&notice.message);
     }
     let (action_color, action_visible) = &mut *action_surface;
@@ -1250,7 +1265,7 @@ pub fn update(
     } else {
         progress_track.display = Display::None;
     }
-    if old_panel.as_ref() == Some(&panel) {
+    if old_panel.0.as_ref() == Some(&panel) {
         return;
     }
     for (label, mut value) in &mut fields {
@@ -1304,7 +1319,7 @@ pub fn update(
         Some(Action::Harvest) => icons.carrot.clone(),
         None => icons.choose.clone(),
     };
-    *old_panel = Some(panel);
+    old_panel.0 = Some(panel);
 }
 
 #[cfg(test)]

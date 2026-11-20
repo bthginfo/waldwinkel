@@ -65,6 +65,7 @@ pub struct Pace {
     take: usize,
     acted_at: f32,
     confirmed_at: f32,
+    fish_biting: bool,
     field_cue: Option<(Action, f32)>,
     duck_until: f32,
 }
@@ -147,6 +148,11 @@ pub fn play(
     let district = District::at(point);
     let outside = area.outdoors();
 
+    let biting = adventure.bite_remaining(now).is_some();
+    if biting && !pace.fish_biting && audible && !menu.open() && !dialog.open() {
+        one_shot(&mut commands, &sounds.garden[Action::Water as usize], 0.32, pace.take);
+    }
+    pace.fish_biting = biting;
     if notice.toast == Some(crate::feedback::Tone::Success) && pace.confirmed_at != notice.until {
         pace.confirmed_at = notice.until;
         if audible && now < notice.until {

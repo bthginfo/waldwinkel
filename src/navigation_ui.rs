@@ -118,6 +118,7 @@ pub fn update(
         Res<crate::town::Dialog>,
         Res<crate::wheel::Wheel>,
         Res<crate::night::Night>,
+        Res<crate::decorate::Layout>,
     ),
     adventure: Res<Adventure>,
     garden: Res<Garden>,
@@ -130,13 +131,13 @@ pub fn update(
     mut markers: Query<(&Marker, &mut Node, Option<&mut ImageNode>)>,
     mut bearing: Single<&mut Text, With<Bearing>>,
 ) {
-    let (menu, dialog, wheel, night) = layers;
+    let (menu, dialog, wheel, night, furnishing) = layers;
     let open = session.playing()
         && ready.0
         && !menu.open()
         && !dialog.open()
         && !wheel.open()
-        && !night.active();
+        && !night.active() && !furnishing.open();
     let overview = open && adventure.map && adventure.area.outdoors();
     let tablet = open
         && !adventure.map

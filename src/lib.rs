@@ -5,6 +5,7 @@ mod campaign;
 mod cinematic;
 mod commissions;
 mod controller;
+mod context_menu;
 mod craft;
 mod day;
 mod decorate;
@@ -180,6 +181,7 @@ pub fn main() {
         .init_resource::<wheel::Pictures>()
         .init_resource::<input::Gesture>()
         .init_resource::<ui::HudLayout>()
+        .init_resource::<ui::HudPanel>()
         .init_resource::<resident_view::ResidentPins>()
         .init_resource::<ui::SafeInsets>()
         .init_resource::<world::Models>()
@@ -209,7 +211,7 @@ pub fn main() {
                 wildlife::setup,
             ),
         )
-        .add_systems(Startup, (night::setup, wheel::setup, navigation_ui::setup, decorate::setup, feedback::setup))
+        .add_systems(Startup, (context_menu::setup, night::setup, wheel::setup, navigation_ui::setup, decorate::setup, feedback::setup))
         .add_systems(
             Update,
             (
@@ -240,6 +242,7 @@ pub fn main() {
                 select_plot,
                 adventure::select,
                 world::advance_player,
+                adventure::preview_nearby,
                 act,
                 adventure::interact,
                 tutorial::update,
@@ -298,7 +301,7 @@ pub fn main() {
         .add_systems(PostUpdate, session::autosave)
         .add_systems(
             PostUpdate,
-            (ui::map_labels, resident_view::update, navigation_ui::update)
+            (ui::map_labels, resident_view::update, navigation_ui::update, context_menu::update, context_menu::compact_dock.after(context_menu::update))
                 .after(bevy::render::camera::CameraUpdateSystem)
                 .before(bevy::ui::UiSystem::Prepare),
         );
@@ -390,11 +393,12 @@ fn act(
         return;
     };
     let now = time.elapsed_secs();
+    let tool = focus.tool.for_bed(&garden, index, adventure.crop);
     if controls.act
         && !garden.clock.night()
         && focus.pending.is_none()
         && matches!(
-            focus.tool,
+            tool,
             fieldwork::FieldTool::Auto | fieldwork::FieldTool::Seeds
         )
         && garden.plots[index].stage() == garden::Stage::Soil
@@ -415,7 +419,7 @@ fn act(
         }
         (garden.fertilizable(index) && garden.fertilizer > 0).then_some(Action::Fertilize)
     } else if controls.act {
-        focus.tool.action(&garden, index, adventure.crop)
+        tool.action(&garden, index, adventure.crop)
     } else {
         None
     };
@@ -428,14 +432,10 @@ fn act(
         .map(|action| (action, adventure.crop))
         .or(focus.pending)
     else {
-        if controls.act && focus.tool != fieldwork::FieldTool::Auto {
+        if controls.act && focus.tool == fieldwork::FieldTool::Fertilizer && garden.fertilizable(index) && garden.fertilizer == 0 {
             *notice = Notice {
                 index: Some(index),
-                message: if focus.tool == fieldwork::FieldTool::Fertilizer && garden.fertilizer == 0 {
-                    "Dünger bekommst du bei Lina in Eichenhafen.".into()
-                } else {
-                    format!("{} passt gerade nicht zu diesem Beet.", focus.tool.name())
-                },
+                message: "Dünger bekommst du bei Lina in Eichenhafen.".into(),
                 until: now + Notice::DURATION,
                 ..default()
             };
@@ -460,7 +460,7 @@ fn act(
         return;
     }
     focus.pending = None;
-    let stroke = fieldwork::stroke(&garden, index, crop, action, focus.tool);
+    let stroke = fieldwork::stroke(&garden, index, crop, action, tool);
     if let Some(mut message) = garden.work(index, crop, action) {
         let position = player.position;
         player.stop();

@@ -26,6 +26,7 @@ struct Tap {
     id: Pointer,
     start: Vec2,
     action_button: bool,
+    context: Option<(crate::adventure::PadTarget, crate::context_menu::Command)>,
     utility: Option<Utility>,
 }
 
@@ -49,7 +50,8 @@ impl Gesture {
     }
 
     fn press(&mut self, pointer: Pointer, at: Vec2, layout: HudLayout) {
-        if layout.on_stick(at) {
+        let context = layout.bubble.and_then(|area| area.at(at, layout.scale));
+        if layout.on_stick(at) && context.is_none() {
             if self.stick.is_none() {
                 self.stick = Some(Stick {
                     id: pointer,
@@ -58,11 +60,12 @@ impl Gesture {
                 });
             }
         } else if self.tap.is_none()
-            && (layout.utility(at).is_some() || layout.on_action(at) || !layout.on_other_ui(at))
+            && (context.is_some() || layout.utility(at).is_some() || layout.on_action(at) || !layout.on_other_ui(at))
         {
             self.tap = Some(Tap {
                 id: pointer,
                 start: at,
+                context,
                 action_button: layout.on_action(at),
                 utility: layout.utility(at),
             });
@@ -90,7 +93,12 @@ impl Gesture {
         if self.tap.is_some_and(|tap| tap.id == pointer) {
             let tap = self.tap.take().unwrap();
             if let Some(at) = at.filter(|p| p.distance(tap.start) < 22.0 * layout.scale) {
-                if let Some(command) = tap.utility {
+                let context = layout.bubble.and_then(|area| area.at(at, layout.scale));
+                if let Some(hit) = tap.context {
+                    if Some(hit) == context { hit.1.apply(controls); }
+                } else if context.is_some() {
+                    return;
+                } else if let Some(command) = tap.utility {
                     if layout.utility(at) == Some(command) {
                         command.apply(controls);
                     }

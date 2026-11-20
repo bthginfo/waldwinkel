@@ -36,9 +36,15 @@ impl FieldTool {
         }
     }
 
+    /// A single contextual stroke can use the needed tool without changing the
+    /// tool equipped for sweeping a row. The explicit fertilizer shortcut stays separate.
+    pub fn for_bed(self, garden: &Garden, plot: usize, crop: Crop) -> Self {
+        if self.action(garden, plot, crop).is_some() { self } else { Self::Auto }
+    }
+
     pub fn action(self, garden: &Garden, plot: usize, crop: Crop) -> Option<Action> {
         if self == Self::Fertilizer {
-            return (garden.fertilizable(plot) && garden.fertilizer > 0)
+            return (!garden.clock.night() && garden.fertilizable(plot) && garden.fertilizer > 0)
                 .then_some(Action::Fertilize);
         }
         let action = garden.action(plot, crop)?;
@@ -181,6 +187,22 @@ pub fn show(
 mod tests {
     use super::*;
     use crate::garden::Plot;
+
+    #[test]
+    fn tending_one_bed_follows_its_state_and_preserves_row_tools() {
+        let mut garden = Garden::default();
+        let crop = Crop::Carrot;
+        garden.plots[0] = Plot::Tilled;
+        assert_eq!(FieldTool::Seeds.for_bed(&garden, 0, crop), FieldTool::Seeds);
+        garden.work(0, crop, Action::Sow).unwrap();
+        let tool = FieldTool::Seeds.for_bed(&garden, 0, crop);
+        assert_eq!(tool.action(&garden, 0, crop), Some(Action::Water));
+        assert_eq!(stroke(&garden,0,crop,Action::Water,tool).targets(), &[0]);
+        assert_eq!(FieldTool::Water.for_bed(&garden,0,crop), FieldTool::Water);
+        garden.fertilizer = 2;
+        garden.clock = crate::day::FarmClock::from_minutes(22. * 60.);
+        assert_eq!(FieldTool::Fertilizer.action(&garden, 0, crop), None);
+    }
 
     #[test]
     fn silver_can_waters_only_eligible_beds_in_its_own_row() {

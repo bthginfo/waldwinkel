@@ -296,7 +296,7 @@ impl Target {
         }
     }
 
-    fn height(self) -> f32 {
+    pub(crate) fn height(self) -> f32 {
         match self {
             Self::Door => 0.86,
             Self::Portal => 0.95,
@@ -613,6 +613,19 @@ fn dusk_cell(cell: u16) -> Vec2 {
 }
 
 impl Adventure {
+    pub(crate) fn bite_remaining(&self, now: f32) -> Option<f32> {
+        let (spot, bite, end) = self.waiting?;
+        (self.focus == Some(spot) && (bite..=end).contains(&now))
+            .then(|| ((end - now) / (end - bite)).clamp(0., 1.))
+    }
+
+    fn select_for_pad(&mut self, selected: PadTarget) {
+        self.queued = None;
+        if self.waiting.is_some_and(|(spot, _, _)| selected != PadTarget::Place(spot)) {
+            self.waiting = None;
+        }
+    }
+
     pub(crate) fn clear_approach(&mut self) {
         self.queued = None;
         self.waiting = None;
@@ -1214,9 +1227,10 @@ impl Adventure {
                         ("Ein Fisch beißt an!".into(), "Einholen!")
                     }
                     Some((spot, _, end)) if spot == target && now <= end => {
-                        ("Warte auf den Biss …".into(), "Einholen")
+                        ("Beobachte die Pose. Hole ein, sobald ein Fisch anbeißt.".into(), "Auf Biss warten")
                     }
-                    _ => ("Beim Biss die rechte Taste antippen.".into(), "Auswerfen"),
+                    Some((spot, _, _)) if spot == target => ("Der Fisch ist abgetaucht. Versuche es noch einmal.".into(), "Neu auswerfen"),
+                    _ => ("Wirf aus. Wenn die Pose untertaucht, hole die Leine ein.".into(), "Auswerfen"),
                 },
                 Target::Bed => (
                     "Gegossene Beete wachsen. Dein Spiel wird beim Schlafen gespeichert.".into(),
@@ -1275,7 +1289,7 @@ impl Adventure {
                     hint
                 },
                 action,
-                action != "Angekommen",
+                !matches!(action, "Angekommen" | "Auf Biss warten"),
             );
         }
         if self.area == Area::Island
@@ -1616,8 +1630,8 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum PadTarget {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PadTarget {
     Plot(usize),
     Place(Target),
 }
@@ -1702,6 +1716,46 @@ fn front_target(
         })
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, target)| target)
+}
+
+/// Preview the same target used by A once the gardener turns or approaches it.
+/// Looking never starts a route, cancels a cast or performs the action.
+pub fn preview_nearby(
+    controls: Res<Controls>,
+    time: Res<Time>,
+    garden: Res<Garden>,
+    mut adventure: ResMut<Adventure>,
+    mut focus: ResMut<GardenFocus>,
+    player: Single<(&Gardener, &Transform)>,
+    mut previous: Local<Option<(Area, Vec2, Vec2)>>,
+    mut next: Local<f32>,
+) {
+    let (player, pose) = *player;
+    let heading = (pose.rotation * Vec3::Z).xz();
+    let view = (adventure.area, player.position, heading);
+    if adventure.map || controls.cancel || controls.pick_at.is_some() || controls.cycle
+        || controls.pad_action || controls.pad_cycle != 0 || controls.act || controls.fertilize
+        || controls.task || controls.inventory || controls.choice || controls.wheel || controls.map
+        || focus.pad_lock || player.approaching() || focus.pending.is_some()
+        || adventure.queued.is_some() || adventure.waiting.is_some()
+    {
+        *previous = Some(view);
+        return;
+    }
+    if time.elapsed_secs() < *next || previous.is_some_and(|(area, point, direction)|
+        area == view.0 && point.distance_squared(view.1) < 0.008 && direction.dot(heading) > 0.998)
+    {
+        return;
+    }
+    *next = time.elapsed_secs() + 0.10;
+    *previous = Some(view);
+    let targets = nearby_targets(&adventure, &garden, player.position, 3.2);
+    let selected = front_target(&adventure, &garden, player.position, heading, focus.tool, &targets);
+    match selected {
+        Some(PadTarget::Plot(i)) => { focus.selected = Some(i); adventure.focus = None; }
+        Some(PadTarget::Place(t)) => { focus.selected = None; adventure.focus = Some(t); }
+        None => { focus.selected = None; adventure.focus = None; }
+    }
 }
 
 pub fn select(
@@ -1805,7 +1859,7 @@ pub fn select(
             }
             return;
         };
-        adventure.clear_approach();
+        adventure.select_for_pad(selected);
         focus.pending = None;
         player.stop();
         controls.move_axis = Vec2::ZERO;
@@ -1884,6 +1938,7 @@ pub fn select(
     adventure.map = false;
     adventure.map_focus = None;
     if let Some(target) = landmark {
+        focus.pad_lock = !was_map;
         adventure.focus = Some(target);
         if was_map {
             player.navigate_over_time(adventure.reach(target, &garden), &adventure, &garden);
@@ -1951,8 +2006,12 @@ pub fn select(
         .map(|(_, entry)| entry)
         .or_else(|| assisted.map(|(_, target)| PadTarget::Place(target)))
     {
-        Some(PadTarget::Plot(index)) => focus.selected = Some(index),
+        Some(PadTarget::Plot(index)) => {
+            focus.pad_lock = true;
+            focus.selected = Some(index);
+        }
         Some(PadTarget::Place(target)) => {
+            focus.pad_lock = true;
             adventure.focus = Some(target);
             if matches!(target, Target::Travel(_)) {
                 player.navigate_over_time(adventure.reach(target, &garden), &adventure, &garden);
@@ -2432,9 +2491,10 @@ pub fn interact(
                     }
                 }
             }
-            Some((spot, bite, _)) if spot == target && now < bite => {
+            Some(cast @ (spot, bite, _)) if spot == target && now < bite => {
+                adventure.waiting = Some(cast);
                 persistent = false;
-                "Zu früh. Wirf erneut aus.".into()
+                "Die Pose liegt noch ruhig.".into()
             }
             _ => {
                 let bite = now + 2.3 + (garden.fish % 3) as f32 * 0.5;
@@ -3132,6 +3192,16 @@ pub fn animate_animals(time: Res<Time>, mut animals: Query<(&Critter, &mut Trans
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reeling_on_the_same_pad_target_keeps_the_original_bite_window() {
+        let mut trip = Adventure::default();
+        trip.waiting = Some((Target::Pier, 3., 5.));
+        trip.select_for_pad(PadTarget::Place(Target::Pier));
+        assert_eq!(trip.waiting, Some((Target::Pier, 3., 5.)));
+        trip.select_for_pad(PadTarget::Place(Target::Door));
+        assert!(trip.waiting.is_none());
+    }
 
     #[test]
     fn the_bed_can_be_used_from_its_front_and_side() {
