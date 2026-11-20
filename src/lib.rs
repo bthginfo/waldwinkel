@@ -1,11 +1,15 @@
 mod adventure;
+mod battle_ui;
+mod controller;
 mod day;
+mod duel;
 mod farm_ui;
 mod furniture;
 mod garden;
 mod homestead;
 mod input;
 mod processing;
+mod progression;
 mod regions;
 mod session;
 mod terrain;
@@ -93,6 +97,7 @@ pub fn main() {
     .init_resource::<Adventure>()
     .init_resource::<Ready>()
     .init_resource::<Controls>()
+    .init_resource::<controller::Controller>()
     .init_resource::<GardenFocus>()
     .init_resource::<Notice>()
     .init_resource::<input::Gesture>()
@@ -100,6 +105,7 @@ pub fn main() {
     .init_resource::<world::Models>()
     .init_resource::<ui::Icons>()
     .init_resource::<ui::UiFonts>()
+    .init_resource::<battle_ui::DeckIcons>()
     .add_systems(
         Startup,
         (
@@ -109,6 +115,7 @@ pub fn main() {
             session::setup,
             town::setup,
             farm_ui::setup,
+            battle_ui::setup,
         ),
     )
     .add_systems(
@@ -118,6 +125,7 @@ pub fn main() {
             session::input,
             town::input,
             farm_ui::input,
+            battle_ui::input,
             input::collect,
             session::open_menu,
         )
@@ -158,11 +166,15 @@ pub fn main() {
             session::update,
             town::update,
             farm_ui::update,
+            battle_ui::update,
             ui::sync_visibility,
         )
             .after(adventure::interact),
     )
     .add_systems(PostUpdate, session::autosave);
+    #[cfg(target_os = "android")]
+    app.add_systems(Startup, controller::setup)
+        .add_systems(PreUpdate, controller::poll.before(bevy::input::InputSystem));
     #[cfg(not(target_os = "android"))]
     app.add_systems(Update, capture);
     app.run();

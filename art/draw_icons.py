@@ -135,3 +135,38 @@ ellipse(draw,(31,29,65,63),"#edcd83")
 line(draw,[(48,38),(48,54)],"#a87848",4)
 line(draw,[(41,46),(55,46)],"#a87848",4)
 save(image,"coin")
+
+# Painted emblems for the five kinds of combat cards.
+for kind, halo in [
+    ("strike", "#e7b692"), ("guard", "#bdc99a"), ("heal", "#dbb1b1"),
+    ("focus", "#b6c3cb"), ("spore", "#c5b8ce"),
+]:
+    image, draw = canvas()
+    ellipse(draw, (14, 11, 82, 79), halo)
+    if kind == "strike":
+        line(draw, [(28, 67), (62, 29)], "#8b6349", 10)
+        line(draw, [(43, 49), (39, 29)], "#8b6349", 7)
+        polygon(draw, [(51, 27), (66, 19), (75, 25), (65, 37), (62, 30)], "#f3dcb0")
+        line(draw, [(25, 65), (33, 72)], "#f3dcb0", 4)
+    elif kind == "guard":
+        polygon(draw, [(48, 20), (68, 28), (66, 51), (57, 65), (48, 71),
+                       (37, 64), (28, 52), (27, 28)], "#536f55")
+        polygon(draw, [(48, 28), (61, 34), (60, 48), (54, 60), (48, 65),
+                       (40, 57), (35, 48), (34, 34)], "#98a975")
+        line(draw, [(48, 32), (48, 61)], "#d5d5a1", 3)
+    elif kind == "heal":
+        polygon(draw, [(48, 68), (25, 46), (26, 30), (39, 25), (48, 32),
+                       (57, 25), (70, 30), (72, 45)], "#ad6f76")
+        line(draw, [(48, 39), (48, 54)], "#f5d8b1", 4)
+        line(draw, [(40, 46), (56, 46)], "#f5d8b1", 4)
+    elif kind == "focus":
+        line(draw, [(24, 45), (46, 26), (71, 45), (46, 63), (24, 45)], "#526b75", 5)
+        ellipse(draw, (37, 34, 56, 55), "#526b75")
+        ellipse(draw, (44, 38, 51, 44), "#eef2ca")
+    else:
+        box(draw, (42, 43, 56, 65), "#e9d3b7", 4)
+        polygon(draw, [(23, 47), (32, 33), (46, 28), (61, 32), (72, 48),
+                       (48, 52)], "#8a729c")
+        for x, y in [(33, 41), (49, 35), (63, 43)]:
+            ellipse(draw, (x - 2, y - 2, x + 3, y + 3), "#e6d0a8")
+    save(image, f"card_{kind}")

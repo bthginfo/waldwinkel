@@ -2258,6 +2258,186 @@ def setup_preview(scene, scale=62.0, center=(.28,.03,1.24)):
     scene.render.resolution_y=900
 
 
+
+def dungeon_assets():
+    styles=[]
+    rng=random.Random(7324)
+    for variant in range(3):
+        floor=Model("Dämmergänge · Platten und Moos",f"dusk_floor_{variant}")
+        floor.box(0,0,-.29,2.40,2.40,.57,["695b72","78657c","6f606f"][variant],.087)
+        for x in range(4):
+            for z in range(4):
+                xx,zz=(x-1.5)*.581,(z-1.5)*.581
+                face=["93828c","9d8490","aa8d95","88778b"][(x+z*2+variant)%4]
+                floor.box(xx,zz,.006,.553,.555,.033,face,.067,rng.uniform(-.044,.044))
+                if (x*4+z+variant)%4==0:
+                    floor.ellipsoid(xx-.19,zz+.18,.030,.12,.075,.026,"829067",7,3,rough=.16)
+        styles.append(floor)
+
+    wall=Model("Dämmergänge · brüchiger Stein mit Quarz","dusk_wall")
+    for i in range(5):
+        x=(i-2)*.467
+        height=.49+(i%3)*.12
+        wall.ellipsoid(x,0,height*.54,.36,.43,height,
+                       ["746680","806e83","84798a","94808a"][i%4],9,4,rough=.18)
+        wall.ellipsoid(x+.13,.23,.19,.25,.23,.32,"8e7985",7,4,rough=.19)
+        if i%2==0:
+            wall.ellipsoid(x-.09,.03,height*.77,.23,.29,.10,"82966c",8,4,rough=.15)
+    for x,z,h in [(-.37,.31,.47),(-.12,.34,.60),(.35,.36,.44)]:
+        wall.pole((x,z,.09),(x+.026,z,h),.087,"6a9e96",6,tip=.043)
+        wall.pole((x+.026,z,h),(x+.044,z,h+.099),.043,"a3c9b2",5,tip=.007,mode="light")
+    styles.append(wall)
+
+    sconce = Model("Dämmergänge · Mauervorsprung und Laternenlicht", "dusk_lantern_wall")
+    for i in range(6):
+        x = (i-2.5)*.37
+        h = .68 + .27 * (i in (1,4))
+        sconce.ellipsoid(x,0,h*.27,.30,.48,.71,
+                         ["665a72","70627b","817185"][i%3],8,4,rough=.17)
+        sconce.ellipsoid(x,-.064,h*.61,.28,.39,.39,
+                         ["887989","8f7b8d","9c8793"][i%3],8,4,rough=.14)
+    sconce.box(0,0,.63,.58,.71,.13,"9d8890",.055)
+    lantern(sconce,0,0,.68)
+    for x,z,s in [(-.69,.27,.90),(-.71,-.29,.74),(.56,.29,.94),(.72,-.29,.68)]:
+        sconce.ellipsoid(x,z,.104,.21*s,.14*s,.084,"788a66",8,3,rough=.12)
+        for ox,oz,scale in [(-.07,.03,.70),(.014,-.04,.94),(.107,.044,.80)]:
+            sconce.pole((x+ox,z+oz,.11),(x+ox+.021,z+oz,.11+.143*scale),.024,"d4bc94",6)
+            sconce.ellipsoid(x+ox+.021,z+oz,.11+.16*scale,.092*scale,.077*scale,.046,
+                             "d3a987" if x<0 else "bea4aa",8,3)
+    styles.append(sconce)
+
+    court = Model("Dämmergänge · Steinrosette", "dusk_rosette")
+    for i in range(18):
+        a = i * TAU / 18
+        x,z = math.cos(a)*.88, math.sin(a)*.88
+        court.box(x,z,.029,.244,.244,.036,["ad9390","877181","ad987d"][i%3],.047,a)
+        if i%3 == 0:
+            court.ellipsoid(x*.79,z*.79,.045,.052,.05,.021,"8da37a",7,3)
+    court.pole((0,0,.026),(0,0,.041),.56,"82778a",12,tip=.54)
+    for i in range(6):
+        a = i * TAU / 6
+        court.ellipsoid(math.cos(a)*.29,math.sin(a)*.29,.045,.252,.086,.014,
+                        "cfaf85",7,3,angle=a)
+    styles.append(court)
+
+    arch=Model("Dämmergänge · alter Rundbogen","dusk_arch")
+    for i in range(13):
+        a=i*TAU/24
+        xx,yy=math.cos(a)*.925,.67+math.sin(a)*1.07
+        arch.box(xx,0,yy,.32,.37,.28,["9a8590","9d8e93","a38d90"][i%3],
+                 .055,angle=0.)
+        if i%3==0:
+            arch.ellipsoid(xx+.071,.10,yy+.105,.19,.19,.081,"839271",7,3)
+    for x in [-.91,.91]:
+        arch.box(x,0,.33,.39,.47,.66,"8f7885",.052)
+        arch.box(x,0,.11,.51,.56,.18,"9c858a",.043)
+        lantern(arch,x-.08,.21,.69)
+    styles.append(arch)
+
+    for opened in [False,True]:
+        seal=Model("Freigegebener Abstieg" if opened else "Versiegelter Abstieg",
+                   "dusk_open" if opened else "dusk_seal")
+        for i in range(5):
+            z=-.48-i*.172
+            seal.box(0,z,.02-i*.061,1.18,.204,.12,"9b8790" if i%2 else "ae9294",.032)
+        for side in [-1,1]:
+            seal.box(side*.65,-.34,.22,.18,.84,.49,"8d7a82",.049)
+        y=.38 if opened else .44
+        seal.box(0,-.345,y,1.17,.126,.16,"886745" if opened else "826471",.023)
+        seal.ellipsoid(0,-.239,y+.073,.13,.062,.14,"9dc09a" if opened else "b78075",9,4)
+        styles.append(seal)
+
+    camp=Model("Glockenrast · Bank und ruhiges Licht","dusk_camp")
+    camp.pole((0,0,-.04),(0,0,.088),1.04,"a99388",13,tip=.99)
+    camp.pole((0,0,.092),(0,0,.101),.77,"b5a48e",13)
+    camp.pole((0,0,.101),(0,0,.105),.60,"89977a",12)
+    for i in range(7):
+        a=i*TAU/7
+        camp.ellipsoid(.34*math.cos(a),.34*math.sin(a),.113,.14,.09,.015,"d3bb87",6,3,angle=a)
+    for x in [-.47,.47]:
+        camp.box(x,-.56,.223,.14,.41,.39,"967153",.027)
+        camp.box(x,-.725,.55,.091,.083,.52,"a27b5a",.027)
+    camp.box(0,-.553,.404,1.14,.37,.13,"c39b70",.029)
+    camp.box(0,-.723,.667,1.17,.11,.25,"b69169",.035)
+    camp.box(.33,-.582,.494,.44,.32,.053,"d7ba87",.023)
+    lantern(camp,.72,.18,.219)
+    lantern(camp,-.72,.18,.219)
+    styles.append(camp)
+
+    binder=Model("Kartenbinder · Pult und Ledermappe","card_binder")
+    binder.box(0,0,.085,.66,.49,.17,"926752",.044)
+    binder.pole((0,0,.112),(0,0,.78),.104,"ab7e57",8,tip=.087)
+    binder.box(0,0,.796,.75,.55,.113,"c49970",.033)
+    binder.box(0,.045,.881,.629,.391,.070,"6b8272",.029)
+    for x in [-.147,.147]:
+        binder.box(x,.047,.922,.265,.34,.052,"ead5a6",.018)
+        binder.box(x,.073,.953,.119,.166,.022,"d1ab77",.012,.08 if x<0 else -.08)
+    binder.pole((0,-.123,.936),(0,.230,.936),.027,"887460",7)
+    styles.append(binder)
+
+    for index, asset in enumerate(("gear_staff", "gear_sickle", "gear_silver", "gear_crystal")):
+        blade = Model(asset.replace("gear_", ""), asset)
+        blade.pole((0,0,-.21),(0,0,.47),.046,"815e4b",8,tip=.021)
+        for z in [-.04,.005,.050,.095]:
+            blade.pole((0,0,z),(0,0,z+.028),.048,"ad8b67",7,tip=.047)
+        if index == 0:
+            blade.pole((0,0,.25),(.154,0,.41),.04,"9c7753",6,tip=.017)
+            blade.pole((.026,0,.40),(.071,0,.61),.038,"ad865d",7,tip=.012)
+            blade.ellipsoid(.043,.009,.455,.055,.027,.073,"90a373",6,3,angle=.28)
+        elif index == 1:
+            for bend in range(6):
+                a = bend * .37
+                b = (bend + 1) * .37
+                blade.pole((.12*(1-math.cos(a)),0,.35+.18*math.sin(a)),
+                           (.12*(1-math.cos(b)),0,.35+.18*math.sin(b)),
+                           .056-bend*.006,"b68662" if bend%2 else "d5a77c",5,
+                           tip=.05-bend*.007)
+        else:
+            metal = "b6c5c5" if index == 2 else "9fb5cf"
+            blade.box(0,0,.20,.22,.082,.067,metal,.037)
+            blade.pole((0,0,.22),(0,0,.54),.086,metal,4,tip=.065)
+            blade.pole((0,0,.54),(0,0,.70),.066,"e2ddd6" if index == 2 else "badbd0",4,tip=.007)
+            blade.ellipsoid(0,.034,.27,.066,.024,.057,"9d7669" if index == 2 else "7aabac",7,3)
+        styles.append(blade)
+
+    for kind,asset,fur,face,eye in [
+        ("moss","duel_mosskin","80976b","d5c4a0","4e5148"),
+        ("clay","duel_kiln","9c796b","d6a889","594b50"),
+        ("owl","duel_owl","8b849e","c7bcd1","574b59"),
+        ("keeper","duel_keeper","84718d","d1a985","564453"),
+    ]:
+        m=Model(asset.replace("duel_",""),asset)
+        big=1.33 if kind=="keeper" else 1.
+        m.ellipsoid(0,-.10,.456*big,.42*big,.39*big,.42*big,fur,12,5,rough=.08)
+        m.ellipsoid(0,.258,.56*big,.30*big,.24*big,.261*big,face,12,5)
+        for side in [-1,1]:
+            m.ellipsoid(side*.22*big,.20,.106,.14*big,.16,.102,fur,8,4)
+            m.ellipsoid(side*.112*big,.454,.621*big,.052,.038,.061,eye,8,4,mode="raw")
+            m.ellipsoid(side*.112*big-.012,.479,.642*big,.013,.012,.017,"fff0cc",7,3,mode="raw")
+            if kind=="owl":
+                m.ellipsoid(side*.356,-.02,.52,.22,.173,.352,fur,9,4,angle=side*.34)
+                m.pole((side*.155,.081,.791),(side*.254,.098,.983),.098,fur,6,tip=.009)
+            elif kind=="clay":
+                m.box(side*.41,.007,.411,.198,.237,.247,"b0866e",.046)
+                m.box(side*.28,.128,.746,.147,.147,.211,"ae8276",.039)
+            elif kind=="keeper":
+                m.pole((side*.301,-.16,.95),(side*.387,-.12,1.55),.091,"a58c9a",6,tip=.018)
+            else:
+                for j in range(3):
+                    a=.45+j*.56
+                    m.ellipsoid(side*.35*math.sin(a),-.13-.25*math.cos(a),.58+j*.086,
+                                .16,.19,.068,"9baa75",7,4,angle=side*.33)
+        if kind=="moss":
+            m.pole((0,-.25,.72),(0,-.33,1.07),.035,"819160",6,tip=.014)
+            m.ellipsoid(0,-.302,1.088,.145,.084,.044,"a9b47d",8,4,angle=.43)
+        elif kind=="keeper":
+            m.pole((0,-.06,1.09),(0,-.06,1.312),.235,"c39771",9,tip=.132)
+            m.pole((0,-.06,1.08),(0,-.06,1.134),.258,"dab485",9)
+        else:
+            m.ellipsoid(0,.485,.515*big,.066,.048,.048,"bc8d6e",7,4)
+        styles.append(m)
+    return styles
+
 def generate():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     OUT.mkdir(parents=True,exist_ok=True)
@@ -2274,7 +2454,7 @@ def generate():
     landscape.bake_heightmap(ROOT)
     resources=resource_models()
     extra=[*garden(),*character(),*effects(),*furniture_models(),*resources,*new_game_models(),*farm_assets(),
-           *deep_mine_assets(resources),*find_assets(),*npc_models(),*workshop_assets(),*regional_assets()]
+           *deep_mine_assets(resources),*find_assets(),*npc_models(),*workshop_assets(),*regional_assets(),*dungeon_assets()]
     exterior=[*world,*districts,*terrain]
     exterior_assets={model.asset for model in exterior}
     offsets={asset:Vector(point(*location,0)) for asset,location in landscape.ORIGINS.items()}

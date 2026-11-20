@@ -15,6 +15,7 @@ use bevy::{
 use crate::{
     Controls, GardenFocus, Notice, Ready,
     adventure::{Adventure, Area},
+    duel::Gear,
     garden::{Action, Crop, Garden, Stage},
     terrain,
     town::Npc,
@@ -65,6 +66,7 @@ pub enum Tool {
     Axe,
     Pickaxe,
     WateringCan,
+    Weapon(Gear),
 }
 
 #[derive(Component)]
@@ -120,7 +122,7 @@ pub struct Models {
     arm: Handle<Scene>,
     leg: Handle<Scene>,
     boot: Handle<Scene>,
-    tools: [(Tool, Handle<Scene>); 4],
+    tools: [(Tool, Handle<Scene>); 8],
     fertilized_soil: Handle<Scene>,
     water_drop: Handle<Scene>,
     clouds: [Handle<Scene>; 3],
@@ -161,6 +163,10 @@ impl FromWorld for Models {
                 (Tool::Axe, get("axe")),
                 (Tool::Pickaxe, get("pickaxe")),
                 (Tool::WateringCan, get("watering_can")),
+                (Tool::Weapon(Gear::TrailStick), get("gear_staff")),
+                (Tool::Weapon(Gear::CopperSickle), get("gear_sickle")),
+                (Tool::Weapon(Gear::SilverGuard), get("gear_silver")),
+                (Tool::Weapon(Gear::CrystalBlade), get("gear_crystal")),
             ],
             fertilized_soil: get("fertilized_soil"),
             water_drop: get("water_drop"),
@@ -253,13 +259,7 @@ pub fn setup(mut commands: Commands, models: Res<Models>, assets: Res<AssetServe
     commands
         .spawn((
             Name::new("Gärtnerfigur"),
-            Gardener {
-                position: SPAWN,
-                velocity: Vec2::ZERO,
-                route: VecDeque::new(),
-                phase: 0.0,
-                gait: 0.0,
-            },
+            Gardener::new(SPAWN),
             Transform::from_translation(position3(SPAWN, 0.0))
                 .with_rotation(Quat::from_rotation_y(-0.22)),
             Visibility::Inherited,
@@ -413,8 +413,10 @@ pub fn update_camera(
         (Area::Island | Area::District(_), true) => (252., Vec3::new(0., 0.75, 49.)),
         (Area::Island | Area::District(_), false) => (12.3, position3(player.position, 0.89)),
         (Area::Home, _) => (8.55, position3(adventure.area.origin(), 0.95)),
-        (Area::Mine(_), true) => (21., position3(adventure.area.origin(), 0.38)),
-        (Area::Mine(_), false) => (9.4, position3(player.position, 0.40)),
+        (Area::Mine(_) | Area::Expedition(_), true) => {
+            (23., position3(adventure.area.origin(), 0.38))
+        }
+        (Area::Mine(_) | Area::Expedition(_), false) => (9.4, position3(player.position, 0.40)),
     };
     let height = if adventure.map {
         base
@@ -674,7 +676,9 @@ pub fn animate_gardener(
     let swing = adventure.swing(now);
     let work_time = Notice::DURATION + now - notice.until;
     let pouring = notice.action == Some(Action::Water) && (0.0..0.86).contains(&work_time);
-    let held = if let Some((tool, _)) = swing {
+    let held = if matches!(adventure.area, Area::Expedition(_)) {
+        Tool::Weapon(garden.rpg.gear)
+    } else if let Some((tool, _)) = swing {
         tool
     } else if pouring
         || focus
@@ -905,6 +909,16 @@ impl Reach {
 }
 
 impl Gardener {
+    pub fn new(position: Vec2) -> Self {
+        Self {
+            position,
+            velocity: Vec2::ZERO,
+            route: VecDeque::new(),
+            phase: 0.,
+            gait: 0.,
+        }
+    }
+
     pub fn teleport(&mut self, p: Vec2) {
         self.position = p;
         self.stop();

@@ -3944,9 +3944,10 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "waldwinkel"
-version = "0.9.0"
+version = "1.0.0"
 dependencies = [
  "bevy",
+ "ndk-sys 0.6.0+11769913",
  "serde",
  "serde_json",
 ]

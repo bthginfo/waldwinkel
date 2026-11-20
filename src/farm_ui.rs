@@ -3,11 +3,13 @@ use bevy::prelude::*;
 use crate::{
     Adventure, Controls, GardenFocus, Notice,
     adventure::{Area, commit},
+    duel::{Battle, CAMP_INTERVAL, Card, DECK_SIZE, Gear, Talent},
     furniture::{self, Blueprint, CATALOG},
     garden::{Crop, FERTILIZER_PRICE, Garden, SavePath},
     homestead::{Product, Village},
     input::Gesture,
     processing::{Dish, Method, Preparation},
+    progression::{self, CARDS_FOR_SALE, GearSource},
     regions::Bell,
     session::{Checkpoint, Session},
     ui::{self, UiFonts},
@@ -27,6 +29,12 @@ pub enum FarmPage {
     Kitchen,
     Travel(Bell),
     Inventory,
+    Binder,
+    Talents,
+    CardShop,
+    Gear(GearSource),
+    Expedition,
+    Battle,
 }
 
 #[derive(Resource, Default)]
@@ -37,6 +45,8 @@ pub struct FarmMenu {
     preparation: Option<Preparation>,
     visible_time: f32,
     message: String,
+    battle: Option<Battle>,
+    deck_draft: Vec<Card>,
 }
 
 impl FarmMenu {
@@ -53,6 +63,34 @@ impl FarmMenu {
 
     pub fn close(&mut self) {
         *self = Self::default();
+    }
+
+    pub fn show_battle(&mut self, battle: Battle) {
+        self.show(FarmPage::Battle);
+        self.battle = Some(battle);
+    }
+
+    pub fn battle(&self) -> Option<&Battle> {
+        self.battle.as_ref()
+    }
+
+    pub fn battle_mut(&mut self) -> Option<&mut Battle> {
+        self.battle.as_mut()
+    }
+
+    pub fn load_deck(&mut self, garden: &Garden) {
+        self.deck_draft = garden.rpg.deck().to_vec();
+    }
+
+    fn navigate(&mut self, page: FarmPage) {
+        self.page = Some(page);
+        self.list_page = 0;
+        self.selected = None;
+        self.message.clear();
+    }
+
+    fn copies(&self, card: Card) -> usize {
+        self.deck_draft.iter().filter(|&&copy| copy == card).count()
     }
 
     fn entries(&self, page: FarmPage, garden: &Garden) -> Vec<Entry> {
@@ -87,6 +125,19 @@ impl FarmMenu {
                         .collect()
                 },
             ),
+            FarmPage::Binder => Card::ALL
+                .into_iter()
+                .filter(|&card| garden.rpg.knows(card))
+                .map(Entry::CombatCard)
+                .collect(),
+            FarmPage::Talents => Talent::ALL.into_iter().map(Entry::Talent).collect(),
+            FarmPage::CardShop => CARDS_FOR_SALE.into_iter().map(Entry::CombatCard).collect(),
+            FarmPage::Gear(_) => Gear::ALL.into_iter().map(Entry::Gear).collect(),
+            FarmPage::Expedition => std::iter::once(1)
+                .chain((1..=garden.rpg.camp() / CAMP_INTERVAL).map(|index| index * CAMP_INTERVAL))
+                .map(Entry::Level)
+                .collect(),
+            FarmPage::Battle => Vec::new(),
         }
     }
 
@@ -103,6 +154,10 @@ enum Entry {
     Dish(Dish),
     Step(&'static str),
     Destination(Bell),
+    CombatCard(Card),
+    Talent(Talent),
+    Gear(Gear),
+    Level(u32),
 }
 
 impl Entry {
@@ -114,6 +169,11 @@ impl Entry {
             Self::Dish(dish) => dish.name().into(),
             Self::Step(text) => text.into(),
             Self::Destination(bell) => bell.name().into(),
+            Self::CombatCard(card) => card.name().into(),
+            Self::Talent(talent) => talent.name().into(),
+            Self::Gear(gear) => gear.name().into(),
+            Self::Level(1) => "Ebene 1".into(),
+            Self::Level(level) => format!("Glockenrast {level}"),
         }
     }
 
@@ -153,6 +213,29 @@ impl Entry {
             Self::Dish(dish) => format!("{} · {}", dish.method().title(), dish.supplies(garden)),
             Self::Step(_) => String::new(),
             Self::Destination(_) => "Wegglocke repariert".into(),
+            Self::CombatCard(card) if page == FarmPage::CardShop => {
+                let cost = if garden.rpg.knows(card) {
+                    "In deiner Sammlung".into()
+                } else {
+                    format!(
+                        "{} Münzen",
+                        progression::card_price(card).unwrap_or_default()
+                    )
+                };
+                format!("{cost} · {}", card.description())
+            }
+            Self::CombatCard(card) => format!("Kraft {} · {}", card.cost(), card.description()),
+            Self::Talent(talent) => format!(
+                "Rang {} · {}",
+                garden.rpg.ranks[talent as usize],
+                talent.text()
+            ),
+            Self::Gear(gear) => match page {
+                FarmPage::Gear(source) => source.detail(garden, gear),
+                _ => String::new(),
+            },
+            Self::Level(1) => "Am Eingang beginnen".into(),
+            Self::Level(_) => "Hier beginnen und Leben auffüllen".into(),
         }
     }
 
@@ -178,6 +261,12 @@ pub enum Choice {
     SellAll,
     Fertilizer,
     Work,
+    AddCopy,
+    RemoveCopy,
+    SaveDeck,
+    Talents,
+    Gear,
+    Return,
 }
 
 #[derive(Component)]
@@ -323,6 +412,12 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                             (Choice::Next, "→", 53.),
                             (Choice::Fertilizer, "2 Dünger kaufen · 4 Münzen", 229.),
                             (Choice::Work, "Herstellen", 164.),
+                            (Choice::AddCopy, "+ Karte", 84.),
+                            (Choice::RemoveCopy, "− Karte", 84.),
+                            (Choice::SaveDeck, "Deck speichern", 122.),
+                            (Choice::Talents, "Talente", 84.),
+                            (Choice::Gear, "Ausrüstung", 106.),
+                            (Choice::Return, "Zurück", 84.),
                         ] {
                             footer
                                 .spawn((action, ui::dialog_button(width)))
@@ -352,7 +447,10 @@ pub fn input(
     mut notice: ResMut<Notice>,
     time: Res<Time>,
 ) {
-    let Some(page) = menu.page.filter(|_| session.playing()) else {
+    let Some(page) = menu
+        .page
+        .filter(|&page| session.playing() && page != FarmPage::Battle)
+    else {
         return;
     };
     let Some(choice) = choices
@@ -413,6 +511,16 @@ pub fn input(
                     menu.close();
                     Some(Ok(format!("Angekommen · {}", bell.name())))
                 }
+                Some(Entry::Level(level)) => {
+                    let (player, transform) = &mut *player;
+                    adventure.enter_duel(level, level != 1, &mut garden, player, transform);
+                    garden.checkpoint = Some(Checkpoint::new(adventure.area, player.position));
+                    *focus = GardenFocus::default();
+                    *gesture = Gesture::default();
+                    *controls = Controls::default();
+                    menu.close();
+                    Some(Ok(format!("Dämmergänge · Ebene {level}")))
+                }
                 Some(Entry::Step(_)) => {
                     let visible_time = menu.visible_time;
                     let game = menu
@@ -449,6 +557,78 @@ pub fn input(
             menu.selected = None;
             menu.message.clear();
             None
+        }
+        Choice::Talents if page == FarmPage::Binder => {
+            menu.navigate(FarmPage::Talents);
+            None
+        }
+        Choice::Gear if page == FarmPage::Workbench || page == FarmPage::CardShop => {
+            let source = if page == FarmPage::Workbench {
+                GearSource::Workbench
+            } else {
+                GearSource::Smith
+            };
+            menu.navigate(FarmPage::Gear(source));
+            None
+        }
+        Choice::Return => {
+            match page {
+                FarmPage::Talents => menu.navigate(FarmPage::Binder),
+                FarmPage::Gear(GearSource::Workbench) => menu.navigate(FarmPage::Workbench),
+                FarmPage::Gear(GearSource::Smith) => menu.navigate(FarmPage::CardShop),
+                _ => {}
+            }
+            None
+        }
+        Choice::AddCopy | Choice::RemoveCopy if page == FarmPage::Binder => {
+            let Some(Entry::CombatCard(card)) = menu.selected else {
+                return;
+            };
+            if choice == Choice::AddCopy
+                && menu.deck_draft.len() < DECK_SIZE
+                && menu.copies(card) < 2
+            {
+                menu.deck_draft.push(card);
+            } else if choice == Choice::RemoveCopy
+                && let Some(index) = menu.deck_draft.iter().rposition(|&copy| copy == card)
+            {
+                menu.deck_draft.remove(index);
+            }
+            menu.message.clear();
+            None
+        }
+        Choice::SaveDeck if page == FarmPage::Binder && adventure.area == Area::Home => Some(
+            garden
+                .rpg
+                .save_deck(&menu.deck_draft)
+                .map(|()| "Dein Kampfdeck ist gespeichert.".into())
+                .map_err(str::to_owned),
+        ),
+        Choice::Work if page == FarmPage::CardShop => {
+            let Some(Entry::CombatCard(card)) = menu.selected else {
+                return;
+            };
+            Some(progression::buy_card(&mut garden, card))
+        }
+        Choice::Work if page == FarmPage::Talents => {
+            let Some(Entry::Talent(talent)) = menu.selected else {
+                return;
+            };
+            Some(if garden.rpg.train(talent) {
+                Ok(format!(
+                    "{} · Rang {}",
+                    talent.name(),
+                    garden.rpg.ranks[talent as usize]
+                ))
+            } else {
+                Err("Für diesen Rang fehlen Punkte, oder das Talent ist bereits ausgebaut.".into())
+            })
+        }
+        Choice::Work if matches!(page, FarmPage::Gear(_)) => {
+            let (FarmPage::Gear(source), Some(Entry::Gear(gear))) = (page, menu.selected) else {
+                return;
+            };
+            Some(source.equip(&mut garden, gear))
         }
         Choice::Work if matches!(page, FarmPage::Workbench | FarmPage::BlueprintShop) => {
             let Some(Entry::Design(index)) = menu.selected else {
@@ -508,7 +688,10 @@ pub fn update(
     mut choices: Query<(&Choice, &Interaction, &mut Node, &mut BackgroundColor), Without<Pane>>,
     mut meter: Query<(&HeatMeter, &mut Node), (Without<Pane>, Without<Choice>)>,
 ) {
-    let Some(page) = menu.page.filter(|_| session.playing()) else {
+    let Some(page) = menu
+        .page
+        .filter(|&page| session.playing() && page != FarmPage::Battle)
+    else {
         veil.display = Display::None;
         return;
     };
@@ -550,6 +733,12 @@ pub fn update(
                 FarmPage::Kitchen => "Hofküche",
                 FarmPage::Travel(_) => "Wegglocken",
                 FarmPage::Inventory => "Deine Tasche",
+                FarmPage::Binder => "Kartenbinder",
+                FarmPage::Talents => "Kampftalente",
+                FarmPage::CardShop => "Runas Karten",
+                FarmPage::Gear(_) => "Ausrüstung",
+                FarmPage::Expedition => "Dämmergänge",
+                FarmPage::Battle => "",
             }
             .into(),
             Field::Instruction if progress.is_some() => progress.unwrap().instructions(),
@@ -584,6 +773,36 @@ pub fn update(
                     "Holz {} · Stein {} · Kupfer {} · Dünger {} · Futter {}",
                     garden.wood, garden.stone, garden.copper, garden.fertilizer, garden.farm.feed
                 ),
+                FarmPage::Binder => format!(
+                    "{}/{} Karten im Deck · {} in der Sammlung · Seite {}/{}",
+                    menu.deck_draft.len(),
+                    DECK_SIZE,
+                    entries.len(),
+                    menu.list_page + 1,
+                    pages + 1
+                ),
+                FarmPage::Talents => format!(
+                    "{} Talentpunkte · {} / {} Leben · Siege geben Talentpunkte",
+                    garden.rpg.points,
+                    garden.rpg.hp,
+                    garden.rpg.max_hp()
+                ),
+                FarmPage::CardShop => format!(
+                    "Du hast {balance} Münzen. Gekaufte Karten findest du im Binder daheim."
+                ),
+                FarmPage::Gear(GearSource::Workbench) => {
+                    format!("{balance} Münzen · Fertige eigene Ausrüstung.")
+                }
+                FarmPage::Gear(GearSource::Smith) => {
+                    format!("{balance} Münzen · Kaufe Ausrüstung bei Runa.")
+                }
+                FarmPage::Expedition => format!(
+                    "{} / 25 Hüter besiegt · {} / {} Leben",
+                    garden.rpg.cleared,
+                    garden.rpg.hp,
+                    garden.rpg.max_hp()
+                ),
+                FarmPage::Battle => String::new(),
             },
             Field::Message if progress.is_some() => {
                 let game = progress.unwrap();
@@ -610,6 +829,17 @@ pub fn update(
                     CATALOG[i].name,
                     Entry::Design(i).detail(page, &garden)
                 ),
+                Entry::CombatCard(card) if page == FarmPage::Binder => {
+                    format!(
+                        "{} · {} von 2 möglichen Kopien im Deck",
+                        card.name(),
+                        menu.copies(card)
+                    )
+                }
+                Entry::Talent(talent) => match garden.rpg.train_cost(talent) {
+                    Some(cost) => format!("Nächster Rang · {cost} Talentpunkte"),
+                    None => "Höchster Rang erreicht".into(),
+                },
                 _ => String::new(),
             },
             Field::Message if page == FarmPage::Sale && entries.is_empty() => {
@@ -621,15 +851,32 @@ pub fn update(
             Field::Message if page == FarmPage::Seeds => {
                 format!("Gewählt · {}", adventure.crop.name())
             }
+            Field::Message if page == FarmPage::Binder => {
+                "Wähle eine Karte. Schließen verwirft ungespeicherte Änderungen.".into()
+            }
             Field::Message => String::new(),
             Field::CardName(i) => entry_at(i).map_or_else(String::new, Entry::title),
-            Field::CardDetail(i) => {
-                entry_at(i).map_or_else(String::new, |entry| entry.detail(page, &garden))
-            }
-            Field::Work => if page == FarmPage::BlueprintShop {
-                "Bauplan kaufen"
-            } else {
-                "Herstellen"
+            Field::CardDetail(i) => entry_at(i).map_or_else(String::new, |entry| {
+                let extra = entry.detail(page, &garden);
+                match entry {
+                    Entry::CombatCard(card) if page == FarmPage::Binder => {
+                        format!("{} im Deck · {extra}", menu.copies(card))
+                    }
+                    _ => extra,
+                }
+            }),
+            Field::Work => match (page, selected) {
+                (FarmPage::BlueprintShop, _) => "Bauplan kaufen",
+                (FarmPage::CardShop, _) => "Karte kaufen",
+                (FarmPage::Talents, _) => "Rang steigern",
+                (FarmPage::Gear(_), Some(Entry::Gear(gear)))
+                    if garden.rpg.gear_owned[gear as usize] =>
+                {
+                    "Ausrüsten"
+                }
+                (FarmPage::Gear(GearSource::Smith), _) => "Kaufen & anlegen",
+                (FarmPage::Gear(GearSource::Workbench), _) => "Bauen & anlegen",
+                _ => "Herstellen",
             }
             .into(),
         };
@@ -649,6 +896,22 @@ pub fn update(
             Choice::Back => (pages > 0, menu.list_page > 0),
             Choice::Next => (pages > 0, menu.list_page < pages),
             Choice::SellOne | Choice::SellAll => (page == FarmPage::Sale, selected.is_some()),
+            Choice::Talents => (page == FarmPage::Binder, true),
+            Choice::Gear => (
+                matches!(page, FarmPage::Workbench | FarmPage::CardShop),
+                true,
+            ),
+            Choice::Return => (matches!(page, FarmPage::Talents | FarmPage::Gear(_)), true),
+            Choice::AddCopy => (
+                page == FarmPage::Binder,
+                matches!(selected, Some(Entry::CombatCard(card)) if menu.copies(card) < 2)
+                    && menu.deck_draft.len() < DECK_SIZE,
+            ),
+            Choice::RemoveCopy => (
+                page == FarmPage::Binder,
+                matches!(selected, Some(Entry::CombatCard(card)) if menu.copies(card) > 0),
+            ),
+            Choice::SaveDeck => (page == FarmPage::Binder, menu.deck_draft.len() == DECK_SIZE),
             Choice::Work => {
                 let available = match (page, selected) {
                     (FarmPage::Workbench, Some(Entry::Design(i))) => {
@@ -657,10 +920,28 @@ pub fn update(
                     (FarmPage::BlueprintShop, Some(Entry::Design(i))) => {
                         !garden.blueprints[i] && CATALOG[i].can_buy(&garden)
                     }
+                    (FarmPage::CardShop, Some(Entry::CombatCard(card))) => {
+                        !garden.rpg.knows(card)
+                            && progression::card_price(card).is_some_and(|price| balance >= price)
+                    }
+                    (FarmPage::Talents, Some(Entry::Talent(talent))) => garden
+                        .rpg
+                        .train_cost(talent)
+                        .is_some_and(|cost| garden.rpg.points >= cost),
+                    (FarmPage::Gear(source), Some(Entry::Gear(gear))) => {
+                        source.ready(&garden, gear)
+                    }
                     _ => false,
                 };
                 (
-                    matches!(page, FarmPage::Workbench | FarmPage::BlueprintShop),
+                    matches!(
+                        page,
+                        FarmPage::Workbench
+                            | FarmPage::BlueprintShop
+                            | FarmPage::CardShop
+                            | FarmPage::Talents
+                            | FarmPage::Gear(_)
+                    ),
                     available,
                 )
             }

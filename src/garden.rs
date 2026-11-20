@@ -1,5 +1,6 @@
 use crate::{
     day::FarmClock,
+    duel,
     furniture::{self, CATALOG},
     homestead::{Homestead, Product},
     regions::RegionProgress,
@@ -18,7 +19,7 @@ use std::{
 pub const PLOT_COUNT: usize = 12;
 pub const FERTILIZER_PRICE: u32 = 4;
 const FERTILIZER_PACK: u32 = 2;
-const SAVE_VERSION: u8 = 8;
+const SAVE_VERSION: u8 = 9;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Quality {
@@ -196,6 +197,7 @@ pub struct Garden {
     pub checkpoint: Option<Checkpoint>,
     pub town: Journal,
     pub regions: RegionProgress,
+    pub rpg: duel::Progress,
 }
 
 impl Default for Garden {
@@ -231,6 +233,7 @@ impl Default for Garden {
             checkpoint: None,
             town: Journal::default(),
             regions: RegionProgress::default(),
+            rpg: duel::Progress::default(),
         }
     }
 }
@@ -270,6 +273,7 @@ impl Garden {
             }
             Product::Prepared(dish) => &mut self.prepared[dish as usize],
             Product::Regional(material) => &mut self.regions.goods[material as usize],
+            Product::Spoils(loot) => &mut self.rpg.trophies[loot as usize],
             Product::Fish => &mut self.fish,
             Product::Mushroom => &mut self.town.goods[0],
             Product::Hazel => &mut self.town.goods[1],
@@ -287,6 +291,7 @@ impl Garden {
             Product::Crop(crop, quality) => self.fine_yields[crop as usize][quality as usize - 1],
             Product::Prepared(dish) => self.prepared[dish as usize],
             Product::Regional(material) => self.regions.goods[material as usize],
+            Product::Spoils(loot) => self.rpg.trophies[loot as usize],
             Product::Fish => self.fish,
             Product::Mushroom => self.town.goods[0],
             Product::Hazel => self.town.goods[1],
@@ -480,6 +485,7 @@ impl Garden {
 
     pub fn sleep(&mut self) {
         self.clock = FarmClock::default();
+        self.rpg.rest();
         let rain = Sky::at(self.day) == Sky::Rain;
         self.farm.end_day(self.day);
         self.day = self.day.saturating_add(1);
@@ -580,6 +586,10 @@ impl Garden {
         if garden.version <= 4 {
             garden.checkpoint = garden.checkpoint.map(Checkpoint::move_to_mainland);
         }
+        if garden.version < 9 {
+            crate::progression::restore_quest_cards(&mut garden);
+        }
+        garden.rpg.normalize();
         garden.version = SAVE_VERSION;
         Ok(garden)
     }

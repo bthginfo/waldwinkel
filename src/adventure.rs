@@ -1,5 +1,6 @@
 use crate::{
     Controls, GardenFocus, Notice,
+    duel::{Battle, CAMP_INTERVAL, Enemy, LAST_LEVEL},
     farm_ui::{FarmMenu, FarmPage},
     furniture::CATALOG,
     garden::{Crop, Garden, SavePath},
@@ -15,12 +16,16 @@ use serde::{Deserialize, Serialize};
 
 pub const HOME: Vec2 = Vec2::new(220., 0.);
 const MINE: Vec2 = Vec2::new(400., 0.);
+pub const DUSK: Vec2 = Vec2::new(560., 0.);
 pub const DOOR: Vec2 = Vec2::new(-2.08, 1.32);
 pub const PORTAL: Vec2 = Vec2::new(9., -8.90);
 pub const PIER: Vec2 = Vec2::new(5.8, 17.25);
 pub const SALE_CHEST: Vec2 = Vec2::new(0.66, 3.58);
 const KITCHEN: Vec2 = Vec2::new(9.12, 1.15);
 const PATTERN_STALL: Vec2 = Vec2::new(18.36, 5.49);
+const DUSK_GATE: Vec2 = Vec2::new(-111., -35.);
+const DUSK_ARRIVAL: Vec2 = Vec2::new(-111., -33.54);
+const BINDER: Vec2 = Vec2::new(221.02, -2.23);
 const MARKER: &str = "selection";
 const TILE: f32 = 2.4;
 const GRID: i16 = 9;
@@ -71,6 +76,7 @@ pub enum Area {
     Home,
     Mine(u32),
     District(District),
+    Expedition(u32),
 }
 
 impl Area {
@@ -80,6 +86,7 @@ impl Area {
             Self::Home => HOME,
             Self::Mine(_) => MINE,
             Self::District(district) => district.origin(),
+            Self::Expedition(_) => DUSK,
         }
     }
 
@@ -89,6 +96,7 @@ impl Area {
             Self::Home => "Holzhütte",
             Self::Mine(_) => "Mine",
             Self::District(district) => district.name(),
+            Self::Expedition(_) => "Dämmergänge",
         }
     }
 
@@ -121,6 +129,12 @@ pub enum Target {
     Travel(District),
     Find(usize),
     Person(Npc),
+    Binder,
+    DuskGate,
+    DuskExit,
+    DuskDown,
+    DuskFoe,
+    DuskCamp,
 }
 
 impl Target {
@@ -128,6 +142,9 @@ impl Target {
         match self {
             Self::PatternStall if !garden.clock.market_open() => {
                 Some("Der Bauplanstand öffnet morgens um 06:00.")
+            }
+            Self::DuskGate if !dusk_open(garden) => {
+                Some("Eddas Auftrag „Das alte Glockengewölbe“ öffnet den Zugang.")
             }
             Self::Village(Village::Animal(kind)) if garden.farm.animals[kind as usize].owned => {
                 Some("Dein Tier wartet in seinem Stall auf deinem Hof.")
@@ -179,6 +196,11 @@ impl Target {
             Self::Travel(district) => district.name(),
             Self::Find(i) => FINDS[i].name(),
             Self::Person(person) => person.name(),
+            Self::Binder => "Kartenbinder",
+            Self::DuskGate | Self::DuskExit => "Dämmergänge",
+            Self::DuskDown => "Abstieg",
+            Self::DuskFoe => "Begegnung",
+            Self::DuskCamp => "Glockenrast",
         }
     }
 
@@ -206,6 +228,12 @@ impl Target {
             Self::Travel(_) => "Angekommen",
             Self::Find(_) => "Sammeln",
             Self::Person(_) => "Ansprechen",
+            Self::Binder => "Öffnen",
+            Self::DuskGate => "Aufbrechen",
+            Self::DuskExit => "Ins Nebelmoor",
+            Self::DuskDown => "Tiefer steigen",
+            Self::DuskFoe => "Kämpfen",
+            Self::DuskCamp => "Ausruhen",
         }
     }
 
@@ -223,12 +251,15 @@ impl Target {
             Self::Travel(_) => 0.2,
             Self::Find(i) => FINDS[i].height(),
             Self::Person(_) => 1.02,
+            Self::Binder | Self::DuskFoe => 0.86,
+            Self::DuskGate | Self::DuskExit => 1.05,
+            Self::DuskDown | Self::DuskCamp => 0.42,
             _ => 0.23,
         }
     }
 }
 
-pub const LANDMARKS: [(&str, Target); 10] = [
+pub const LANDMARKS: [(&str, Target); 11] = [
     ("Hafenmarkt", Target::Village(Village::Board)),
     ("Tierweide", Target::Village(Village::Feed)),
     ("Minenstollen", Target::Portal),
@@ -239,6 +270,7 @@ pub const LANDMARKS: [(&str, Target); 10] = [
     ("Kupferklamm", Target::Travel(District::Copper)),
     ("Windweiden", Target::Travel(District::Wind)),
     ("Nebelmoor", Target::Travel(District::Moor)),
+    ("Dämmergänge", Target::DuskGate),
 ];
 
 pub fn landmark_center(
@@ -274,6 +306,7 @@ pub struct MineFloor {
     cells: Vec<u16>,
     ores: Vec<u16>,
     down: u16,
+    encounter: u16,
 }
 
 fn neighbors(cell: u16) -> impl Iterator<Item = u16> {
@@ -344,6 +377,14 @@ impl MineFloor {
             .iter()
             .max_by_key(|&&c| distances[c as usize])
             .unwrap();
+        let encounter = *cells
+            .iter()
+            .filter(|&&cell| cell != down)
+            .max_by_key(|&&cell| {
+                let opposite_side = cell_position(cell).distance_squared(cell_position(down));
+                u32::from(distances[cell as usize]) * 20 + opposite_side as u32
+            })
+            .unwrap();
         let mut candidates: Vec<_> = cells
             .iter()
             .copied()
@@ -355,11 +396,16 @@ impl MineFloor {
                 candidates.swap_remove(index)
             })
             .collect();
-        Self { cells, ores, down }
+        Self {
+            cells,
+            ores,
+            down,
+            encounter,
+        }
     }
 
-    fn contains(&self, point: Vec2) -> bool {
-        let cell = (point - MINE) / TILE + Vec2::splat(4.);
+    fn contains(&self, point: Vec2, origin: Vec2) -> bool {
+        let cell = (point - origin) / TILE + Vec2::splat(4.);
         let center = cell.round();
         if center.min_element() < 0. || center.max_element() >= f32::from(GRID) {
             return false;
@@ -367,6 +413,28 @@ impl MineFloor {
         self.cells
             .contains(&((center.y as u16) * GRID as u16 + center.x as u16))
     }
+
+    fn walls(&self, cell: u16) -> impl Iterator<Item = (Vec2, f32)> + '_ {
+        let (x, z) = (cell as i16 % GRID, cell as i16 / GRID);
+        let turn = std::f32::consts::FRAC_PI_2;
+        [(0, -1, 0.), (1, 0, turn), (0, 1, 0.), (-1, 0, turn)]
+            .into_iter()
+            .filter_map(move |(dx, dz, angle)| {
+                let (nx, nz) = (x + dx, z + dz);
+                let open = (0..GRID).contains(&nx)
+                    && (0..GRID).contains(&nz)
+                    && self.cells.contains(&((nz * GRID + nx) as u16));
+                (!open).then_some((Vec2::new(dx as f32, dz as f32) * TILE * 0.49, angle))
+            })
+    }
+}
+
+pub fn dusk_open(garden: &Garden) -> bool {
+    Frontier::Moor.unlocked(garden) && garden.regions.story_steps(Frontier::Moor) >= 2
+}
+
+fn dusk_cell(cell: u16) -> Vec2 {
+    cell_position(cell) + (DUSK - MINE)
 }
 
 impl Adventure {
@@ -434,6 +502,7 @@ impl Adventure {
                     && p.y < 2.93
                     && !inside(self.position(Target::Bed), BED_HALF_SIZE)
                     && !inside(self.position(Target::Bench), BENCH_HALF_SIZE)
+                    && !inside(BINDER, Vec2::new(0.52, 0.35))
                     && !inside(HOME + Vec2::new(-3.04, -2.34), Vec2::splat(0.34))
                     && !inside(HOME + Vec2::new(3.02, 2.37), Vec2::splat(0.34))
                     && !garden.furniture.iter().enumerate().any(|(i, &kind)| {
@@ -443,11 +512,21 @@ impl Adventure {
                     })
             }
             Area::Mine(depth) => {
-                self.layout.contains(point)
+                self.layout.contains(point, MINE)
                     && !self.layout.ores.iter().any(|&cell| {
                         within(self.position(Target::MineRock(cell)), ORE_RADIUS)
                             && !garden.mined.contains(&(depth, cell))
                     })
+            }
+            Area::Expedition(level) => {
+                [Vec2::X, Vec2::NEG_X, Vec2::Y, Vec2::NEG_Y]
+                    .into_iter()
+                    .all(|offset| self.layout.contains(point + offset * 0.26, DUSK))
+                    && if garden.rpg.cleared < level {
+                        !within(self.position(Target::DuskFoe), 0.62)
+                    } else {
+                        level % CAMP_INTERVAL != 0 || !within(self.position(Target::DuskCamp), 0.63)
+                    }
             }
         }
     }
@@ -467,6 +546,7 @@ impl Adventure {
             Target::Bell(_) => 0.66,
             Target::Bed => 1.10,
             Target::Bench => 0.91,
+            Target::Binder | Target::DuskFoe | Target::DuskCamp => 0.70,
             Target::Slot(i) => {
                 let kind = garden.furniture[i]
                     .checked_sub(1)
@@ -491,7 +571,7 @@ impl Adventure {
         let limit = match target.tool() {
             Tool::Axe => 1.08,
             Tool::Pickaxe => 1.20,
-            Tool::Hoe | Tool::WateringCan => 1.49,
+            Tool::Hoe | Tool::WateringCan | Tool::Weapon(_) => 1.49,
         };
         Reach::target(self.position(target), clearance, limit)
     }
@@ -525,6 +605,11 @@ impl Adventure {
             Target::Travel(district) => district.waypoint(),
             Target::Find(i) => FINDS[i].position(),
             Target::Person(person) => person.position(),
+            Target::Binder => BINDER,
+            Target::DuskGate => DUSK_GATE,
+            Target::DuskExit => DUSK + Vec2::new(-0.14, -0.77),
+            Target::DuskDown => dusk_cell(self.layout.down),
+            Target::DuskFoe | Target::DuskCamp => dusk_cell(self.layout.encounter),
         }
     }
 
@@ -540,6 +625,7 @@ impl Adventure {
             ]
             .into_iter()
             .chain(Animal::ALL.into_iter().map(Target::FarmAnimal))
+            .chain(Frontier::Moor.unlocked(garden).then_some(Target::DuskGate))
             .chain(Frontier::ALL.into_iter().map(Target::Gate))
             .chain(Bell::ALL.into_iter().map(Target::Bell))
             .chain(
@@ -578,7 +664,7 @@ impl Adventure {
                     .map(Target::Rock),
             )
             .collect(),
-            Area::Home => [Target::Bed, Target::Exit, Target::Bench]
+            Area::Home => [Target::Bed, Target::Exit, Target::Bench, Target::Binder]
                 .into_iter()
                 .chain((0..SLOTS.len()).map(Target::Slot))
                 .collect(),
@@ -592,6 +678,16 @@ impl Adventure {
                         .copied()
                         .map(Target::MineRock),
                 )
+                .collect(),
+            Area::Expedition(level) => [Target::DuskExit, Target::DuskDown]
+                .into_iter()
+                .chain(if garden.rpg.cleared < level {
+                    Some(Target::DuskFoe)
+                } else if level % CAMP_INTERVAL == 0 {
+                    Some(Target::DuskCamp)
+                } else {
+                    None
+                })
                 .collect(),
         }
     }
@@ -622,6 +718,19 @@ impl Adventure {
             let regional_action = match target {
                 Target::Gate(gate) => Some(gate.describe(garden)),
                 Target::Bell(bell) => Some(bell.describe(garden)),
+                Target::DuskDown => match self.area {
+                    Area::Expedition(level) if garden.rpg.cleared < level => Some((
+                        "Besiege zuerst den Hüter dieser Ebene.".into(),
+                        "Versiegelt",
+                        false,
+                    )),
+                    Area::Expedition(LAST_LEVEL) => Some((
+                        "Du hast alle 25 Ebenen gemeistert. Ruhe dich an der Glocke aus.".into(),
+                        "Erkundet",
+                        false,
+                    )),
+                    _ => None,
+                },
                 _ => None,
             };
             if let Some((hint, action, enabled)) = regional_action {
@@ -736,6 +845,27 @@ impl Adventure {
                 }
                 Target::Person(person) => (person.role().into(), target.label()),
                 Target::Find(i) => (FINDS[i].reward(), target.label()),
+                Target::Binder => ("Sammlung, Kampfdeck und Talente.".into(), "Binder öffnen"),
+                Target::DuskGate => ("Wähle, wo deine Erkundung beginnt.".into(), target.label()),
+                Target::DuskFoe => match self.area {
+                    Area::Expedition(level) => (
+                        format!("Rundenkampf · {}", Enemy::at(level).name()),
+                        target.label(),
+                    ),
+                    _ => (String::new(), target.label()),
+                },
+                Target::DuskCamp => (
+                    format!(
+                        "{} / {} Leben · Erreichbar vom Moorbogen",
+                        garden.rpg.hp,
+                        garden.rpg.max_hp()
+                    ),
+                    target.label(),
+                ),
+                Target::DuskExit => (
+                    "Kehre zum Steinbogen im Nebelmoor zurück.".into(),
+                    target.label(),
+                ),
                 _ => (String::new(), target.label()),
             };
             return (
@@ -770,13 +900,23 @@ impl Adventure {
             ),
             Area::Home => (
                 "Deine Hütte".into(),
-                "Tippe auf Bett, Werkbank oder Möbelplatz.".into(),
+                "Tippe auf Bett, Werkbank, Kartenbinder oder Möbelplatz.".into(),
                 "Ort wählen",
                 true,
             ),
             Area::Mine(depth) => (
                 format!("Mine · Tiefe {depth}"),
                 "Tippe auf Erz oder eine Leiter.".into(),
+                "Ort wählen",
+                true,
+            ),
+            Area::Expedition(level) => (
+                format!("Dämmergänge · Ebene {level}"),
+                if garden.rpg.cleared < level {
+                    "Suche den Hüter. Die Karte zeigt die Gänge.".into()
+                } else {
+                    "Der Abstieg ist frei. Erkunden oder zum Steinbogen zurückkehren.".into()
+                },
                 "Ort wählen",
                 true,
             ),
@@ -797,11 +937,47 @@ impl Adventure {
         self.waiting = None;
         self.map = false;
         self.journal = false;
-        if let Area::Mine(depth) = area {
-            self.layout = MineFloor::generate(depth);
+        match area {
+            Area::Mine(depth) => self.layout = MineFloor::generate(depth),
+            Area::Expedition(level) => self.layout = MineFloor::generate(900 + level),
+            _ => {}
         }
         player.teleport(from);
         transform.translation = Vec3::new(from.x, 0., from.y);
+    }
+
+    pub fn enter_duel(
+        &mut self,
+        level: u32,
+        at_camp: bool,
+        garden: &mut Garden,
+        player: &mut Gardener,
+        transform: &mut Transform,
+    ) {
+        let area = Area::Expedition(level);
+        self.enter(area, player, transform, DUSK + Vec2::new(0.42, 0.38));
+        if at_camp {
+            garden.rpg.rest();
+            let position = self.position(Target::DuskCamp) + Vec2::Y * 0.79;
+            player.teleport(position);
+            transform.translation = Vec3::new(position.x, 0., position.y);
+        }
+    }
+
+    pub fn escape_duel(
+        &mut self,
+        garden: &mut Garden,
+        player: &mut Gardener,
+        transform: &mut Transform,
+    ) -> (Area, Vec2) {
+        let camp = garden.rpg.camp();
+        if camp == 0 {
+            garden.rpg.rest();
+            self.enter(Area::Island, player, transform, DUSK_ARRIVAL);
+        } else {
+            self.enter_duel(camp, true, garden, player, transform);
+        }
+        (self.area, player.position)
     }
 
     pub fn restore(
@@ -812,7 +988,13 @@ impl Adventure {
         garden: &Garden,
     ) {
         *self = Self::default();
-        if let Some(checkpoint) = checkpoint.filter(|point| point.area != Area::Mine(0)) {
+        if let Some(checkpoint) = checkpoint.filter(|point| match point.area {
+            Area::Mine(0) => false,
+            Area::Expedition(level) => {
+                dusk_open(garden) && (1..=LAST_LEVEL.min(garden.rpg.cleared + 1)).contains(&level)
+            }
+            _ => true,
+        }) {
             let position = Vec2::from_array(checkpoint.position);
             if position.is_finite() {
                 self.enter(checkpoint.area, player, transform, position);
@@ -840,6 +1022,7 @@ impl Adventure {
                 let landing = match self.area {
                     Area::Home => HOME + Vec2::new(0., 2.23),
                     Area::Mine(_) => MINE + Vec2::new(0.42, 0.38),
+                    Area::Expedition(_) => DUSK + Vec2::new(0.42, 0.38),
                     Area::District(district) => district.waypoint(),
                     Area::Island => world::SPAWN,
                 };
@@ -928,6 +1111,11 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
         ),
         Target::Bed => hit(BED_HALF_SIZE, 0., 1.03),
         Target::Bench => hit(BENCH_HALF_SIZE, 0., 1.1),
+        Target::Binder => hit(Vec2::new(0.52, 0.35), 0., 1.03),
+        Target::DuskExit | Target::DuskGate => hit(Vec2::new(1.42, 0.52), 0., 2.15),
+        Target::DuskFoe => hit(Vec2::splat(0.60), 0., 1.43),
+        Target::DuskCamp => hit(Vec2::splat(0.85), 0., 0.85),
+        Target::DuskDown => hit(Vec2::new(0.81, 0.92), 0., 0.61),
         Target::Slot(i) => {
             let kind = garden.furniture[i].checked_sub(1)? as usize;
             let design = CATALOG.get(kind)?;
@@ -1168,6 +1356,8 @@ pub fn interact(
         }
         Target::SaleChest
         | Target::Village(Village::Seeds)
+        | Target::Binder
+        | Target::DuskGate
         | Target::Bench
         | Target::PatternStall
         | Target::Kitchen => {
@@ -1176,9 +1366,46 @@ pub fn interact(
                 Target::Bench => FarmPage::Workbench,
                 Target::PatternStall => FarmPage::BlueprintShop,
                 Target::Kitchen => FarmPage::Kitchen,
+                Target::Binder => FarmPage::Binder,
+                Target::DuskGate => FarmPage::Expedition,
                 _ => FarmPage::SeedShop,
             });
+            if target == Target::Binder {
+                farm_menu.load_deck(&garden);
+            }
             return;
+        }
+        Target::DuskExit => {
+            adventure.enter(Area::Island, player, transform, DUSK_ARRIVAL);
+            "Zurück im Nebelmoor.".into()
+        }
+        Target::DuskDown => {
+            let Area::Expedition(level) = adventure.area else {
+                return;
+            };
+            if garden.rpg.cleared < level || level >= LAST_LEVEL {
+                return;
+            }
+            adventure.enter_duel(level + 1, false, &mut garden, player, transform);
+            format!("Dämmergänge · Ebene {}", level + 1)
+        }
+        Target::DuskFoe => {
+            let Area::Expedition(level) = adventure.area else {
+                return;
+            };
+            if garden.rpg.cleared >= level {
+                return;
+            }
+            let direction = adventure.position(target) - player.position;
+            transform.rotation = Quat::from_rotation_y(direction.x.atan2(direction.y));
+            adventure.map = false;
+            garden.checkpoint = Some(Checkpoint::new(adventure.area, player.position));
+            farm_menu.show_battle(Battle::new(level, &garden.rpg));
+            return;
+        }
+        Target::DuskCamp => {
+            garden.rpg.rest();
+            "Ausgeruht. Diese Glockenrast erreichst du vom Moorbogen.".into()
         }
         Target::FarmAnimal(kind) => {
             let action = if garden.farm.housing[kind as usize] {
@@ -1381,6 +1608,7 @@ enum Stamp {
     },
     Home([u8; 6]),
     Mine(u32, Vec<u16>),
+    Dusk(u32, bool),
 }
 
 #[derive(Default)]
@@ -1412,6 +1640,7 @@ pub fn draw(
             finds: std::array::from_fn(|i| FINDS[i].available(&garden, i)),
         },
         Area::Home => Stamp::Home(garden.furniture),
+        Area::Expedition(level) => Stamp::Dusk(level, garden.rpg.cleared >= level),
         Area::Mine(depth) => Stamp::Mine(
             depth,
             garden
@@ -1570,6 +1799,7 @@ pub fn draw(
                 spawn("interior", HOME, 0., 0.);
                 spawn("bedroom_bed", adventure.position(Target::Bed), 0., 0.);
                 spawn("furniture_bench", adventure.position(Target::Bench), 0., 0.);
+                spawn("card_binder", BINDER, 0., 0.);
                 for (i, kind) in furniture.iter().enumerate() {
                     spawn("selection", HOME + SLOTS[i], 0.055, 0.);
                     if let Some(name) = kind.checked_sub(1).and_then(|v| CATALOG.get(v as usize)) {
@@ -1592,26 +1822,17 @@ pub fn draw(
                         0.,
                         f32::from(cell % 4) * std::f32::consts::FRAC_PI_2,
                     );
-                    let (x, z) = (cell as i16 % GRID, cell as i16 / GRID);
-                    for (dx, dz, angle) in
-                        [(0, -1, 0.), (1, 0, 1.5708), (0, 1, 0.), (-1, 0, 1.5708)]
-                    {
-                        let (nx, nz) = (x + dx, z + dz);
-                        if !(0..GRID).contains(&nx)
-                            || !(0..GRID).contains(&nz)
-                            || !adventure.layout.cells.contains(&((nz * GRID + nx) as u16))
-                        {
-                            spawn(
-                                if *depth >= 3 {
-                                    "mine_deep_wall"
-                                } else {
-                                    "mine_wall"
-                                },
-                                p + Vec2::new(dx as f32, dz as f32) * TILE * 0.49,
-                                -0.05,
-                                angle,
-                            );
-                        }
+                    for (offset, angle) in adventure.layout.walls(cell) {
+                        spawn(
+                            if *depth >= 3 {
+                                "mine_deep_wall"
+                            } else {
+                                "mine_wall"
+                            },
+                            p + offset,
+                            -0.05,
+                            angle,
+                        );
                     }
                 }
                 for &cell in &adventure.layout.cells {
@@ -1651,6 +1872,51 @@ pub fn draw(
                 } else {
                     Color::srgb_u8(57, 42, 62)
                 }
+            }
+            Stamp::Dusk(level, won) => {
+                let twist = std::f32::consts::FRAC_PI_2;
+                for &cell in &adventure.layout.cells {
+                    let p = dusk_cell(cell);
+                    let surface = ["dusk_floor_0", "dusk_floor_1", "dusk_floor_2"];
+                    spawn(
+                        surface[(u32::from(cell) + level) as usize % surface.len()],
+                        p,
+                        0.,
+                        f32::from(cell % 4) * twist,
+                    );
+                    for (edge, (offset, angle)) in adventure.layout.walls(cell).enumerate() {
+                        let lantern = (usize::from(cell) * 3 + edge + *level as usize) % 6 == 0;
+                        spawn(
+                            if lantern {
+                                "dusk_lantern_wall"
+                            } else {
+                                "dusk_wall"
+                            },
+                            p + offset,
+                            -0.02,
+                            angle,
+                        );
+                    }
+                }
+                spawn("dusk_arch", adventure.position(Target::DuskExit), 0., 0.);
+                spawn(
+                    if *won { "dusk_open" } else { "dusk_seal" },
+                    adventure.position(Target::DuskDown),
+                    0.,
+                    0.,
+                );
+                if !*won {
+                    spawn("dusk_rosette", adventure.position(Target::DuskFoe), 0., 0.);
+                    spawn(
+                        Enemy::at(*level).model(),
+                        adventure.position(Target::DuskFoe),
+                        0.,
+                        -0.26,
+                    );
+                } else if level % CAMP_INTERVAL == 0 {
+                    spawn("dusk_camp", adventure.position(Target::DuskCamp), 0., 0.);
+                }
+                Color::srgb_u8(47, 47, 65)
             }
         };
         drawing.root = Some(root);
@@ -1804,6 +2070,73 @@ mod tests {
             assert_eq!(seen.len(), mine.cells.len());
             assert!(seen.contains(&mine.down) && mine.down != START);
             assert_eq!(mine.ores.len(), 7);
+        }
+    }
+
+    #[test]
+    fn gate_binder_and_all_dusk_floors_have_a_playable_route() {
+        let mut garden = Garden::default();
+        let mut adventure = Adventure::default();
+        let mut player = Gardener::new(DUSK_ARRIVAL);
+        let mut transform = Transform::default();
+        assert!(world::walkable(DUSK_ARRIVAL));
+        assert!(world::walkable(DUSK_GATE));
+        adventure.enter(
+            Area::Home,
+            &mut player,
+            &mut transform,
+            HOME + Vec2::new(0., 2.23),
+        );
+        assert!(player.navigate(
+            adventure.reach(Target::Binder, &garden),
+            &adventure,
+            &garden
+        ));
+        let mut layouts = std::collections::HashSet::new();
+        for level in 1..=LAST_LEVEL {
+            garden.rpg.cleared = level - 1;
+            adventure.enter_duel(level, false, &mut garden, &mut player, &mut transform);
+            let entrance = player.position;
+            assert!(
+                adventure.walkable(entrance, &garden),
+                "first tile on {level}"
+            );
+            let mut cells = adventure.layout.cells.clone();
+            cells.sort_unstable();
+            assert!(layouts.insert(cells), "duplicate layout at {level}");
+            assert!(
+                player.navigate(
+                    adventure.reach(Target::DuskFoe, &garden),
+                    &adventure,
+                    &garden
+                ),
+                "foe on {level}"
+            );
+            garden.rpg.cleared = level;
+            player.teleport(entrance);
+            assert!(
+                player.navigate(
+                    adventure.reach(Target::DuskDown, &garden),
+                    &adventure,
+                    &garden
+                ),
+                "stairs on {level}"
+            );
+            if level % CAMP_INTERVAL == 0 {
+                garden.rpg.hp = 1;
+                let (area, at) = adventure.escape_duel(&mut garden, &mut player, &mut transform);
+                assert_eq!(area, Area::Expedition(level));
+                assert_eq!(garden.rpg.hp, garden.rpg.max_hp());
+                assert!(adventure.walkable(at, &garden), "camp on {level}");
+                assert!(
+                    player.navigate(
+                        adventure.reach(Target::DuskExit, &garden),
+                        &adventure,
+                        &garden
+                    ),
+                    "return from camp {level}"
+                );
+            }
         }
     }
 }

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     Controls, Notice,
     adventure::commit,
+    farm_ui::{FarmMenu, FarmPage},
     garden::{Crop, Garden, SavePath},
     homestead::{Product, Village},
     input::Gesture,
@@ -454,6 +455,7 @@ pub fn input(
     time: Res<Time>,
     mut gesture: ResMut<Gesture>,
     mut controls: ResMut<Controls>,
+    mut farm_menu: ResMut<FarmMenu>,
 ) {
     let Some(npc) = dialog.npc.filter(|_| session.playing()) else {
         return;
@@ -469,6 +471,13 @@ pub fn input(
             dialog.close();
             *gesture = Gesture::default();
             *controls = Controls::default();
+            None
+        }
+        DialogueButton::Trade if npc == Npc::Runa && garden.clock.market_open() => {
+            dialog.close();
+            *gesture = Gesture::default();
+            *controls = Controls::default();
+            farm_menu.show(FarmPage::CardShop);
             None
         }
         DialogueButton::Trade if !dialog.trading && npc.merchant().is_some() => {
@@ -609,6 +618,8 @@ pub fn update(
     }
     for (label, mut text) in &mut labels {
         let caption = match label.0 {
+            DialogueButton::Trade if npc == Npc::Runa => "Karten & Waffen",
+            DialogueButton::Trade => "Handeln",
             DialogueButton::Deal if npc == Npc::Miro => "Verkaufen",
             DialogueButton::Deal => "Saat kaufen",
             DialogueButton::Quest if region_quest.is_some() => region_quest.as_ref().unwrap().1,
@@ -622,7 +633,7 @@ pub fn update(
     }
     for (button, mut node, interaction, mut bg) in &mut buttons {
         let shown = match button {
-            DialogueButton::Trade => merchant.is_some() && !dialog.trading,
+            DialogueButton::Trade => (merchant.is_some() || npc == Npc::Runa) && !dialog.trading,
             DialogueButton::Pick | DialogueButton::Deal | DialogueButton::Back => dialog.trading,
             DialogueButton::Quest => {
                 !dialog.trading
@@ -635,7 +646,11 @@ pub fn update(
         if node.display != next {
             node.display = next;
         }
-        let enabled = *button != DialogueButton::Deal || trade.as_ref().is_some_and(|t| t.2);
+        let enabled = match button {
+            DialogueButton::Deal => trade.as_ref().is_some_and(|t| t.2),
+            DialogueButton::Trade if npc == Npc::Runa => garden.clock.market_open(),
+            _ => true,
+        };
         let color = ui::button_color(*interaction, enabled);
         if bg.0 != color {
             bg.0 = color;

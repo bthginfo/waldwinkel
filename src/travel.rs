@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    duel::Card,
     garden::{Crop, Garden},
     homestead::Product,
     regions::Material,
@@ -110,6 +111,7 @@ pub enum FindLoot {
     Wood,
     Seeds(Crop),
     Blueprint(usize),
+    Card(Card),
 }
 
 #[derive(Clone, Copy)]
@@ -132,6 +134,7 @@ impl Find {
             FindLoot::Product(Product::Regional(material)) => material.name(),
             FindLoot::Seeds(_) => "Wildes Saatgut",
             FindLoot::Blueprint(_) => "Möbelbauplan",
+            FindLoot::Card(_) => "Kartenfund",
             _ => "Treibholz",
         }
     }
@@ -142,7 +145,7 @@ impl Find {
             FindLoot::Product(Product::Shell) => "find_shell",
             FindLoot::Product(Product::Regional(material)) => material.model(),
             FindLoot::Seeds(_) => "find_seeds",
-            FindLoot::Blueprint(_) => "find_blueprint",
+            FindLoot::Blueprint(_) | FindLoot::Card(_) => "find_blueprint",
             _ => "find_driftwood",
         }
     }
@@ -157,6 +160,7 @@ impl Find {
     pub fn available(self, garden: &Garden, index: usize) -> bool {
         match self.loot {
             FindLoot::Blueprint(plan) => !garden.blueprints[plan],
+            FindLoot::Card(card) => !garden.rpg.knows(card),
             _ => garden.town.find_ready(index, garden.day),
         }
     }
@@ -167,12 +171,13 @@ impl Find {
             FindLoot::Blueprint(plan) => {
                 format!("Bauplan · {}", crate::furniture::CATALOG[plan].name)
             }
+            FindLoot::Card(card) => format!("Karte · {}", card.name()),
             _ => format!("+{} {}", self.quantity, self.name()),
         }
     }
 }
 
-pub const FINDS: [Find; 49] = [
+pub const FINDS: [Find; 51] = [
     Find {
         district: District::Forest,
         local: Vec2::new(-6.8, 2.4),
@@ -467,6 +472,18 @@ pub const FINDS: [Find; 49] = [
         loot: FindLoot::Product(Product::Regional(Material::MarshHerb)),
         quantity: 2,
     },
+    Find {
+        district: District::Forest,
+        local: Vec2::new(8.73, 3.11),
+        loot: FindLoot::Card(Card::ForageTea),
+        quantity: 1,
+    },
+    Find {
+        district: District::Copper,
+        local: Vec2::new(-8.87, 10.52),
+        loot: FindLoot::Card(Card::QuartzThrust),
+        quantity: 1,
+    },
 ];
 
 pub fn collect(g: &mut Garden, index: usize) -> Option<String> {
@@ -480,6 +497,9 @@ pub fn collect(g: &mut Garden, index: usize) -> Option<String> {
         FindLoot::Seeds(crop) => g.add_seeds(crop, find.quantity),
         FindLoot::Blueprint(plan) => {
             crate::furniture::learn(g, plan);
+        }
+        FindLoot::Card(card) => {
+            g.rpg.learn(card);
         }
         FindLoot::Wood => g.wood = g.wood.saturating_add(find.quantity),
     }

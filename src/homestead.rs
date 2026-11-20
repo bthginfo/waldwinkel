@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     adventure::{Area, Target},
+    duel::Loot,
     garden::{Crop, Garden, Quality},
     processing::Dish,
     regions::Material,
@@ -415,6 +416,7 @@ pub enum Product {
     Crop(Crop, Quality),
     Prepared(Dish),
     Regional(Material),
+    Spoils(Loot),
     Fish,
     Apple,
     Berry,
@@ -445,6 +447,7 @@ impl Product {
             Self::Crop(crop, _) => crop.name(),
             Self::Prepared(dish) => dish.name(),
             Self::Regional(material) => material.name(),
+            Self::Spoils(loot) => loot.name(),
             Self::Fish => "Fisch",
             Self::Apple => "Äpfel",
             Self::Berry => "Waldbeeren",
@@ -476,6 +479,7 @@ impl Product {
             Self::Crop(crop, quality) => quality.price(crop.price().div_ceil(2)),
             Self::Prepared(dish) => dish.value(),
             Self::Regional(material) => material.value(),
+            Self::Spoils(loot) => loot.value(),
             Self::Fish | Self::Egg => 5,
             Self::Apple | Self::Berry => 2,
             Self::Wool => 8,
@@ -493,6 +497,7 @@ impl Product {
             .chain(Self::GATHERED)
             .chain(Dish::ALL.map(Self::Prepared))
             .chain(Material::ALL.map(Self::Regional))
+            .chain(Loot::ALL.map(Self::Spoils))
             .filter(|&item| garden.stock(item) > 0)
     }
 

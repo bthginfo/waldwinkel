@@ -456,10 +456,13 @@ pub fn finish_story(area: Frontier, g: &mut Garden) -> Result<String, String> {
         crate::furniture::learn(g, plan);
     }
     g.regions.stories[area as usize] += 1;
-    Ok(format!(
-        "Auftrag erfüllt · +{} Münzen · +2 Samen",
-        quest.coins
-    ))
+    let mut reward = format!("Auftrag erfüllt · +{} Münzen · +2 Samen", quest.coins);
+    if let Some(card) = crate::progression::quest_card(area, g.regions.story_steps(area))
+        && g.rpg.learn(card)
+    {
+        reward.push_str(&format!(" · Karte „{}“", card.name()));
+    }
+    Ok(reward)
 }
 
 #[cfg(test)]

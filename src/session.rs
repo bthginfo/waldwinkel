@@ -37,7 +37,7 @@ impl Checkpoint {
     pub fn move_to_mainland(self) -> Self {
         let old = Vec2::from_array(self.position);
         match self.area {
-            Area::Island => self,
+            Area::Island | Area::Expedition(_) => self,
             Area::District(district) => Self::new(
                 Area::Island,
                 district.origin() + (old - district.former_origin()),
@@ -350,6 +350,9 @@ pub fn input(
     mut farm_menu: ResMut<crate::farm_ui::FarmMenu>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
+        if farm_menu.battle().is_some() {
+            return;
+        }
         if farm_menu.open() {
             farm_menu.close();
             *gesture = Gesture::default();

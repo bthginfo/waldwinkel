@@ -107,6 +107,7 @@ pub fn collect(
     session: Res<Session>,
     dialog: Res<Dialog>,
     farm_menu: Res<crate::farm_ui::FarmMenu>,
+    controller: Res<crate::controller::Controller>,
     mut was_live: Local<bool>,
     mut gesture: ResMut<Gesture>,
     mut controls: ResMut<Controls>,
@@ -211,7 +212,10 @@ pub fn collect(
         i32::from(right) as f32 - i32::from(left) as f32,
         i32::from(forward) as f32 - i32::from(back) as f32,
     );
-    controls.move_axis = (axis + keyboard).clamp_length_max(1.0);
+    controls.move_axis = (axis + keyboard + controller.walk).clamp_length_max(1.0);
+    controls.act |= controller.act;
+    controls.map |= controller.map;
+    controls.zoom += controller.zoom;
     controls.cycle = keys.just_pressed(KeyCode::Tab);
     for (key, action) in [
         (KeyCode::Equal, Utility::In),

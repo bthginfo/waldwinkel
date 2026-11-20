@@ -1,4 +1,4 @@
-# Waldwinkel
+# Waldwinkel 1.0
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
@@ -6,10 +6,20 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 
 ## Installieren
 
-- Lade die signierte APK herunter und öffne sie auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://github.com/bthginfo/waldwinkel/releases/latest/download/Waldwinkel-Android.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
+- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://github.com/bthginfo/waldwinkel/releases/latest/download/Waldwinkel-Android.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
 
-## Neu in 0.9.0
+## Dämmergänge und Kartenkämpfe
+
+- **Zugang.** Hilf den Leuten in Eichenhafen, bis der Moorweg freigeschaltet ist. Erfülle anschließend Eddas erste zwei Aufträge und wähle den Steinbogen im Nebelmoor.
+- **25 Ebenen.** Die Gänge werden prozedural aufgebaut. Der Hüter jeder Ebene öffnet den Abstieg. Alle fünf Ebenen erreichst du nach dem Sieg eine Glockenrast. Kehre am Steinbogen wahlweise zu einer freigeschalteten Rast zurück oder starte wieder am Eingang. Ausruhen füllt deine Lebenspunkte.
+- **Rundenkämpfe.** Jede Karte zeigt ihre Kraftkosten und Wirkung. Der Hüter zeigt vor deinem Zug, ob er angreift oder sich schützt. Siege bringen Münzen, Talentpunkte und Beute für die Verkaufstruhe.
+- **Kartenbinder.** Die Sammlung umfasst 18 Karten. Du findest Karten in der Welt, erhältst sie für Aufträge und Kämpfe oder kaufst sie bei Runa. Dein Kampfdeck enthält zwölf Karten mit bis zu zwei Kopien pro Karte. Änderungen speicherst du am Binder in deiner Hütte.
+- **Ausrüstung und Talente.** Runa verkauft Kampfausrüstung. An deiner Werkbank kannst du sie aus Holz und Erz sowie später aus Silber, Kristall und Quarz herstellen. Am Kartenbinder investierst du Talentpunkte in Gesundheit, Widerstand, mehr Karten pro Zug und mehr Kraft.
+
+[Kartenkampf](docs/kartenkampf.png) · [Kartenbinder](docs/kartenbinder.png) · [Glockenrast](docs/glockenrast.png) · [Bildreferenz](art/references/daemmergaenge.png)
+
+## Seit 0.9.0
 
 - **Kupferklamm.** Nach einem Stadtauftrag kannst du am östlichen Steg den Weg freischalten. Runa erzählt dir an der Schmiede von der Klamm. An den hellen Felswänden findest du Quarz.
 - **Windweiden.** Nach zwei Stadtaufträgen bittet dich die Wache am südlichen Pfad um Baumaterial und Wolle. Nele hat an der Mühle Aufträge für dich. Auf den Wiesen wächst Flachs.
@@ -69,7 +79,11 @@ Im Startmenü kannst du auf bis zu drei getrennten Plätzen ein **Neues Spiel** 
 | Aufgaben | Am Brett oder links über **Aufgaben** öffnen. Die acht Aufgaben fördern Garten, Sammeln, Handel, Tiere und Mine. Für eine erfüllte Aufgabe gibt es Saatgut und Münzen. |
 | Haus, Wald und Steg | Möbel herstellen und versetzen, markierte Kiefern fällen, Stein abbauen und am Steg angeln. |
 
-Am Rechner funktionieren auch WASD oder Pfeiltasten, Tab zum Beetwechsel, Leertaste für die Aktion, Mausrad zum Zoomen, M für die Weltkarte, E für die Saatguttasche oder die Auswahl am Markt, F zum Düngen, Q für Aufgaben und I für die Tasche. Escape öffnet das Pausenmenü oder schließt ein Fenster. F10 blendet das HUD aus, F12 speichert ein Spielbild.
+### Steuerung
+
+- **Touch.** Tippe auf Boden, Gegenstände oder Figuren. Drücke die rechte Aktionstaste, um den gewählten Gegenstand zu benutzen oder eine Figur anzusprechen.
+- **Android-Controller.** Der linke Stick bewegt den Tanuki. Der rechte Stick und das Steuerkreuz bewegen den Zeiger. **A** tippt, **X** führt die ausgewählte Aktion aus, **Y** öffnet die Karte. Die Schultertasten zoomen. **B** oder **Start** schließen ein Fenster oder öffnen das Pausenmenü.
+- **Tastatur und Maus.** WASD und Pfeiltasten bewegen den Tanuki. Tab wechselt das Beet, Leertaste führt die Aktion aus. Das Mausrad zoomt. M öffnet die Karte, E die Saatguttasche, Q die Aufgaben und I die Tasche. Im Kampf spielen die Ziffern 1–8 eine Karte aus. Leertaste oder Enter beenden den Zug. F10 blendet das HUD aus, F12 speichert ein Spielbild.
 
 ## Projekt ausführen und bauen
 
@@ -91,7 +105,7 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 - `art/Waldwinkel.blend` enthält die Modelle und eine Gesamtansicht der Landschaft. `blender -b -P art/build_scene.py` exportiert die Modelle als GLB und erzeugt das Höhenfeld für Ufer, Brücken und Hindernisse. Bevy animiert Beine, Schuhe, Arme und den Schweif des Tanuki über getrennte Drehpunkte.
 - `art/draw_icons.py` zeichnet die HUD-Symbole und das App-Icon. Die verwendeten Schriften sind DM Sans und DM Serif Text mit beigefügter OFL-Lizenz.
-- Bewegung, Beetauswahl und Aktionen laufen im Spiel über gemeinsame Eingaben. Für Controller kann dort eine weitere Eingabequelle angeschlossen werden.
+- Android leitet Controller-Ereignisse aus der NDK-Eingabewarteschlange an dasselbe Spiel- und UI-Eingabesystem weiter wie Touch. Die Schnittstelle liegt in `src/controller.rs`.
 - Blender liefert die Regen- und Schneemodelle. Bevy animiert den Niederschlag, färbt die Außenansicht nach Wetter und Jahreszeit und zeigt gegossenen Boden.
 
 ## Über Find Skills geprüft
@@ -100,10 +114,8 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 - **Blender Modeling, Animation und Export** für modellierte Kanten, Drehpunkte und die Prüfung des GLB-Exports. [Modeling](https://skills.sh/roble3/cc-blender-skill/blender-modeling), [Animation](https://skills.sh/roble3/cc-blender-skill/blender-animation), [Export](https://skills.sh/roble3/cc-blender-skill/blender-export)
 - **Blender Motion State Inspection** und **Character Rigging** für Achsen, Gelenkpunkte und Fußkontakt. **Blender Weather FX** ist eine Referenz für spätere Wetter-Looks und Oberflächenmasken. [Motion State Inspection](https://skills.sh/affaan-m/ecc/blender-motion-state-inspection), [Character Rigging](https://skills.sh/el4cteo/blender-skills/blender-character-rigging), [Weather FX](https://skills.sh/el4cteo/blender-skills/blender-weather-fx)
 
-## Tests und nächste Etappen
+## Tests
 
-33 Rust-Tests decken unter anderem Tageswechsel, Erntequalität, Tierpflege, Möbelbau, Küchenminispiele, passierbare Regionalwege und Wegglocken sowie die Übernahme alter Spielstände ab. Die Android-Builds werden im Android-14-Emulator über die vorherige Installation geprüft. Die Aufnahmen stammen aus dem laufenden Bevy-Spiel.
+39 Rust-Tests decken unter anderem die Routen aller 25 Dämmergänge, die Kartenprogression bis zum letzten Hüter, Tageswechsel, Erntequalität, Tierpflege, Möbelbau, Küchenminispiele, Regionalwege und die Übernahme alter Spielstände ab. Die Android-Builds werden im Android-14-Emulator über die vorherige Installation geprüft. Die Aufnahmen stammen aus dem laufenden Bevy-Spiel.
 
 Die Blender-Landschaften entstanden nach eigenen Bildreferenzen. [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)
-
-**Nächste Etappe – Kartenkämpfe.** Prozedurale Ebenen mit ansteigender Schwierigkeit und Rückkehr zu freigeschalteten Ruheplätzen. Karten kommen aus Erkundung, Aufträgen, Handel und Kämpfen. Ein Deck umfasst zwölf Karten und wird am Kartenbinder daheim zusammengestellt. Kampftalente verbessern Gesundheit und Widerstand. [Bildreferenz für die Dämmergänge](art/references/daemmergaenge.png)
