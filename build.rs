@@ -3,5 +3,9 @@ fn main() {
         // Controller events need their source and axes before Winit converts the native queue
         // into keyboard and touch events. Ordinary input follows Winit's existing path.
         println!("cargo:rustc-link-arg=-Wl,--wrap=AInputQueue_getEvent");
+        // Oboe's Android audio bridge is C++. The APK has a single native library.
+        println!("cargo:rustc-link-arg-cdylib=-lc++_static");
+        println!("cargo:rustc-link-arg-cdylib=-lc++abi");
+        println!("cargo:rustc-link-arg-cdylib=-Wl,--no-undefined");
     }
 }

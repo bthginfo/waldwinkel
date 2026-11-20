@@ -32,7 +32,8 @@ for abi in "${architectures[@]}"; do
     esac
     env_name=${rust_target//-/_}
     linker="$llvm/${rust_target}26-clang"
-    env "CARGO_TARGET_${env_name^^}_LINKER=$linker" "CC_${env_name}=$linker" "AR_${env_name}=$llvm/llvm-ar" \
+    env "CARGO_TARGET_${env_name^^}_LINKER=$linker" "CC_${env_name}=$linker" \
+        "CXX_${env_name}=$llvm/${rust_target}26-clang++" "AR_${env_name}=$llvm/llvm-ar" \
         cargo build --release --locked --lib --target "$rust_target"
     library="${CARGO_TARGET_DIR:-target}/$rust_target/release/libwaldwinkel.so"
     mkdir -p "$assemblies/$abi"

@@ -2,9 +2,13 @@ use crate::{
     Controls, GardenFocus, Notice,
     duel::{Battle, CAMP_INTERVAL, Chapter, Enemy, LAST_LEVEL},
     farm_ui::{FarmMenu, FarmPage},
+    forest,
     furniture::CATALOG,
-    garden::{Crop, Garden, SavePath},
+    garden::{Crop, Garden, SavePath, Stage},
+    harbor::{self, Fishing, Phase},
+    harvest_fx::Break,
     homestead::{Animal, ORCHARD, Ore, Product, Village},
+    onboarding::Onboarding,
     regions::{Bell, Frontier},
     seasons::{self, MEETING_POINT, SITES, SeasonProgress},
     session::Checkpoint,
@@ -12,6 +16,7 @@ use crate::{
     town::{Dialog, Npc},
     travel::{self, District, FINDS},
     weather::Season,
+    workshop,
     world::{self, Gardener, IslandCamera, Reach, Tool},
 };
 use bevy::prelude::*;
@@ -65,13 +70,21 @@ const ROCKS: [Vec2; 8] = [
     Vec2::new(-4., 10.),
     Vec2::new(-3.23, 6.20),
 ];
-const SLOTS: [Vec2; 6] = [
+const SLOTS: [Vec2; 14] = [
     Vec2::new(1.59, 0.77),
     Vec2::new(2.45, -1.61),
     Vec2::new(-0.02, -1.93),
     Vec2::new(-1.66, 1.49),
     Vec2::new(1.85, 1.98),
     Vec2::new(-2.62, 0.38),
+    Vec2::new(4.90, -1.70),
+    Vec2::new(6.46, -1.55),
+    Vec2::new(6.45, 0.29),
+    Vec2::new(5.30, 1.60),
+    Vec2::new(-4.95, -1.62),
+    Vec2::new(-6.40, -1.55),
+    Vec2::new(-6.45, 0.31),
+    Vec2::new(-5.35, 1.60),
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -115,6 +128,9 @@ pub enum Target {
     Door,
     Portal,
     Pier,
+    HarborBoard,
+    HarborDriftwood,
+    HarborFishing(Fishing),
     SaleChest,
     Kitchen,
     PatternStall,
@@ -130,6 +146,7 @@ pub enum Target {
     Exit,
     Slot(usize),
     Bench,
+    Forge,
     Village(Village),
     Travel(District),
     Find(usize),
@@ -166,6 +183,7 @@ impl Target {
             | Self::Portal
             | Self::Down
             | Self::Pier
+            | Self::HarborFishing(_)
                 if garden.clock.night() =>
             {
                 Some("Für heute ist Feierabend. Schlaf in deiner Hütte.")
@@ -178,6 +196,7 @@ impl Target {
         match self {
             Self::Tree(_) => Tool::Axe,
             Self::Rock(_) | Self::MineRock(_) => Tool::Pickaxe,
+            Self::Pier | Self::HarborFishing(_) => Tool::Rod,
             _ => Tool::Hoe,
         }
     }
@@ -187,19 +206,23 @@ impl Target {
             Self::Door | Self::Exit => "Holzhütte",
             Self::Portal => "Minenstollen",
             Self::Pier => "Angelsteg",
+            Self::HarborBoard => "Alter Fischersteg",
+            Self::HarborDriftwood => "Treibholzbündel",
+            Self::HarborFishing(spot) => spot.name(),
             Self::SaleChest => "Verkaufstruhe",
             Self::Kitchen => "Hofküche",
             Self::PatternStall => "Bauplanstand",
             Self::FarmAnimal(kind) => kind.housing_name(),
             Self::Gate(gate) => gate.district().name(),
             Self::Bell(bell) => bell.name(),
-            Self::Tree(_) => "Kiefer",
-            Self::Rock(_) => "Steinblock",
+            Self::Tree(i) => forest::node(i).map_or("Kiefer", forest::Node::name),
+            Self::Rock(i) => forest::node(i).map_or("Steinblock", forest::Node::name),
             Self::MineRock(_) => "Kupferader",
             Self::Down | Self::Up => "Minenleiter",
             Self::Bed => "Bett",
             Self::Slot(_) => "Möbelplatz",
-            Self::Bench => "Werkbank",
+            Self::Bench => "Hofwerkbank",
+            Self::Forge => "Schmiedetisch",
             Self::Village(target) => target.name(),
             Self::Travel(district) => district.name(),
             Self::Find(i) => FINDS[i].name(),
@@ -220,7 +243,9 @@ impl Target {
             Self::Door => "Eintreten",
             Self::Exit => "Hinausgehen",
             Self::Portal => "Mine betreten",
-            Self::Pier => "Auswerfen",
+            Self::Pier | Self::HarborFishing(_) => "Auswerfen",
+            Self::HarborBoard => "Bautisch ansehen",
+            Self::HarborDriftwood => "Treibholz bergen",
             Self::SaleChest => "Truhe öffnen",
             Self::Kitchen => "Küche öffnen",
             Self::PatternStall => "Baupläne ansehen",
@@ -234,7 +259,8 @@ impl Target {
             Self::Up => "Aufsteigen",
             Self::Bed => "Schlafen",
             Self::Slot(_) => "Einrichten",
-            Self::Bench => "Herstellen",
+            Self::Bench => "Werkbank öffnen",
+            Self::Forge => "Schmieden",
             Self::Village(_) => "Benutzen",
             Self::Travel(_) => "Angekommen",
             Self::Find(_) | Self::SeasonFind(_) => "Sammeln",
@@ -255,10 +281,14 @@ impl Target {
             Self::Door => 0.86,
             Self::Portal => 0.95,
             Self::SaleChest => 0.53,
+            Self::HarborBoard => 0.95,
+            Self::HarborDriftwood => 0.22,
+            Self::HarborFishing(_) => 0.34,
             Self::Kitchen | Self::PatternStall => 0.88,
             Self::FarmAnimal(_) => 0.51,
             Self::Gate(_) | Self::Bell(_) => 0.93,
-            Self::Tree(_) => 1.50,
+            Self::Tree(i) => forest::node(i).map_or(1.50, |node| node.top() * 0.4),
+            Self::Rock(i) => forest::node(i).map_or(0.45, |node| node.top() * 0.5),
             Self::Down | Self::Up => 0.65,
             Self::Village(target) => target.height(),
             Self::Travel(_) => 0.2,
@@ -315,7 +345,7 @@ pub struct Adventure {
     pub tracked: Option<Guide>,
     pub map: bool,
     pub zoom: f32,
-    waiting: Option<(f32, f32)>,
+    waiting: Option<(Target, f32, f32)>,
     queued: Option<Target>,
     strike: Option<(Tool, f32)>,
     pub layout: MineFloor,
@@ -512,7 +542,7 @@ impl Adventure {
         };
         match self.area {
             Area::Island | Area::District(_) => {
-                world::walkable(point)
+                (world::walkable(point) || garden.harbor.phase.deck_height(point).is_some())
                     && garden.regions.passage(point)
                     && !Frontier::ALL.into_iter().any(|gate| {
                         if gate.unlocked(garden) {
@@ -532,15 +562,20 @@ impl Adventure {
                         .into_iter()
                         .any(|site| within(site.position(), 0.63))
                     && !within(SALE_CHEST, 0.70)
+                    && !garden.workshop.annex_at(point)
+                    && !inside(workshop::BENCH, BENCH_HALF_SIZE)
+                    && !(garden.workshop.forge && inside(workshop::FORGE, BENCH_HALF_SIZE))
                     && !inside(KITCHEN, Vec2::new(1.15, 0.64))
                     && !inside(PATTERN_STALL, Vec2::new(0.85, 0.51))
                     && !inside(MEETING_POINT, TABLE_HALF_SIZE)
+                    && !inside(harbor::BOARD, harbor::BOARD_HALF)
                     && !Npc::ALL
                         .into_iter()
-                        .any(|npc| within(npc.position(), NPC_RADIUS))
+                        .any(|npc| within(npc.position(garden), NPC_RADIUS))
                     && !Animal::ALL
                         .into_iter()
                         .any(|kind| inside(kind.site(), Vec2::new(1.57, 1.22)))
+                    && !forest::blocks(point, garden)
                     && !TREES.iter().enumerate().any(|(i, &tree)| {
                         let radius = if garden.felled.contains(&i) {
                             STUMP_RADIUS
@@ -556,11 +591,8 @@ impl Adventure {
             }
             Area::Home => {
                 let p = point - HOME;
-                p.x.abs() < 3.35
-                    && p.y > -2.65
-                    && p.y < 2.93
-                    && !inside(self.position(Target::Bed), BED_HALF_SIZE)
-                    && !inside(self.position(Target::Bench), BENCH_HALF_SIZE)
+                garden.workshop.inside(p)
+                    && !inside(self.position(Target::Bed, garden), BED_HALF_SIZE)
                     && !inside(BINDER, Vec2::new(0.52, 0.35))
                     && !inside(HOME + Vec2::new(-3.04, -2.34), Vec2::splat(0.34))
                     && !inside(HOME + Vec2::new(3.02, 2.37), Vec2::splat(0.34))
@@ -573,7 +605,7 @@ impl Adventure {
             Area::Mine(depth) => {
                 self.layout.contains(point, MINE)
                     && !self.layout.ores.iter().any(|&cell| {
-                        within(self.position(Target::MineRock(cell)), ORE_RADIUS)
+                        within(self.position(Target::MineRock(cell), &garden), ORE_RADIUS)
                             && !garden.mined.contains(&(depth, cell))
                     })
             }
@@ -582,12 +614,32 @@ impl Adventure {
                     .into_iter()
                     .all(|offset| self.layout.contains(point + offset * 0.26, DUSK))
                     && if garden.rpg.cleared < level {
-                        !within(self.position(Target::DuskFoe), 0.62)
+                        !within(self.position(Target::DuskFoe, &garden), 0.62)
                     } else {
-                        level % CAMP_INTERVAL != 0 || !within(self.position(Target::DuskCamp), 0.63)
+                        level % CAMP_INTERVAL != 0
+                            || !within(self.position(Target::DuskCamp, &garden), 0.63)
                     }
             }
         }
+    }
+
+    pub fn step_away_from_resident(&self, point: Vec2, garden: &Garden) -> Vec2 {
+        if !self.area.outdoors() {
+            return point;
+        }
+        let Some(center) = Npc::ALL
+            .into_iter()
+            .map(|npc| npc.position(garden))
+            .find(|center| center.distance_squared(point) < NPC_RADIUS * NPC_RADIUS)
+        else {
+            return point;
+        };
+        let offset = (point - center).try_normalize().unwrap_or(Vec2::Y);
+        [0., 0.8, -0.8, 1.6, -1.6, std::f32::consts::PI]
+            .into_iter()
+            .map(|turn| center + offset.rotate(Vec2::from_angle(turn)) * (NPC_RADIUS + 0.04))
+            .find(|&p| self.walkable(p, garden))
+            .unwrap_or(point)
     }
 
     fn reach(&self, target: Target, garden: &Garden) -> Reach {
@@ -595,8 +647,8 @@ impl Adventure {
             return Reach::target(Vec2::new(DOOR.x, -0.11), 0., 0.68);
         }
         let clearance = match target {
-            Target::Tree(_) => TREE_RADIUS + 0.06,
-            Target::Rock(_) => ROCK_RADIUS + 0.06,
+            Target::Tree(i) => forest::node(i).map_or(TREE_RADIUS, forest::Node::radius) + 0.06,
+            Target::Rock(i) => forest::node(i).map_or(ROCK_RADIUS, forest::Node::radius) + 0.06,
             Target::MineRock(_) => ORE_RADIUS + 0.06,
             Target::SaleChest => 0.74,
             Target::Kitchen => 1.18,
@@ -606,8 +658,9 @@ impl Adventure {
             Target::Resonator(_) => 0.69,
             Target::SeasonMeeting => 0.95,
             Target::Person(_) => NPC_RADIUS + 0.07,
+            Target::HarborBoard => 0.95,
             Target::Bed => 1.10,
-            Target::Bench => 0.91,
+            Target::Bench | Target::Forge => 0.91,
             Target::Binder | Target::DuskFoe | Target::DuskCamp => 0.70,
             Target::Slot(i) => {
                 let kind = garden.furniture[i]
@@ -633,9 +686,9 @@ impl Adventure {
         let limit = match target.tool() {
             Tool::Axe => 1.08,
             Tool::Pickaxe => 1.20,
-            Tool::Hoe | Tool::WateringCan | Tool::Weapon(_) => 1.49,
+            Tool::Hoe | Tool::WateringCan | Tool::Rod | Tool::Weapon(_) => 1.49,
         };
-        Reach::target(self.position(target), clearance, limit)
+        Reach::target(self.position(target, &garden), clearance, limit)
     }
 
     fn can_reach(&self, target: Target, player: Vec2, garden: &Garden) -> bool {
@@ -643,22 +696,26 @@ impl Adventure {
             .reached(player, &|p| self.walkable(p, garden))
     }
 
-    pub fn position(&self, target: Target) -> Vec2 {
+    pub fn position(&self, target: Target, garden: &Garden) -> Vec2 {
         match target {
             Target::Door => DOOR,
             Target::Portal => PORTAL,
             Target::Pier => PIER,
+            Target::HarborBoard => harbor::BOARD,
+            Target::HarborDriftwood => harbor::DRIFTWOOD,
+            Target::HarborFishing(spot) => spot.point(),
             Target::SaleChest => SALE_CHEST,
             Target::Kitchen => KITCHEN,
             Target::PatternStall => PATTERN_STALL,
             Target::Gate(gate) => gate.position(),
             Target::Bell(bell) => bell.position(),
             Target::FarmAnimal(kind) => kind.site() + Vec2::Y * 1.66,
-            Target::Tree(i) => TREES[i],
-            Target::Rock(i) => ROCKS[i],
+            Target::Tree(i) => forest::node(i).map_or_else(|| TREES[i], |node| node.point),
+            Target::Rock(i) => forest::node(i).map_or_else(|| ROCKS[i], |node| node.point),
             Target::Bed => HOME + Vec2::new(-2.03, -1.74),
             Target::Exit => HOME + Vec2::new(0., 2.73),
-            Target::Bench => HOME + Vec2::new(2.90, -0.44),
+            Target::Bench => workshop::BENCH,
+            Target::Forge => workshop::FORGE,
             Target::Slot(i) => HOME + SLOTS[i],
             Target::Up => cell_position(START) - Vec2::new(0.55, 0.57),
             Target::Down => cell_position(self.layout.down),
@@ -668,7 +725,7 @@ impl Adventure {
             Target::Find(i) => FINDS[i].position(),
             Target::SeasonFind(i) => SITES[i].point,
             Target::SeasonMeeting => MEETING_POINT,
-            Target::Person(person) => person.position(),
+            Target::Person(person) => person.position(garden),
             Target::Binder => BINDER,
             Target::DuskGate => DUSK_GATE,
             Target::DuskExit => DUSK + Vec2::new(-0.14, -0.77),
@@ -678,21 +735,41 @@ impl Adventure {
         }
     }
 
-    fn targets(&self, garden: &Garden) -> Vec<Target> {
+    fn targets(&self, garden: &Garden, near: Vec2) -> Vec<Target> {
         match self.area {
             Area::Island | Area::District(_) => [
                 Target::Door,
                 Target::Portal,
                 Target::Pier,
+                Target::HarborBoard,
                 Target::SaleChest,
+                Target::Bench,
                 Target::Kitchen,
                 Target::PatternStall,
                 Target::SeasonMeeting,
             ]
             .into_iter()
+            .chain(
+                garden
+                    .harbor
+                    .salvage_available()
+                    .then_some(Target::HarborDriftwood),
+            )
+            .chain(
+                Fishing::ALL
+                    .into_iter()
+                    .filter(|spot| spot.open(garden.harbor.phase))
+                    .map(Target::HarborFishing),
+            )
+            .chain(garden.workshop.forge.then_some(Target::Forge))
             .chain(Animal::ALL.into_iter().map(Target::FarmAnimal))
             .chain(Frontier::Moor.unlocked(garden).then_some(Target::DuskGate))
-            .chain(Frontier::ALL.into_iter().map(Target::Gate))
+            .chain(
+                Frontier::ALL
+                    .into_iter()
+                    .filter(|&gate| !gate.unlocked(garden))
+                    .map(Target::Gate),
+            )
             .chain(Bell::ALL.into_iter().map(Target::Bell))
             .chain(
                 Resonator::ALL
@@ -741,10 +818,19 @@ impl Adventure {
                     .filter(|i| !garden.broken.contains(i))
                     .map(Target::Rock),
             )
+            .chain(
+                forest::near(near, if self.map { 0. } else { 46. }).filter_map(|node| {
+                    if node.is_tree() {
+                        (!garden.felled.contains(&node.id)).then_some(Target::Tree(node.id))
+                    } else {
+                        (!garden.broken.contains(&node.id)).then_some(Target::Rock(node.id))
+                    }
+                }),
+            )
             .collect(),
-            Area::Home => [Target::Bed, Target::Exit, Target::Bench, Target::Binder]
+            Area::Home => [Target::Bed, Target::Exit, Target::Binder]
                 .into_iter()
-                .chain((0..SLOTS.len()).map(Target::Slot))
+                .chain((0..garden.workshop.slots()).map(Target::Slot))
                 .collect(),
             Area::Mine(depth) => [Target::Up, Target::Down]
                 .into_iter()
@@ -888,9 +974,17 @@ impl Adventure {
                         },
                     )
                 }
+                Target::Bench if !garden.workshop.restored => (
+                    "Diese Werkbank braucht zwei Holz und einen Stein.".into(),
+                    "Werkbank ansehen",
+                ),
                 Target::Bench => (
-                    "Bekannte Baupläne und Materialien ansehen.".into(),
+                    "Möbel, Bauprojekte und Kupferwerkzeuge.".into(),
                     "Werkbank öffnen",
+                ),
+                Target::Forge => (
+                    "Hier verbesserst du deine Werkzeuge auf Silber.".into(),
+                    "Schmieden",
                 ),
                 Target::Kitchen => ("Kochen, Einmachen und Mahlen.".into(), "Küche öffnen"),
                 Target::PatternStall => (
@@ -902,11 +996,15 @@ impl Adventure {
                     "Saisonfund · Sammlung und Dorftreffen".into(),
                     target.label(),
                 ),
-                Target::Pier => match self.waiting {
-                    Some((bite, end)) if now >= bite && now <= end => {
+                Target::HarborBoard => (garden.harbor.phase.label().into(), target.label()),
+                Target::HarborDriftwood => ("Bretter für Bos Fischersteg".into(), target.label()),
+                Target::Pier | Target::HarborFishing(_) => match self.waiting {
+                    Some((spot, bite, end)) if spot == target && now >= bite && now <= end => {
                         ("Ein Fisch beißt an!".into(), "Einholen!")
                     }
-                    Some((_, end)) if now <= end => ("Warte auf den Biss …".into(), "Einholen"),
+                    Some((spot, _, end)) if spot == target && now <= end => {
+                        ("Warte auf den Biss …".into(), "Einholen")
+                    }
                     _ => ("Beim Biss die rechte Taste antippen.".into(), "Auswerfen"),
                 },
                 Target::Bed => (
@@ -918,8 +1016,14 @@ impl Adventure {
                     "Waren auswählen und sofort verkaufen.".into(),
                     "Truhe öffnen",
                 ),
-                Target::Tree(_) => ("Axt · +3 Holz".into(), "Baum fällen"),
-                Target::Rock(_) => ("Spitzhacke · +2 Stein".into(), "Stein abbauen"),
+                Target::Tree(_) => (
+                    format!("Axt · +{} Holz", garden.wood_per_tree()),
+                    "Baum fällen",
+                ),
+                Target::Rock(_) => (
+                    format!("Spitzhacke · +{} Stein", garden.stone_per_rock()),
+                    "Stein abbauen",
+                ),
                 Target::Travel(district) => {
                     let near = self.can_reach(target, player, garden);
                     (
@@ -927,7 +1031,7 @@ impl Adventure {
                         if near { "Angekommen" } else { "Hingehen" },
                     )
                 }
-                Target::Person(person) => (person.role().into(), target.label()),
+                Target::Person(person) => (person.whereabouts(garden).into(), target.label()),
                 Target::Find(i) => (FINDS[i].reward(), target.label()),
                 Target::Binder => ("Sammlung, Kampfdeck und Talente.".into(), "Binder öffnen"),
                 Target::DuskGate => ("Wähle, wo deine Erkundung beginnt.".into(), target.label()),
@@ -961,6 +1065,17 @@ impl Adventure {
                 },
                 action,
                 action != "Angekommen",
+            );
+        }
+        if self.area == Area::Island
+            && player.length() < 15.
+            && garden.onboarding != Onboarding::Done
+        {
+            return (
+                "Dein erster Morgen".into(),
+                garden.onboarding.hint().into(),
+                "Ort wählen",
+                true,
             );
         }
         match self.area {
@@ -1041,7 +1156,7 @@ impl Adventure {
         self.enter(area, player, transform, DUSK + Vec2::new(0.42, 0.38));
         if at_camp {
             garden.rpg.rest();
-            let position = self.position(Target::DuskCamp) + Vec2::Y * 0.79;
+            let position = self.position(Target::DuskCamp, &garden) + Vec2::Y * 0.79;
             player.teleport(position);
             transform.translation = Vec3::new(position.x, 0., position.y);
         }
@@ -1137,6 +1252,43 @@ fn ray_box(ray: Ray3d, min: Vec3, max: Vec3) -> Option<f32> {
     (enter <= exit).then_some(enter)
 }
 
+fn hit_plot(ray: Ray3d, garden: &Garden) -> Option<(usize, f32)> {
+    world::PLOTS
+        .iter()
+        .copied()
+        .enumerate()
+        .filter_map(|(i, point)| {
+            let center = Vec3::new(point.x, 0., point.y);
+            let frame = ray_box(
+                ray,
+                center + Vec3::new(-0.67, 0., -0.67),
+                center + Vec3::new(0.67, 0.25, 0.67),
+            );
+            let plant = match garden.plots[i].stage() {
+                Stage::Sprout => 0.29,
+                Stage::Young => 0.50,
+                Stage::Ripe if garden.plots[i].crop() == Crop::Sunflower => 1.36,
+                Stage::Ripe => 0.88,
+                _ => 0.,
+            };
+            let canopy = (plant > 0.)
+                .then(|| {
+                    ray_box(
+                        ray,
+                        center + Vec3::new(-0.51, 0.19, -0.51),
+                        center + Vec3::new(0.51, plant, 0.51),
+                    )
+                })
+                .flatten();
+            frame
+                .into_iter()
+                .chain(canopy)
+                .min_by(f32::total_cmp)
+                .map(|depth| (i, depth))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+}
+
 fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option<f32> {
     let hit = |half: Vec2, bottom, top| {
         ray_box(
@@ -1169,12 +1321,30 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
             ),
         ]
         .into_iter()
+        .chain(
+            workshop::ANNEXES
+                .into_iter()
+                .take(garden.workshop.house as usize)
+                .map(|(p, half)| {
+                    ray_box(
+                        ray,
+                        Vec3::new(p.x - half.x, 0., p.y - half.y),
+                        Vec3::new(p.x + half.x, 3.2, p.y + half.y),
+                    )
+                }),
+        )
         .flatten()
         .min_by(f32::total_cmp),
-        Target::Tree(_) => {
-            hit(Vec2::splat(0.96), 1.0, 4.36).or_else(|| hit(Vec2::splat(0.49), 0., 1.0))
+        Target::Tree(i) => {
+            let (scale, top) = forest::node(i).map_or((1., 4.36), |node| (node.scale, node.top()));
+            hit(Vec2::splat(1.11 * scale), 1.00 * scale, top)
+                .or_else(|| hit(Vec2::splat(0.38 * scale), 0., 1.04 * scale))
         }
-        Target::Rock(_) | Target::MineRock(_) => hit(Vec2::splat(0.76), 0., 0.97),
+        Target::Rock(i) => {
+            let (scale, top) = forest::node(i).map_or((1., 0.97), |node| (node.scale, node.top()));
+            hit(Vec2::new(1.0, 0.86) * scale, 0., top)
+        }
+        Target::MineRock(_) => hit(Vec2::splat(0.76), 0., 0.97),
         Target::SaleChest => hit(Vec2::new(0.64, 0.46), 0., 0.84),
         Target::Gate(gate) => hit(
             if gate == Frontier::Wind {
@@ -1188,6 +1358,10 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
         Target::Bell(_) => hit(Vec2::splat(0.67), 0., 1.95),
         Target::Resonator(_) => hit(Vec2::splat(0.53), 0., 1.62),
         Target::SeasonMeeting => hit(TABLE_HALF_SIZE, 0., 1.85),
+        Target::HarborBoard => hit(harbor::BOARD_HALF, 0., 1.71),
+        Target::HarborDriftwood => hit(Vec2::new(0.63, 0.34), 0., 0.38),
+        Target::HarborFishing(_) => hit(Vec2::new(0.55, 0.49), 0., 0.70),
+        Target::Person(_) => hit(Vec2::splat(0.42), 0., 1.62),
         Target::SeasonFind(_) => hit(Vec2::splat(0.36), 0., 0.32),
         Target::Kitchen | Target::PatternStall => hit(Vec2::new(0.96, 0.61), 0., 1.82),
         Target::FarmAnimal(_) => ray_box(
@@ -1196,7 +1370,7 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
             base + Vec3::new(1.50, 1.98, 0.28),
         ),
         Target::Bed => hit(BED_HALF_SIZE, 0., 1.03),
-        Target::Bench => hit(BENCH_HALF_SIZE, 0., 1.1),
+        Target::Bench | Target::Forge => hit(BENCH_HALF_SIZE, 0., 1.16),
         Target::Binder => hit(Vec2::new(0.52, 0.35), 0., 1.03),
         Target::DuskExit | Target::DuskGate => hit(Vec2::new(1.42, 0.52), 0., 2.15),
         Target::DuskFoe => hit(Vec2::splat(0.60), 0., 1.43),
@@ -1229,16 +1403,26 @@ pub fn select(
         return;
     };
     adventure.queued = None;
+    adventure.waiting = None;
     let ray = camera.viewport_to_world(view, at).ok();
     let mut volume = None;
     let mut best = (f32::MAX, None);
-    for target in adventure.targets(&garden) {
-        let point = adventure.position(target);
-        let y = if adventure.area.outdoors() {
-            world::exterior_ground(point)
-        } else {
-            0.
+    for target in adventure.targets(&garden, player.position) {
+        let point = adventure.position(target, &garden);
+        let node = match target {
+            Target::Tree(id) | Target::Rock(id) => forest::node(id),
+            _ => None,
         };
+        let y = node.map_or_else(
+            || {
+                if adventure.area.outdoors() {
+                    world::surface_height(point, &garden)
+                } else {
+                    0.
+                }
+            },
+            |node| node.height,
+        );
         let base = Vec3::new(point.x, y, point.y);
         if let Some(depth) = ray.and_then(|ray| hit_volume(ray, target, base, &garden)) {
             if volume.is_none_or(|(closest, _)| depth < closest) {
@@ -1265,7 +1449,7 @@ pub fn select(
                 landmark_center(
                     camera,
                     view,
-                    adventure.position(target),
+                    adventure.position(target, &garden),
                     layout.scale,
                     GUIDE_OFFSET,
                 )
@@ -1283,7 +1467,7 @@ pub fn select(
                         let center = landmark_center(
                             camera,
                             view,
-                            adventure.position(target),
+                            adventure.position(target, &garden),
                             layout.scale,
                             landmark_offset(target),
                         )?;
@@ -1304,8 +1488,13 @@ pub fn select(
     } else {
         None
     };
-    // A board frame has priority over the scenery behind it.
-    if landmark.is_none() && focus.selected.is_some() && adventure.area == Area::Island {
+    if !adventure.map
+        && adventure.area == Area::Island
+        && let Some((index, depth)) = ray.and_then(|ray| hit_plot(ray, &garden))
+        && volume.is_none_or(|(other, _)| depth < other)
+    {
+        focus.selected = Some(index);
+        focus.pending = None;
         adventure.focus = None;
         player.stop();
         return;
@@ -1317,8 +1506,20 @@ pub fn select(
         if landmark.is_some() || matches!(target, Target::Travel(_)) {
             player.navigate(adventure.reach(target, &garden), &adventure, &garden);
         }
-    } else if let Some(point) = ray.and_then(|ray| world::ground_point(ray, adventure.area)) {
-        player.navigate(Reach::ground(point), &adventure, &garden);
+    } else if let Some(point) =
+        ray.and_then(|ray| world::ground_point(ray, adventure.area, &garden))
+    {
+        if let Some(gate) = Frontier::ALL.into_iter().find(|&gate| {
+            !gate.unlocked(&garden)
+                && gate.boundary(point)
+                && player.position.distance(gate.position()) < 18.
+        }) {
+            let target = Target::Gate(gate);
+            adventure.focus = Some(target);
+            player.navigate(adventure.reach(target, &garden), &adventure, &garden);
+        } else {
+            player.navigate(Reach::walk(point), &adventure, &garden);
+        }
     }
     adventure.map = false;
     focus.selected = None;
@@ -1336,6 +1537,7 @@ pub fn interact(
     mut notice: ResMut<Notice>,
     mut dialog: ResMut<Dialog>,
     mut farm_menu: ResMut<FarmMenu>,
+    mut breaks: EventWriter<Break>,
 ) {
     if controls.zoom != 0. {
         adventure.map = false;
@@ -1371,11 +1573,17 @@ pub fn interact(
     if controls.task {
         adventure.queued = None;
         player.0.stop();
-        farm_menu.show(FarmPage::Journal(GuideTab::Story));
+        let tab = if garden.onboarding == Onboarding::Done {
+            GuideTab::Story
+        } else {
+            GuideTab::Orders
+        };
+        farm_menu.show(FarmPage::Journal(tab));
         return;
     }
     if controls.move_axis != Vec2::ZERO || focus.selected.is_some() {
         adventure.queued = None;
+        adventure.waiting = None;
         return;
     }
     if !controls.act && adventure.queued.is_none() {
@@ -1383,12 +1591,19 @@ pub fn interact(
     }
     let (player, transform) = &mut *player;
     let Some(target) = adventure.focus else {
-        adventure.focus = adventure.targets(&garden).into_iter().min_by(|&a, &b| {
-            player
-                .position
-                .distance_squared(adventure.position(a))
-                .total_cmp(&player.position.distance_squared(adventure.position(b)))
-        });
+        adventure.focus = adventure
+            .targets(&garden, player.position)
+            .into_iter()
+            .min_by(|&a, &b| {
+                player
+                    .position
+                    .distance_squared(adventure.position(a, &garden))
+                    .total_cmp(
+                        &player
+                            .position
+                            .distance_squared(adventure.position(b, &garden)),
+                    )
+            });
         adventure.queued = None;
         return;
     };
@@ -1407,7 +1622,11 @@ pub fn interact(
             return;
         }
         adventure.map = false;
-        if controls.act && player.navigate(adventure.reach(target, &garden), &adventure, &garden) {
+        let follow_resident =
+            matches!(target, Target::Person(_)) && adventure.queued == Some(target);
+        if (controls.act || follow_resident)
+            && player.navigate(adventure.reach(target, &garden), &adventure, &garden)
+        {
             adventure.queued = Some(target);
         } else {
             adventure.queued = None;
@@ -1421,12 +1640,27 @@ pub fn interact(
     }
     adventure.queued = None;
     let position = player.position;
+    let target_point = adventure.position(target, &garden);
+    let area = adventure.area;
+    let hit = |model: &'static str, heading: f32, tree: bool| Break {
+        area,
+        point: target_point,
+        away: target_point - position,
+        heading,
+        model,
+        tree,
+        floor: None,
+        scale: 1.,
+        snow_cap: tree,
+    };
     player.stop();
     let tool = target.tool();
-    if tool != Tool::Hoe {
-        let direction = adventure.position(target) - position;
+    if matches!(tool, Tool::Axe | Tool::Pickaxe | Tool::Rod) {
+        let direction = adventure.position(target, &garden) - position;
         transform.rotation = Quat::from_rotation_y(direction.x.atan2(direction.y));
-        adventure.strike = Some((tool, now));
+        if tool != Tool::Rod {
+            adventure.strike = Some((tool, now));
+        }
     }
     let mut persistent = true;
     let message = match target {
@@ -1442,7 +1676,15 @@ pub fn interact(
                 _ => unreachable!(),
             };
             match action {
-                Ok(message) => message,
+                Ok(message) => {
+                    if let Target::Gate(gate) = target
+                        && gate.unlocked(&garden)
+                        && player.navigate(Reach::walk(gate.entrance()), &adventure, &garden)
+                    {
+                        adventure.focus = None;
+                    }
+                    message
+                }
                 Err(message) => {
                     persistent = false;
                     message
@@ -1461,17 +1703,22 @@ pub fn interact(
         | Target::Binder
         | Target::DuskGate
         | Target::Bench
+        | Target::Forge
         | Target::PatternStall
         | Target::Kitchen
+        | Target::HarborBoard
         | Target::SeasonMeeting => {
             farm_menu.show(match target {
                 Target::SaleChest => FarmPage::Sale,
-                Target::Bench => FarmPage::Workbench,
+                Target::Bench if garden.workshop.restored => FarmPage::Workbench,
+                Target::Bench => FarmPage::Projects,
+                Target::Forge => FarmPage::Tools { at_forge: true },
                 Target::PatternStall => FarmPage::BlueprintShop,
                 Target::Kitchen => FarmPage::Kitchen,
                 Target::Binder => FarmPage::Binder,
                 Target::DuskGate => FarmPage::Expedition,
                 Target::SeasonMeeting => FarmPage::SeasonMeeting,
+                Target::HarborBoard => FarmPage::Harbor { at_site: true },
                 _ => FarmPage::SeedShop,
             });
             if target == Target::Binder {
@@ -1500,7 +1747,7 @@ pub fn interact(
             if garden.rpg.cleared >= level {
                 return;
             }
-            let direction = adventure.position(target) - player.position;
+            let direction = adventure.position(target, &garden) - player.position;
             transform.rotation = Quat::from_rotation_y(direction.x.atan2(direction.y));
             adventure.map = false;
             garden.checkpoint = Some(Checkpoint::new(adventure.area, player.position));
@@ -1539,10 +1786,28 @@ pub fn interact(
             };
             message
         }
+        Target::HarborDriftwood => {
+            adventure.focus = None;
+            let Some(message) = harbor::salvage(&mut garden) else {
+                return;
+            };
+            message
+        }
         Target::Person(person) => {
             let position = player.position;
             player.teleport(position);
             dialog.talk(person);
+            if Onboarding::greet(&mut garden, person) {
+                commit(
+                    &garden,
+                    &path,
+                    &mut notice,
+                    now,
+                    "Dein erster Morgen · +3 Rübensamen".into(),
+                    None,
+                    None,
+                );
+            }
             return;
         }
         Target::Village(location) => {
@@ -1609,16 +1874,38 @@ pub fn interact(
                 return;
             }
             adventure.focus = None;
-            "+3 Holz".into()
+            let impact = if let Some(node) = forest::node(i) {
+                Break {
+                    floor: Some(node.height),
+                    scale: node.scale,
+                    snow_cap: false,
+                    ..hit(node.model(Season::at(garden.day)), node.heading, true)
+                }
+            } else {
+                hit("wood_tree", i as f32 * 0.62, true)
+            };
+            breaks.write(impact);
+            format!("+{} Holz", garden.wood_per_tree())
         }
         Target::Rock(i) => {
             if garden.broken.contains(&i) {
                 return;
             }
             garden.broken.push(i);
-            garden.stone = garden.stone.saturating_add(2);
+            let quantity = garden.stone_per_rock();
+            garden.stone = garden.stone.saturating_add(quantity);
             adventure.focus = None;
-            "+2 Stein".into()
+            let impact = if let Some(node) = forest::node(i) {
+                Break {
+                    floor: Some(node.height),
+                    scale: node.scale,
+                    ..hit(node.model(Season::at(garden.day)), node.heading, false)
+                }
+            } else {
+                hit("resource_rock", i as f32 * 0.67, false)
+            };
+            breaks.write(impact);
+            format!("+{quantity} Stein")
         }
         Target::MineRock(i) => {
             let Area::Mine(depth) = adventure.area else {
@@ -1630,20 +1917,26 @@ pub fn interact(
             let ore = Ore::at(depth, i);
             let quantity = ore.mine(&mut garden);
             adventure.focus = None;
+            breaks.write(hit(ore.model(), 0., false));
             format!("+{quantity} {} · +1 Stein", ore.name())
         }
-        Target::Pier => match adventure.waiting.take() {
-            Some((bite, end)) if (bite..=end).contains(&now) => {
-                garden.fish = garden.fish.saturating_add(1);
-                "+1 Fisch".into()
+        Target::Pier | Target::HarborFishing(_) => match adventure.waiting.take() {
+            Some((spot, bite, end)) if spot == target && (bite..=end).contains(&now) => {
+                match target {
+                    Target::HarborFishing(spot) => harbor::catch(&mut garden, spot).into(),
+                    _ => {
+                        garden.add_stock(Product::Fish, 1);
+                        "+1 Fisch".into()
+                    }
+                }
             }
-            Some((bite, _)) if now < bite => {
+            Some((spot, bite, _)) if spot == target && now < bite => {
                 persistent = false;
                 "Zu früh. Wirf erneut aus.".into()
             }
             _ => {
                 let bite = now + 2.3 + (garden.fish % 3) as f32 * 0.5;
-                adventure.waiting = Some((bite, bite + 2.));
+                adventure.waiting = Some((target, bite, bite + 2.));
                 persistent = false;
                 "Angel ausgeworfen.".into()
             }
@@ -1718,8 +2011,15 @@ enum Stamp {
         resonance: [bool; Resonator::ALL.len()],
         season: Season,
         seasonal_finds: [bool; SITES.len()],
+        pier: Phase,
+        salvage: bool,
+        opening: bool,
+        workshop: (bool, bool, u8),
     },
-    Home([u8; 6]),
+    Home {
+        furniture: Vec<u8>,
+        rooms: u8,
+    },
     Mine(u32, Vec<u16>),
     Dusk(u32, bool),
 }
@@ -1743,8 +2043,18 @@ pub fn draw(
 ) {
     let stamp = match adventure.area {
         Area::Island | Area::District(_) => Stamp::Island {
-            felled: garden.felled.clone(),
-            broken: garden.broken.clone(),
+            felled: garden
+                .felled
+                .iter()
+                .copied()
+                .filter(|&i| i < TREES.len())
+                .collect(),
+            broken: garden
+                .broken
+                .iter()
+                .copied()
+                .filter(|&i| i < ROCKS.len())
+                .collect(),
             fruit: std::array::from_fn(|i| garden.farm.fruit_ready(i, garden.day)),
             animals: garden.farm.animals.map(|animal| animal.owned),
             housing: garden.farm.housing,
@@ -1754,8 +2064,19 @@ pub fn draw(
             resonance: Resonator::ALL.map(|site| site.active(&garden)),
             season: Season::at(garden.day),
             seasonal_finds: std::array::from_fn(|i| garden.seasons.available(i, garden.day)),
+            pier: garden.harbor.phase,
+            salvage: garden.harbor.salvage_available(),
+            opening: garden.harbor.celebrating(garden.day),
+            workshop: (
+                garden.workshop.restored,
+                garden.workshop.forge,
+                garden.workshop.house,
+            ),
         },
-        Area::Home => Stamp::Home(garden.furniture),
+        Area::Home => Stamp::Home {
+            furniture: garden.furniture.clone(),
+            rooms: garden.workshop.house,
+        },
         Area::Expedition(level) => Stamp::Dusk(level, garden.rpg.cleared >= level),
         Area::Mine(depth) => Stamp::Mine(
             depth,
@@ -1799,7 +2120,54 @@ pub fn draw(
                 resonance,
                 season,
                 seasonal_finds,
+                pier,
+                salvage,
+                opening,
+                workshop: (restored, forge, house),
             } => {
+                spawn(
+                    if *restored {
+                        "furniture_bench"
+                    } else {
+                        "workbench_old"
+                    },
+                    workshop::BENCH,
+                    world::exterior_ground(workshop::BENCH),
+                    0.,
+                );
+                if *forge {
+                    spawn(
+                        "workshop_forge",
+                        workshop::FORGE,
+                        world::exterior_ground(workshop::FORGE),
+                        0.,
+                    );
+                }
+                for model in ["cabin_annex_0", "cabin_annex_1"]
+                    .into_iter()
+                    .take(*house as usize)
+                {
+                    spawn(model, Vec2::ZERO, 0., 0.);
+                }
+                let mount = Vec2::new(harbor::PIER_X, harbor::DECK_START);
+                spawn(pier.model(), mount, 0., 0.);
+                spawn(
+                    "pier_board",
+                    harbor::BOARD,
+                    world::exterior_ground(harbor::BOARD),
+                    0.,
+                );
+                if *salvage {
+                    spawn(
+                        "pier_salvage",
+                        harbor::DRIFTWOOD,
+                        world::exterior_ground(harbor::DRIFTWOOD),
+                        0.,
+                    );
+                }
+                if *opening {
+                    spawn("pier_feast", mount, 0., 0.);
+                }
                 spawn(
                     "sale_crate",
                     SALE_CHEST,
@@ -1943,18 +2311,36 @@ pub fn draw(
                 }
                 Color::srgb_u8(132, 204, 201)
             }
-            Stamp::Home(furniture) => {
+            Stamp::Home { furniture, rooms } => {
                 spawn("interior", HOME, 0., 0.);
-                spawn("bedroom_bed", adventure.position(Target::Bed), 0., 0.);
-                spawn("furniture_bench", adventure.position(Target::Bench), 0., 0.);
+                spawn(
+                    "bedroom_bed",
+                    adventure.position(Target::Bed, &garden),
+                    0.,
+                    0.,
+                );
+                if *rooms == 0 {
+                    spawn("interior_annex_wall", HOME, 0., 0.);
+                }
+                for model in ["interior_annex_0", "interior_annex_1"]
+                    .into_iter()
+                    .take(*rooms as usize)
+                {
+                    spawn(model, HOME, 0., 0.);
+                }
                 spawn("card_binder", BINDER, 0., 0.);
-                for (i, kind) in furniture.iter().enumerate() {
+                for (i, kind) in furniture.iter().take(garden.workshop.slots()).enumerate() {
                     spawn("selection", HOME + SLOTS[i], 0.055, 0.);
                     if let Some(name) = kind.checked_sub(1).and_then(|v| CATALOG.get(v as usize)) {
                         spawn(name.model, HOME + SLOTS[i], 0.08, 0.);
                     }
                 }
-                spawn("selection", adventure.position(Target::Exit), 0.05, 0.);
+                spawn(
+                    "selection",
+                    adventure.position(Target::Exit, &garden),
+                    0.05,
+                    0.,
+                );
                 Color::srgb_u8(184, 139, 115)
             }
             Stamp::Mine(depth, removed) => {
@@ -2007,14 +2393,24 @@ pub fn draw(
                     if !removed.contains(&cell) {
                         spawn(
                             Ore::at(*depth, cell).model(),
-                            adventure.position(Target::MineRock(cell)),
+                            adventure.position(Target::MineRock(cell), &garden),
                             0.,
                             f32::from(cell) * 0.43,
                         );
                     }
                 }
-                spawn("mine_ladder", adventure.position(Target::Up), 0., 0.);
-                spawn("mine_ladder", adventure.position(Target::Down), 0., 0.25);
+                spawn(
+                    "mine_ladder",
+                    adventure.position(Target::Up, &garden),
+                    0.,
+                    0.,
+                );
+                spawn(
+                    "mine_ladder",
+                    adventure.position(Target::Down, &garden),
+                    0.,
+                    0.25,
+                );
                 if *depth >= 3 {
                     Color::srgb_u8(36, 39, 60)
                 } else {
@@ -2046,18 +2442,28 @@ pub fn draw(
                         );
                     }
                 }
-                spawn("dusk_arch", adventure.position(Target::DuskExit), 0., 0.);
+                spawn(
+                    "dusk_arch",
+                    adventure.position(Target::DuskExit, &garden),
+                    0.,
+                    0.,
+                );
                 spawn(
                     if *won { "dusk_open" } else { "dusk_seal" },
-                    adventure.position(Target::DuskDown),
+                    adventure.position(Target::DuskDown, &garden),
                     0.,
                     0.,
                 );
                 if !*won {
-                    spawn("dusk_rosette", adventure.position(Target::DuskFoe), 0., 0.);
+                    spawn(
+                        "dusk_rosette",
+                        adventure.position(Target::DuskFoe, &garden),
+                        0.,
+                        0.,
+                    );
                     let foe = spawn(
                         Enemy::at(*level).model(),
-                        adventure.position(Target::DuskFoe),
+                        adventure.position(Target::DuskFoe, &garden),
                         0.,
                         -0.26,
                     );
@@ -2065,7 +2471,12 @@ pub fn draw(
                         .entity(foe)
                         .insert(crate::battle_ui::GuardianMotion);
                 } else if level % CAMP_INTERVAL == 0 {
-                    spawn("dusk_camp", adventure.position(Target::DuskCamp), 0., 0.);
+                    spawn(
+                        "dusk_camp",
+                        adventure.position(Target::DuskCamp, &garden),
+                        0.,
+                        0.,
+                    );
                 }
                 match chapter {
                     Chapter::Moss => Color::srgb_u8(41, 45, 53),
@@ -2080,9 +2491,9 @@ pub fn draw(
         drawing.stamp = Some(stamp);
     }
     if let Some(target) = adventure.focus {
-        let p = adventure.position(target);
+        let p = adventure.position(target, &garden);
         let floor = if adventure.area.outdoors() {
-            world::exterior_ground(p)
+            world::surface_height(p, &garden)
         } else {
             0.
         };
@@ -2102,13 +2513,17 @@ pub fn draw(
     } else if let Some(entity) = drawing.marker.take() {
         commands.entity(entity).despawn();
     }
-    if let Some((bite, _)) = adventure
+    if let Some((spot, bite, _)) = adventure
         .waiting
-        .filter(|(_, end)| time.elapsed_secs() <= *end)
+        .filter(|(_, _, end)| time.elapsed_secs() <= *end)
     {
         let now = time.elapsed_secs();
         let y = -0.755 + (now * 8.).sin() * if now >= bite { 0.08 } else { 0.021 };
-        let transform = Transform::from_xyz(6.52, y, 19.13);
+        let p = match spot {
+            Target::HarborFishing(fishing) => fishing.bobber(),
+            _ => Vec2::new(6.52, 19.13),
+        };
+        let transform = Transform::from_xyz(p.x, y, p.y);
         if let Some(entity) = drawing.bobber {
             commands.entity(entity).insert(transform);
         } else {
@@ -2154,6 +2569,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_tap_on_a_tall_plant_selects_its_own_bed() {
+        let mut garden = Garden::default();
+        let index = 1;
+        garden.plots[index] = crate::garden::Plot::Sown {
+            crop: Crop::Sunflower,
+            growth: Crop::Sunflower.days(),
+            wet: true,
+        };
+        let center = world::PLOTS[index];
+        let tip = Vec3::new(center.x, 1.17, center.y);
+        let offset = world::camera_offset(Area::Island);
+        let ray = Ray3d::new(tip + offset, Dir3::new(-offset).unwrap());
+        assert_eq!(hit_plot(ray, &garden).map(|(index, _)| index), Some(index));
+    }
+
+    #[test]
     fn seasonal_targets_are_reachable_and_the_dorftisch_blocks_movement() {
         let mut garden = Garden::default();
         let adventure = Adventure::default();
@@ -2161,14 +2592,18 @@ mod tests {
         assert!(adventure.can_reach(Target::SeasonMeeting, MEETING_POINT + Vec2::Y, &garden));
         for (i, site) in SITES.into_iter().enumerate() {
             garden.day = 1 + site.season as u32 * Season::LENGTH;
-            assert!(adventure.targets(&garden).contains(&Target::SeasonFind(i)));
+            assert!(
+                adventure
+                    .targets(&garden, site.point)
+                    .contains(&Target::SeasonFind(i))
+            );
             assert!(adventure.walkable(site.point, &garden), "Fundort {}", i + 1);
         }
         for npc in [Npc::Lina, Npc::Miro, Npc::Fiete, Npc::Juna] {
-            assert!(!adventure.walkable(npc.position(), &garden));
+            assert!(!adventure.walkable(npc.position(&garden), &garden));
             assert!((0..8).any(|i| {
-                let point =
-                    npc.position() + Vec2::from_angle(i as f32 * std::f32::consts::FRAC_PI_4);
+                let point = npc.position(&garden)
+                    + Vec2::from_angle(i as f32 * std::f32::consts::FRAC_PI_4);
                 adventure.walkable(point, &garden)
                     && adventure.can_reach(Target::Person(npc), point, &garden)
             }));
@@ -2182,19 +2617,19 @@ mod tests {
         let tree = Target::Tree(10);
         let rock = Target::Rock(7);
         for target in [tree, rock] {
-            let center = adventure.position(target);
+            let center = adventure.position(target, &garden);
             assert!(!adventure.walkable(center, &garden));
             assert!(adventure.can_reach(target, center + Vec2::Y, &garden));
         }
         garden.felled.push(10);
         garden.broken.push(7);
-        assert!(!adventure.walkable(adventure.position(tree), &garden));
-        assert!(adventure.walkable(adventure.position(rock), &garden));
+        assert!(!adventure.walkable(adventure.position(tree, &garden), &garden));
+        assert!(adventure.walkable(adventure.position(rock, &garden), &garden));
 
         adventure.area = Area::Mine(1);
         adventure.layout = MineFloor::generate(1);
         let cell = adventure.layout.ores[0];
-        let point = adventure.position(Target::MineRock(cell));
+        let point = adventure.position(Target::MineRock(cell), &garden);
         assert!(!adventure.walkable(point, &garden));
         garden.mined.insert((1, cell));
         assert!(adventure.walkable(point, &garden));
@@ -2207,9 +2642,9 @@ mod tests {
             area: Area::Home,
             ..default()
         };
-        assert!(!adventure.walkable(adventure.position(Target::Bed), &garden));
-        assert!(!adventure.walkable(adventure.position(Target::Bench), &garden));
-        let slot = adventure.position(Target::Slot(0));
+        assert!(!adventure.walkable(adventure.position(Target::Bed, &garden), &garden));
+
+        let slot = adventure.position(Target::Slot(0), &garden);
         assert!(adventure.walkable(slot, &garden));
         garden.furniture[0] = 1;
         assert!(!adventure.walkable(slot, &garden));

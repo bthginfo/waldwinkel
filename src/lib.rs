@@ -1,32 +1,40 @@
 mod adventure;
 mod battle_ui;
+mod cinematic;
 mod controller;
 mod day;
 mod duel;
 mod farm_ui;
+mod forest;
 mod furniture;
 mod garden;
+mod harbor;
+mod harvest_fx;
 mod homestead;
 mod input;
+mod inventory;
+mod onboarding;
 mod processing;
 mod progression;
 mod regions;
 mod season_view;
 mod seasons;
 mod session;
+mod sound;
 mod story;
 mod terrain;
 mod town;
 mod travel;
 mod ui;
 mod weather;
+mod workshop;
 mod world;
 
 use adventure::{Adventure, Area};
 use bevy::{asset::AssetMetaCheck, log::LogPlugin, prelude::*, window::PresentMode};
 
 use garden::{Action, Garden, SavePath};
-use world::{Gardener, IslandCamera, PLOTS};
+use world::{Gardener, PLOTS};
 
 #[derive(Resource, Default)]
 struct Ready(bool, usize);
@@ -109,10 +117,12 @@ pub fn main() {
     .init_resource::<ui::Icons>()
     .init_resource::<ui::UiFonts>()
     .init_resource::<battle_ui::DeckIcons>()
+    .add_event::<harvest_fx::Break>()
     .add_systems(
         Startup,
         (
             world::setup,
+            forest::setup,
             season_view::setup,
             ui::setup,
             weather::setup,
@@ -120,6 +130,8 @@ pub fn main() {
             town::setup,
             farm_ui::setup,
             battle_ui::setup,
+            cinematic::setup,
+            sound::setup,
         ),
     )
     .add_systems(
@@ -144,25 +156,6 @@ pub fn main() {
             world::advance_player,
             act,
             adventure::interact,
-            adventure::draw,
-            (
-                world::update_plots,
-                world::show_exterior,
-                season_view::visibility,
-                season_view::ground,
-                world::update_selection,
-                world::animate_gardener,
-                world::watering_effect,
-                world::move_clouds,
-                world::turn_mill,
-                world::update_camera,
-                weather::precipitation,
-                weather::lighting,
-                adventure::animate_animals,
-                ui::update,
-                ui::update_fertilizer,
-                ui::map_labels.after(world::update_camera),
-            ),
         )
             .chain()
             .after(session::open_menu)
@@ -171,6 +164,36 @@ pub fn main() {
     .add_systems(
         Update,
         (
+            adventure::draw,
+            town::move_residents,
+            world::update_plots,
+            world::show_exterior,
+            season_view::visibility,
+            season_view::ground,
+            world::update_selection,
+            world::animate_gardener,
+            world::watering_effect,
+            world::move_clouds,
+            world::turn_mill,
+            world::update_camera,
+            cinematic::show,
+            weather::precipitation,
+            weather::lighting,
+            sound::play,
+            adventure::animate_animals,
+            ui::update,
+            ui::update_fertilizer,
+            ui::map_labels.after(world::update_camera),
+        )
+            .chain()
+            .after(adventure::interact)
+            .after(session::open_menu),
+    )
+    .add_systems(
+        Update,
+        (
+            harvest_fx::animate,
+            forest::draw,
             session::update,
             town::update,
             farm_ui::update,
@@ -196,7 +219,6 @@ pub fn main() {
 fn select_plot(
     controls: Res<Controls>,
     adventure: Res<Adventure>,
-    camera: Single<(&Camera, &GlobalTransform), With<IslandCamera>>,
     mut focus: ResMut<GardenFocus>,
     player: Single<&Gardener>,
 ) {
@@ -211,20 +233,14 @@ fn select_plot(
         focus.selected = None;
         focus.pending = None;
     }
-    let (camera, transform) = *camera;
-    let next = if controls.cycle && player.position.length() < 16. {
-        Some(
+    if controls.cycle && !adventure.map && player.position.length() < 16. {
+        focus.selected = Some(
             focus
                 .selected
                 .map_or(0, |previous| (previous + 1) % PLOTS.len()),
-        )
-    } else if let Some(at) = controls.pick_at {
-        world::click_plot(camera, transform, at)
-    } else {
-        return;
-    };
-    focus.selected = next;
-    focus.pending = None;
+        );
+        focus.pending = None;
+    }
 }
 
 fn act(
@@ -298,10 +314,11 @@ fn act(
     else {
         return;
     };
-    if !world::can_work(player.position, PLOTS[index], &adventure, &garden) {
+    let reach = world::work_reach(PLOTS[index], action, &garden);
+    if !reach.reached(player.position, &|p| adventure.walkable(p, &garden)) {
         if requested.is_some() {
             focus.pending = player
-                .navigate(world::Reach::ground(PLOTS[index]), &adventure, &garden)
+                .navigate(reach, &adventure, &garden)
                 .then_some((action, crop));
         }
         if !player.approaching() {

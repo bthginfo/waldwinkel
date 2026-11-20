@@ -80,10 +80,26 @@ impl Frontier {
         }
     }
 
+    pub fn entrance(self) -> Vec2 {
+        self.position()
+            + 1.55
+                * match self {
+                    Self::Copper => Vec2::X,
+                    Self::Wind => Vec2::Y,
+                    Self::Moor => Vec2::NEG_X,
+                }
+    }
+
     pub fn boundary(self, point: Vec2) -> bool {
         match self {
             Self::Copper => point.x >= 78. && point.y < 70.,
-            Self::Wind => point.y >= 76.,
+            Self::Wind => {
+                let from_bridge = point.x - 9.5;
+                point.y
+                    >= 76.15
+                        + 1.13 * (from_bridge * 0.079).sin()
+                        + 0.41 * (from_bridge * 0.153).sin()
+            }
             Self::Moor => point.x <= -87.,
         }
     }
@@ -123,14 +139,15 @@ impl Frontier {
                 false,
             );
         }
-        if g.regions.gates[self as usize] == 0 {
-            return (self.quest_name().into(), "Auftrag annehmen", true);
+        let ready = has_supplies(self.supplies(), g);
+        if g.regions.gates[self as usize] == 0 && !ready {
+            return (
+                format!("{} · {}", self.quest_name(), progress(self.supplies(), g)),
+                "Auftrag annehmen",
+                true,
+            );
         }
-        (
-            progress(self.supplies(), g),
-            "Material abgeben",
-            has_supplies(self.supplies(), g),
-        )
+        (progress(self.supplies(), g), "Weg öffnen", ready)
     }
 
     pub fn work(self, g: &mut Garden) -> Result<String, String> {
@@ -139,7 +156,7 @@ impl Frontier {
             return Err(hint);
         }
         let state = g.regions.gates[self as usize];
-        if state == 0 {
+        if state == 0 && !has_supplies(self.supplies(), g) {
             g.regions.gates[self as usize] = 1;
             return Ok(format!("Auftrag angenommen · {}", self.quest_name()));
         }
@@ -477,14 +494,26 @@ mod tests {
             let goal = gate.district().waypoint();
             assert!(!garden.regions.passage(goal));
             gate.work(&mut garden).unwrap();
-            assert!(!garden.regions.passage(goal));
-            gate.work(&mut garden).unwrap();
             assert!(garden.regions.passage(goal));
+            assert!(Adventure::default().walkable(gate.entrance(), &garden));
             assert!(gate.work(&mut garden).is_err());
         }
         assert_eq!(garden.wood, 9);
         assert_eq!(garden.stone, 7);
         assert_eq!(garden.stock(Product::Wool), 1);
+    }
+
+    #[test]
+    fn an_accepted_gate_stays_closed_until_its_materials_are_available() {
+        let mut garden: Garden =
+            serde_json::from_str(r#"{"town":{"quests":["Done","Offered","Offered"]}}"#).unwrap();
+        let gate = Frontier::Copper;
+        gate.work(&mut garden).unwrap();
+        assert!(!gate.unlocked(&garden));
+        garden.wood = 4;
+        garden.stone = 3;
+        gate.work(&mut garden).unwrap();
+        assert!(gate.unlocked(&garden));
     }
 
     #[test]

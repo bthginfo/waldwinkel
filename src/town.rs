@@ -6,13 +6,74 @@ use crate::{
     adventure::commit,
     farm_ui::{FarmMenu, FarmPage},
     garden::{Crop, Garden, SavePath},
+    harbor,
     homestead::{Product, Village},
     input::Gesture,
     regions::{self, Frontier},
     session::Session,
     travel::{District, FINDS},
     ui::{self, UiFonts},
+    weather::Season,
 };
+
+const BO_ROUTE: &[Vec2] = &[
+    Vec2::new(50.50, 1.50),
+    Vec2::new(56.00, 7.75),
+    Vec2::new(57.00, 8.00),
+    Vec2::new(57.25, 9.00),
+    Vec2::new(57.50, 15.50),
+    Vec2::new(57.25, 24.00),
+    Vec2::new(56.75, 25.00),
+];
+const SHORE_ROUTE: &[Vec2] = &[
+    Vec2::new(52.75, 7.25),
+    Vec2::new(50.00, 10.25),
+    Vec2::new(54.75, 25.75),
+];
+const EVENING_ROUTE: &[Vec2] = &[
+    Vec2::new(52.75, 7.25),
+    Vec2::new(56.75, 7.75),
+    Vec2::new(57.25, 8.25),
+    Vec2::new(58.50, 25.25),
+];
+
+fn along(route: &[Vec2], fraction: f32) -> (Vec2, Vec2) {
+    let mut left = fraction * route.windows(2).map(|p| p[0].distance(p[1])).sum::<f32>();
+    for pair in route.windows(2) {
+        let delta = pair[1] - pair[0];
+        let length = delta.length();
+        if left < length {
+            return (pair[0] + delta * (left / length), delta.normalize());
+        }
+        left -= length;
+    }
+    (*route.last().unwrap(), Vec2::ZERO)
+}
+
+#[derive(Component)]
+pub struct Resident(pub Npc);
+
+pub fn move_residents(
+    garden: Res<Garden>,
+    time: Res<Time>,
+    mut residents: Query<(&Resident, &mut Transform)>,
+) {
+    for (resident, mut pose) in &mut residents {
+        let (point, direction) = resident.0.pose(&garden);
+        let mut y = crate::world::surface_height(point, &garden) + 0.04;
+        if direction != Vec2::ZERO {
+            y += (time.elapsed_secs() * 16.).sin().abs() * 0.034;
+            let turn = Quat::from_rotation_y(direction.x.atan2(direction.y));
+            pose.rotation = pose
+                .rotation
+                .slerp(turn, 1. - (-time.delta_secs() * 11.).exp());
+        }
+        let next = Vec3::new(point.x, y, point.y);
+        if pose.translation != next {
+            pose.translation = next;
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Npc {
@@ -88,7 +149,62 @@ impl Npc {
         }
     }
 
-    pub fn position(self) -> Vec2 {
+    pub fn position(self, garden: &Garden) -> Vec2 {
+        self.pose(garden).0
+    }
+
+    fn pose(self, garden: &Garden) -> (Vec2, Vec2) {
+        let minute = garden.clock.minute();
+        let fixed = |point| (point, Vec2::ZERO);
+        let walk = |route, from, duration, reverse| {
+            let progress = f32::from(minute - from) / duration;
+            let (point, face) = along(route, if reverse { 1. - progress } else { progress });
+            (point, if reverse { -face } else { face })
+        };
+        let opening = garden.harbor.celebrating(garden.day) && !garden.clock.night();
+        match (self, minute) {
+            (Self::Bo, _) if opening => fixed(Vec2::new(57.50, 35.78)),
+            (Self::Fiete, _) if opening => fixed(Vec2::new(58.69, 34.12)),
+            (Self::Bo, 0..780 | 1194..) => fixed(BO_ROUTE[0]),
+            (Self::Bo, 780..804) => walk(BO_ROUTE, 780, 24., false),
+            (Self::Bo, 804..1170) => fixed(*BO_ROUTE.last().unwrap()),
+            (Self::Bo, _) => walk(BO_ROUTE, 1170, 24., true),
+            (Self::Fiete, 0..600) => fixed(*SHORE_ROUTE.last().unwrap()),
+            (Self::Fiete, 600..619) => walk(SHORE_ROUTE, 600, 19., true),
+            (Self::Fiete, 619..1020) => fixed(SHORE_ROUTE[0]),
+            (Self::Fiete, 1020..1040) => walk(EVENING_ROUTE, 1020, 20., false),
+            (Self::Fiete, _) => fixed(*EVENING_ROUTE.last().unwrap()),
+            _ => fixed(self.home_position()),
+        }
+    }
+
+    pub fn whereabouts(self, garden: &Garden) -> &'static str {
+        if matches!(self, Self::Bo | Self::Fiete)
+            && garden.harbor.celebrating(garden.day)
+            && !garden.clock.night()
+        {
+            return "Bei der Wiedereröffnung am Fischersteg";
+        }
+        match (self, garden.clock.minute()) {
+            (Self::Bo, 0..780) => "Am Rathaus · bis 13:00",
+            (Self::Bo, 780..804) => "Unterwegs zum Fischersteg",
+            (Self::Bo, 804..1170) => "Am Fischersteg · bis 19:30",
+            (Self::Bo, 1170..1194) => "Unterwegs zum Rathaus",
+            (Self::Bo, _) => "Am Rathaus",
+            (Self::Fiete, 0..600) => "Am Hafenufer · bis 10:00",
+            (Self::Fiete, 600..619) => "Unterwegs zum Marktplatz",
+            (Self::Fiete, 619..1020) => "Am Marktplatz · bis 17:00",
+            (Self::Fiete, 1020..1040) => "Unterwegs zum Fischersteg",
+            (Self::Fiete, _) => "Am Fischersteg",
+            (Self::Lina | Self::Miro, _) if garden.clock.market_open() => {
+                "Marktplatz · Handel bis 20:00"
+            }
+            (Self::Lina | Self::Miro, _) => "Marktplatz · Handel ab 06:00",
+            _ => self.role(),
+        }
+    }
+
+    fn home_position(self) -> Vec2 {
         self.frontier()
             .map_or(District::Town, Frontier::district)
             .origin()
@@ -103,6 +219,50 @@ impl Npc {
                 Self::Nele => Vec2::new(-12.90, -12.10),
                 Self::Edda => Vec2::new(-5.20, 6.95),
             }
+    }
+
+    fn harbor_greeting(self, garden: &Garden) -> Option<String> {
+        if !matches!(self, Self::Bo | Self::Fiete) {
+            return None;
+        }
+        let phase = garden.harbor.phase;
+        let greeting = match (self, phase) {
+            (Self::Bo, harbor::Phase::Damaged) => {
+                "Der Sturm hat die Bretter vom alten Fischersteg gelöst. Schau doch mit Fiete am Ufer nach gutem Treibholz."
+            }
+            (Self::Fiete, harbor::Phase::Damaged) => {
+                "Gleich südwestlich vom Bautisch habe ich Treibholz zusammengebunden. Die Bretter tragen uns noch viele Jahre."
+            }
+            (Self::Bo, harbor::Phase::Landing) => {
+                "Der Anleger trägt wieder. Kupferbeschläge halten die neuen Geländer zusammen, auch bei starkem Wind."
+            }
+            (Self::Fiete, harbor::Phase::Landing) => {
+                "Ich habe meinen Eimer schon zum Anleger gebracht. Probier es mit der Angel am Ende der frischen Bretter."
+            }
+            (Self::Bo, harbor::Phase::Rails) => {
+                "Die Geländer sitzen. Wenn du etwas aus deinem Garten mitbringst, können wir am Steg gemeinsam essen."
+            }
+            (Self::Fiete, harbor::Phase::Rails) => {
+                "Ich habe am Ende des Stegs Platz für die Bänder gelassen. Bring etwas Frisches für unseren Tisch mit."
+            }
+            (_, harbor::Phase::Open) if garden.harbor.celebrating(garden.day) => {
+                "Herzlich willkommen zur Wiedereröffnung! Heute essen wir draußen auf den frischen Brettern."
+            }
+            (Self::Bo, harbor::Phase::Open) => {
+                "Die Hafenlaterne leuchtet wieder bis zur Seeseite. Miss ruhig mit deiner Angel nach, was dort schwimmt."
+            }
+            (_, harbor::Phase::Open) => {
+                "An der Seeseite fangen wir Hafenhering. Die alte Köderkiste steht gleich neben dem Geländer."
+            }
+            _ => return None,
+        };
+        let weather = match Season::at(garden.day) {
+            Season::Spring => "Am Ufer treiben die ersten Blütenzweige an.",
+            Season::Summer => "Abends bleibt es am Wasser lange warm.",
+            Season::Autumn => "In der Hafengasse raschelt das Laub.",
+            Season::Winter => "Auf den Pfählen glitzert Raureif.",
+        };
+        Some(format!("{greeting} {weather}"))
     }
     fn greeting(self) -> &'static str {
         match self {
@@ -377,6 +537,8 @@ pub enum DialogueButton {
     Back,
     Quest,
     Story,
+    Harbor,
+    Plans,
 }
 #[derive(Component)]
 pub struct DialogueLabel(DialogueButton);
@@ -435,6 +597,8 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                                 (DialogueButton::Deal, "Kaufen", 129.),
                                 (DialogueButton::Quest, "Annehmen", 187.),
                                 (DialogueButton::Story, "Nachfragen", 161.),
+                                (DialogueButton::Harbor, "Alter Fischersteg", 180.),
+                                (DialogueButton::Plans, "Baupläne", 103.),
                                 (DialogueButton::Back, "Zurück", 105.),
                                 (DialogueButton::Close, "Schließen", 103.),
                             ] {
@@ -493,6 +657,13 @@ pub fn input(
             dialog.message.clear();
             None
         }
+        DialogueButton::Plans if npc == Npc::Bo && garden.clock.market_open() => {
+            dialog.close();
+            *gesture = Gesture::default();
+            *controls = Controls::default();
+            farm_menu.show(FarmPage::BlueprintShop);
+            None
+        }
         DialogueButton::Pick if dialog.trading => {
             dialog.index += 1;
             if npc == Npc::Miro && Product::at(dialog.index, &garden).is_none() {
@@ -519,6 +690,13 @@ pub fn input(
             Some(Ok(
                 "Ins Journal geschrieben · Das Licht der Wegglocken".into()
             ))
+        }
+        DialogueButton::Harbor if !dialog.trading && matches!(npc, Npc::Bo | Npc::Fiete) => {
+            dialog.close();
+            farm_menu.show(FarmPage::Harbor { at_site: false });
+            *gesture = Gesture::default();
+            *controls = Controls::default();
+            None
         }
         _ => None,
     };
@@ -576,6 +754,9 @@ pub fn update(
     for (field, mut text) in &mut fields {
         let value = match field {
             DialogueText::Name => npc.name().into(),
+            DialogueText::Role if matches!(npc, Npc::Bo | Npc::Fiete) => {
+                format!("{} · {}", npc.role(), npc.whereabouts(&garden))
+            }
             DialogueText::Role => npc.role().into(),
             DialogueText::Greeting if dialog.trading => {
                 "Wähle eine Ware und bestätige den Handel.".into()
@@ -584,6 +765,9 @@ pub fn update(
                 && crate::weather::Season::day(garden.day) >= crate::seasons::MEETING_START => {
                 format!("{} Komm zum Dorftisch am Marktplatz.",
                         crate::weather::Season::at(garden.day).invitation())
+            }
+            DialogueText::Greeting if matches!(npc, Npc::Bo | Npc::Fiete) => {
+                npc.harbor_greeting(&garden).unwrap_or_else(|| npc.greeting().into())
             }
             DialogueText::Greeting if quest_state == Some(QuestState::Done) => {
                 "Danke für deine Hilfe. Schau gern wieder vorbei!".into()
@@ -670,6 +854,10 @@ pub fn update(
                         || region_quest.as_ref().is_some_and(|entry| entry.2))
             }
             DialogueButton::Story => npc == Npc::Juna && !garden.story.met_juna,
+            DialogueButton::Harbor => !dialog.trading && matches!(npc, Npc::Bo | Npc::Fiete),
+            DialogueButton::Plans => {
+                npc == Npc::Bo && garden.clock.market_open() && !dialog.trading
+            }
             DialogueButton::Close => true,
         };
         let next = if shown { Display::Flex } else { Display::None };

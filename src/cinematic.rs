@@ -1,0 +1,143 @@
+use bevy::{prelude::*, render::camera::ScalingMode};
+
+use crate::{
+    adventure::Area,
+    farm_ui::{Choice, FarmMenu},
+    session::Session,
+    ui::{self, UiFonts},
+    world::{IslandCamera, camera_offset},
+};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Clip {
+    Arrival,
+    Opening,
+}
+
+impl Clip {
+    pub fn duration(self) -> f32 {
+        match self {
+            Self::Arrival => 13.5,
+            Self::Opening => 9.,
+        }
+    }
+
+    fn subtitle(self, time: f32) -> &'static str {
+        match self {
+            Self::Arrival if time < 4.5 => {
+                "Bo · Willkommen in Waldwinkel. Ab heute gehört dieser Hof dir."
+            }
+            Self::Arrival if time < 9. => {
+                "Bo · Vor der Hütte steht eine alte Werkbank. Neben der Veranda ist Platz für deine ersten Beete."
+            }
+            Self::Arrival => {
+                "Bo · Lockere ein Beet, säe und gieße es. Danach findest du mich in Eichenhafen."
+            }
+            Self::Opening if time < 4.5 => {
+                "Bo · Der Fischersteg trägt wieder. Heute teilen wir hier draußen das Essen aus deinem Garten."
+            }
+            Self::Opening => {
+                "Fiete · Siehst du die Laternen an der Seeseite? Dort kannst du jetzt Hafenhering angeln."
+            }
+        }
+    }
+
+    fn framing(self, time: f32) -> (Vec3, f32) {
+        let progress = (time / self.duration()).clamp(0., 1.);
+        let t = progress * progress * (3. - 2. * progress);
+        match self {
+            Self::Arrival => (
+                Vec3::new(-6.9, 1.65, 0.04).lerp(Vec3::new(0.8, 0.89, 3.12), t),
+                25.0_f32.lerp(12.3, t),
+            ),
+            Self::Opening => (
+                Vec3::new(57.7, 0.38, 26.5).lerp(Vec3::new(58.08, 0.69, 32.5), t),
+                16.2_f32.lerp(12.6, t),
+            ),
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct SubtitlePane;
+
+#[derive(Component)]
+pub struct Subtitle;
+
+pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
+    commands
+        .spawn((
+            SubtitlePane,
+            Node {
+                display: Display::None,
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(22.),
+                width: Val::Percent(100.),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                padding: UiRect::horizontal(Val::Px(16.)),
+                ..default()
+            },
+            GlobalZIndex(125),
+        ))
+        .with_children(|wrap| {
+            wrap.spawn((
+                Node {
+                    width: Val::Px(680.),
+                    max_width: Val::Percent(95.),
+                    padding: UiRect::axes(Val::Px(18.), Val::Px(10.)),
+                    column_gap: Val::Px(14.),
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BorderRadius::all(Val::Px(17.)),
+                BackgroundColor(Color::srgba(0.11, 0.19, 0.16, 0.91)),
+            ))
+            .with_children(|panel| {
+                let (text, font, _) = fonts.body("", 17.);
+                panel.spawn((
+                    Subtitle,
+                    text,
+                    font,
+                    TextColor(Color::srgb_u8(255, 241, 213)),
+                    Node {
+                        flex_grow: 1.,
+                        ..default()
+                    },
+                ));
+                panel
+                    .spawn((Choice::Close, ui::dialog_button(119.)))
+                    .with_child(fonts.button("Überspringen", 14.));
+            });
+        });
+}
+
+pub fn show(
+    session: Res<Session>,
+    mut menu: ResMut<FarmMenu>,
+    time: Res<Time>,
+    mut pane: Single<&mut Node, With<SubtitlePane>>,
+    mut subtitle: Single<&mut Text, With<Subtitle>>,
+    mut camera: Single<(&mut Projection, &mut Transform), With<IslandCamera>>,
+) {
+    let Some((clip, elapsed)) = menu.clip().filter(|_| session.playing()) else {
+        pane.display = Display::None;
+        return;
+    };
+    pane.display = Display::Flex;
+    let caption = clip.subtitle(elapsed);
+    if subtitle.0 != caption {
+        subtitle.0 = caption.into();
+    }
+    let (center, height) = clip.framing(elapsed);
+    let (projection, pose) = &mut *camera;
+    if let Projection::Orthographic(ortho) = &mut **projection {
+        ortho.scaling_mode = ScalingMode::AutoMin {
+            min_width: height * 1.30,
+            min_height: height,
+        };
+    }
+    **pose = Transform::from_translation(center + camera_offset(Area::Island))
+        .looking_at(center, Vec3::Y);
+    menu.advance_clip(time.delta_secs());
+}

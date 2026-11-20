@@ -4,7 +4,6 @@ use crate::{garden::Garden, homestead::Product};
 
 #[derive(Clone, Copy)]
 pub enum Blueprint {
-    Known,
     Shop { coins: u32, quests: usize },
     Find(&'static str),
     Reward(&'static str),
@@ -45,7 +44,6 @@ impl Furniture {
 
     pub fn source(&self, garden: &Garden) -> String {
         match self.blueprint {
-            Blueprint::Known => "Vom ersten Tag an bekannt".into(),
             Blueprint::Find(hint) | Blueprint::Reward(hint) => hint.into(),
             Blueprint::Shop { coins, quests } if garden.town.completed() < quests => {
                 format!("Bauplan für {coins} Münzen · {quests} Stadtaufträge nötig")
@@ -92,28 +90,29 @@ pub const VINE_SHELF: usize = 10;
 pub const CUSHION_BENCH: usize = 12;
 pub const WALL_HANGING: usize = 14;
 pub const SEASONS_SHELF: usize = 18;
+pub const HARBOR_LANTERN: usize = 19;
 
-pub const CATALOG: [Furniture; 19] = [
+pub const CATALOG: [Furniture; 20] = [
     Furniture::new(
         "Runder Tisch",
         "furniture_table",
         [0.77, 0.77, 1.36],
         [0, 0, 0, 0],
-        Blueprint::Known,
+        Blueprint::Reward("Bauplan beim Instandsetzen der Werkbank"),
     ),
     Furniture::new(
         "Korbregal",
         "furniture_shelf",
         [0.73, 0.47, 1.78],
         [3, 0, 0, 0],
-        Blueprint::Known,
+        Blueprint::Reward("Bauplan beim Instandsetzen der Werkbank"),
     ),
     Furniture::new(
         "Kachelofen",
         "furniture_stove",
         [0.47, 0.48, 1.99],
         [1, 3, 1, 0],
-        Blueprint::Known,
+        Blueprint::Reward("Bauplan beim Instandsetzen der Werkbank"),
     ),
     Furniture::new(
         "Blaue Sitzbank",
@@ -227,14 +226,14 @@ pub const CATALOG: [Furniture; 19] = [
         [7, 0, 2, 0],
         Blueprint::Reward("Belohnung für alle vier Dorftreffen"),
     ),
+    Furniture::new(
+        "Hafenlaterne",
+        "furniture_harbor_lantern",
+        [0.35, 0.27, 1.48],
+        [3, 1, 2, 0],
+        Blueprint::Reward("Belohnung für die Wiedereröffnung des Fischerstegs"),
+    ),
 ];
-
-pub fn starting_blueprints() -> Vec<bool> {
-    CATALOG
-        .iter()
-        .map(|design| matches!(design.blueprint, Blueprint::Known))
-        .collect()
-}
 
 pub fn learn(garden: &mut Garden, design: usize) -> bool {
     let already = std::mem::replace(&mut garden.blueprints[design], true);

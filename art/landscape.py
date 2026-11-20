@@ -5,6 +5,7 @@ import random
 import struct
 
 import frontier
+import geography
 
 FOREST = (-51., -8.)
 BEACH = (4., 47.)
@@ -14,6 +15,8 @@ LANDFORMS = [(0., -1., 31., 24.), (-50., -11., 34., 26.), (47., 3., 29., 24.),
            (1.5, 47., 29., 25.), (-26., 25., 25., 21.), (31., 29., 23., 19.)]
 BASE_LANDFORMS = LANDFORMS[:]
 LANDFORMS.extend(frontier.LANDFORMS)
+LANDFORMS.extend(geography.SHOULDERS)
+RELIEF = True
 INLETS = [(5.8, 22.5, 6.45, 6.38), (22.5, 53.8, 13.7, 13.40)]
 SEA = -.79
 BRIDGES = [.81, -12.0, 12.6]  # Forest-local z coordinates.
@@ -46,13 +49,15 @@ ROADS.extend(frontier.ROADS)
 @contextmanager
 def original_layout():
     """Keep the models of the original districts on their authored terrain."""
-    global LANDFORMS, ROADS
+    global LANDFORMS, ROADS, RELIEF
     real_forms,real_roads=LANDFORMS,ROADS
     LANDFORMS,ROADS=BASE_LANDFORMS,BASE_ROADS
+    RELIEF = False
     try:
         yield
     finally:
         LANDFORMS,ROADS=real_forms,real_roads
+        RELIEF = True
 
 TOWN_BUILDINGS = [
     (-14.2, -.9, 3.48, 2.75, 'e2c7a5', 'a47362', .04, 'dormer'),
@@ -99,7 +104,16 @@ def edge(x, z):
     a,b=positions[:2]
     soft = max(0.,2.7-(a-b))
     land = a + soft*soft/10.8
-    return min(land, *(-ellipse(x,z,i) for i in INLETS))
+    if RELIEF:
+        inlets = INLETS + geography.INLETS
+        # Keep the lower harbor open to the sea, including the restored pier.
+        old_harbor = (1.-geography.smooth((math.hypot((x-58.)/13.,(z-29.)/11.)-.55)/.62))
+        if old_harbor > 0.:
+            old_land=max(ellipse(x,z,i) for i in BASE_LANDFORMS+frontier.LANDFORMS)
+            land=land+(old_land-land)*old_harbor
+    else:
+        inlets=INLETS
+    return min(land, *(-ellipse(x,z,i) for i in inlets))
 
 
 def stream(z):
@@ -121,10 +135,13 @@ def height(x,z):
     # A wider, shallower shelf along the sand and an abrupt bank in the hills.
     shoreline = 4.1 + sand*2.2
     bank=-1.43+1.43*smooth((d+shoreline-1.12)/shoreline)
-    return frontier.relief(x,z,bank - channel(x,z)*.61,d,smooth)
+    h=frontier.relief(x,z,bank - channel(x,z)*.61,d,smooth)
+    return geography.height(x,z,h,d) if RELIEF else h
 
 
 def deck_height(x,z):
+    if (bridge := geography.bridge(x,z)) is not None:
+        return bridge
     fz=z-FOREST[1]
     for b in BRIDGES:
         if abs(fz-b)<.60 and abs(x-(FOREST[0]+stream(b)))<1.73:
@@ -195,7 +212,15 @@ def bake_heightmap(root):
             x=ox+i*step
             deck=deck_height(x,z)
             y=height(x,z) if deck is None else deck
-            samples.append([round(y*100),False])
+            samples.append([round(y*100),geography.crest_blocks(x,z,y)])
+    for j in range(1,rows-1):
+        for i in range(1,cols-1):
+            index=j*cols+i
+            y=samples[index][0]
+            if y<135:
+                continue
+            if max(abs(y-samples[index+d][0]) for d in [-cols,-1,1,cols])>23:
+                samples[index][1]=True
     for left,top,right,bottom,circle in BLOCKERS:
         for j in range(max(0,math.ceil((top-oz)/step)),min(rows,math.floor((bottom-oz)/step)+1)):
             z=oz+j*step
@@ -268,6 +293,13 @@ def terrain_models(api):
         grass=blend(blend('9fac65','c3c479',grain),blend('758a5e','aab569',grain),forest)
         sand=blend('e4c088','f1dca1',grain)
         tint=frontier.tint(x,z,grain,blend(grass,sand,beach_mix(x,z)),blend)
+        steep=max(v[2] for v in tri)-min(v[2] for v in tri)
+        if h>1.1:
+            rock=blend('978d80','bda88c',grain)
+            if x>77. and z<60.:
+                rock=blend('a18167','c49976',grain)
+            rockiness=clamp((h-2.0)/15.+(steep-.28)*.81)
+            tint=blend(tint,rock,rockiness)
         if h<-.09:
             rock=blend('b89572','a79581',grain)
             tint=blend(tint,rock,clamp((-h-.07)*1.46))
@@ -346,5 +378,17 @@ def terrain_models(api):
         if i%4==0:
             x=a+rng.uniform(-.53,.51)
             waterway.face([(x-.12,z,-.265),(x,z-.03,-.265),(x+.13,z,-.265),(x,z+.035,-.265)],'b8ddc8','raw')
+    for i in range(348):
+        x=-77.0+i*.46
+        nx=x+.46
+        a,b=geography.divide(x,76),geography.divide(nx,76)
+        if edge(x,a)<-.35:
+            continue
+        for j in range(4):
+            z=-1.48+j*.74
+            waterway.face([(x,a+z,-.556),(nx,b+z,-.556),(nx,b+z+.74,-.556),(x,a+z+.74,-.556)],
+                          blend('688f8c','a2c5ad',.33+.13*(j%3)),'raw')
+        if i%5==0:
+            waterway.face([(x,a-.47,-.544),(x+.25,a-.29,-.544),(x+.07,a-.14,-.544)],'bad4bb','raw')
 
     return [land,sea,surf,paths,waterway]

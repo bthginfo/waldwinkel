@@ -213,6 +213,7 @@ pub enum MenuButton {
     Save,
     Title,
     UiSize,
+    Sound,
 }
 
 #[derive(Component)]
@@ -222,6 +223,7 @@ pub enum MenuText {
     Message(Screen),
     ActiveSlot,
     UiSize,
+    Sound,
 }
 
 pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
@@ -321,11 +323,14 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                                 (MenuButton::Resume, "Weiterspielen"),
                                 (MenuButton::Save, "Jetzt speichern"),
                                 (MenuButton::UiSize, "Darstellung"),
+                                (MenuButton::Sound, "Ton"),
                                 (MenuButton::Title, "Speichern & Hauptmenü"),
                             ] {
                                 let mut button = panel.spawn((action, ui::dialog_button(350.)));
                                 if matches!(action, MenuButton::UiSize) {
                                     button.with_child((MenuText::UiSize, fonts.button(label, 16.)));
+                                } else if matches!(action, MenuButton::Sound) {
+                                    button.with_child((MenuText::Sound, fonts.button(label, 16.)));
                                 } else {
                                     button.with_child(fonts.button(label, 16.));
                                 }
@@ -360,6 +365,20 @@ pub fn input(
             return;
         }
         if farm_menu.open() {
+            if matches!(farm_menu.clip(), Some((crate::cinematic::Clip::Arrival, _)))
+                && g.onboarding == crate::onboarding::Onboarding::Welcome
+            {
+                g.onboarding = crate::onboarding::Onboarding::Till;
+                crate::adventure::commit(
+                    &g,
+                    &path,
+                    &mut notice,
+                    time.elapsed_secs(),
+                    "Auftrag gestartet · Dein erster Morgen".into(),
+                    None,
+                    None,
+                );
+            }
             farm_menu.close();
             *gesture = Gesture::default();
             *controls = Controls::default();
@@ -412,6 +431,11 @@ pub fn input(
                 *notice = Notice::default();
                 dialog.close();
                 farm_menu.close();
+                if g.onboarding == crate::onboarding::Onboarding::Welcome {
+                    farm_menu.show(crate::farm_ui::FarmPage::Cinematic(
+                        crate::cinematic::Clip::Arrival,
+                    ));
+                }
                 session.screen = Screen::Playing;
                 session.index = Some(index);
                 session.last_saved = time.elapsed_secs();
@@ -427,8 +451,12 @@ pub fn input(
         (Screen::Pause, MenuButton::Resume) => {
             session.screen = Screen::Playing;
         }
-        (Screen::Pause, MenuButton::UiSize) => {
-            g.large_ui = !g.large_ui;
+        (Screen::Pause, MenuButton::UiSize | MenuButton::Sound) => {
+            if matches!(action, MenuButton::Sound) {
+                g.sound_muted = !g.sound_muted;
+            } else {
+                g.large_ui = !g.large_ui;
+            }
             let checkpoint = Checkpoint::new(adventure.area, player.position);
             if let Err(error) = session.save(&mut slots, &mut g, checkpoint, time.elapsed_secs()) {
                 warn!("Darstellung konnte nicht gespeichert werden: {error}");
@@ -563,6 +591,12 @@ pub fn update(
                 "Darstellung · Groß"
             } else {
                 "Darstellung · Standard"
+            }
+            .into(),
+            MenuText::Sound => if garden.sound_muted {
+                "Ton · Aus"
+            } else {
+                "Ton · Ein"
             }
             .into(),
         };

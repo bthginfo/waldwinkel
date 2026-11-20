@@ -7,6 +7,7 @@ use crate::{
     garden::{Crop, Garden, Quality},
     processing::Dish,
     regions::Material,
+    workshop::ToolKind,
 };
 
 pub const SEED_SHOP: Vec2 = Vec2::new(16.15, 3.02);
@@ -144,8 +145,12 @@ impl Village {
                 "Futter kaufen",
                 money >= 5,
             ),
-            Self::Smith if farm.pickaxe => (
-                "Kupferspitzhacke · +1 Erz je Ader".into(),
+            Self::Smith if ToolKind::Pickaxe.level(g) > 0 => (
+                format!(
+                    "Spitzhacke · {} · +{} Erz je Ader",
+                    ToolKind::Pickaxe.tier(g),
+                    ToolKind::Pickaxe.level(g)
+                ),
                 "Verbessert",
                 false,
             ),
@@ -369,6 +374,9 @@ impl Animal {
     }
 
     pub fn housing_hint(self, garden: &Garden) -> (String, bool) {
+        if !garden.workshop.barns[self as usize] {
+            return ("Kaufe den Bauplan am Bauplanstand.".into(), false);
+        }
         let (wood, stone) = self.housing_cost();
         (
             format!(
@@ -428,6 +436,7 @@ pub enum Product {
     Spoils(Loot),
     Seasonal(crate::weather::Season),
     Fish,
+    Herring,
     Apple,
     Berry,
     Egg,
@@ -440,8 +449,9 @@ pub enum Product {
 }
 
 impl Product {
-    const GATHERED: [Self; 10] = [
+    const GATHERED: [Self; 11] = [
         Self::Fish,
+        Self::Herring,
         Self::Apple,
         Self::Berry,
         Self::Egg,
@@ -460,6 +470,7 @@ impl Product {
             Self::Spoils(loot) => loot.name(),
             Self::Seasonal(season) => season.find_name(),
             Self::Fish => "Fisch",
+            Self::Herring => "Hafenhering",
             Self::Apple => "Äpfel",
             Self::Berry => "Waldbeeren",
             Self::Egg => "Eier",
@@ -493,6 +504,7 @@ impl Product {
             Self::Spoils(loot) => loot.value(),
             Self::Seasonal(_) => 7,
             Self::Fish | Self::Egg => 5,
+            Self::Herring => 9,
             Self::Apple | Self::Berry => 2,
             Self::Wool => 8,
             Self::Silver => 9,
@@ -623,7 +635,7 @@ impl Ore {
         }
     }
     pub fn mine(self, g: &mut Garden) -> u32 {
-        let quantity = if g.farm.pickaxe { 2 } else { 1 };
+        let quantity = 1 + u32::from(crate::workshop::ToolKind::Pickaxe.level(g));
         match self {
             Self::Copper => g.copper = g.copper.saturating_add(quantity),
             Self::Silver => g.add_stock(Product::Silver, quantity),
@@ -702,6 +714,13 @@ mod tests {
         assert!(sheep.work(&mut g, Crop::Carrot, None).is_err());
         g.wood = 9;
         g.stone = 6;
+        assert!(Animal::Sheep.build_housing(&mut g).is_err());
+        assert_eq!((g.wood, g.stone), (9, 6));
+        g.farm.coins = 45;
+        crate::workshop::BuildingPlan::Barn(Animal::Sheep)
+            .buy(&mut g)
+            .unwrap();
+        assert_eq!(g.farm.coins, 18);
         assert!(Animal::Sheep.build_housing(&mut g).is_ok());
         assert_eq!((g.wood, g.stone), (0, 0));
         assert!(sheep.work(&mut g, Crop::Carrot, None).is_ok());

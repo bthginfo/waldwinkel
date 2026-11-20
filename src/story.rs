@@ -177,6 +177,7 @@ impl Resonator {
 pub enum GuideTab {
     Story,
     Orders,
+    Town,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -187,6 +188,10 @@ pub enum Guide {
     Festival,
     SeasonMeeting,
     Farm,
+    FirstMorning,
+    Workshop,
+    Pier,
+    Resident(Npc),
     Town(Npc),
     Regional(Frontier),
 }
@@ -203,6 +208,9 @@ impl Guide {
                 Self::Festival,
             ],
             GuideTab::Orders => &[
+                Self::FirstMorning,
+                Self::Workshop,
+                Self::Pier,
                 Self::Farm,
                 Self::Town(Npc::Mara),
                 Self::Town(Npc::Fiete),
@@ -210,6 +218,14 @@ impl Guide {
                 Self::Regional(Frontier::Copper),
                 Self::Regional(Frontier::Wind),
                 Self::Regional(Frontier::Moor),
+            ],
+            GuideTab::Town => &[
+                Self::Pier,
+                Self::Resident(Npc::Bo),
+                Self::Resident(Npc::Fiete),
+                Self::Resident(Npc::Lina),
+                Self::Resident(Npc::Miro),
+                Self::Resident(Npc::Mara),
             ],
         };
         entries.iter().copied()
@@ -223,6 +239,10 @@ impl Guide {
             Self::Festival => "Lichtfest in Eichenhafen",
             Self::SeasonMeeting => "Dorftisch in Eichenhafen",
             Self::Farm => garden.task().0,
+            Self::Workshop => "Die alte Hofwerkbank",
+            Self::FirstMorning => "Dein erster Morgen",
+            Self::Pier => "Der alte Fischersteg",
+            Self::Resident(npc) => npc.name(),
             Self::Town(npc) => town::order_name(npc),
             Self::Regional(frontier) => garden
                 .regions
@@ -236,6 +256,13 @@ impl Guide {
             Self::Juna if garden.story.met_juna => {
                 "Erfüllt · Juna hat dir von den Klangsteinen erzählt.".into()
             }
+            Self::Workshop if garden.workshop.restored => {
+                "Erfüllt · Drei Möbelbaupläne gelernt.".into()
+            }
+            Self::Workshop => format!(
+                "{} · Wähle die alte Werkbank vor der Hütte.",
+                crate::workshop::Project::Restore.detail(garden)
+            ),
             Self::Juna => "Sprich mit Juna am Hafen von Eichenhafen.".into(),
             Self::Echo(frontier) if garden.story.tuned(frontier) => {
                 "Gestimmt · Das Echo ist wieder zu hören.".into()
@@ -283,6 +310,16 @@ impl Guide {
             Self::Farm if garden.task().1 => "Abgabebereit · +5 Münzen und Saatgut".into(),
             Self::Farm if garden.challenge >= 8 => "Erfüllt".into(),
             Self::Farm => "Hofaufgabe · +5 Münzen und Saatgut".into(),
+            Self::FirstMorning => garden.onboarding.hint().into(),
+            Self::Pier if !garden.harbor.started => {
+                "Sprich mit Bo oder lies den Aushang am Bautisch.".into()
+            }
+            Self::Pier => format!(
+                "{} · {}",
+                garden.harbor.phase.label(),
+                crate::harbor::supplies(garden)
+            ),
+            Self::Resident(npc) => npc.whereabouts(garden).into(),
             Self::Town(npc) => town::order_detail(npc, garden),
             Self::Regional(frontier) if !frontier.unlocked(garden) => {
                 format!("Weg gesperrt · {}", frontier.describe(garden).0)
@@ -322,6 +359,21 @@ impl Guide {
                 Some(Target::Resonator(Resonator::Harbor))
             }
             Self::Festival | Self::Farm => None,
+            Self::FirstMorning => match garden.onboarding {
+                crate::onboarding::Onboarding::Harbor => person(Npc::Bo),
+                crate::onboarding::Onboarding::Done => None,
+                _ => Some(Target::Door),
+            },
+            Self::Workshop => (!garden.workshop.restored).then_some(Target::Bench),
+            Self::Pier => Some(match garden.harbor.phase {
+                crate::harbor::Phase::Damaged if !garden.harbor.started => Target::Person(Npc::Bo),
+                crate::harbor::Phase::Damaged if garden.harbor.salvage_available() => {
+                    Target::HarborDriftwood
+                }
+                crate::harbor::Phase::Landing if !garden.harbor.fittings => Target::Bench,
+                _ => Target::HarborBoard,
+            }),
+            Self::Resident(npc) => person(npc),
             Self::SeasonMeeting => Some(Target::SeasonMeeting),
             Self::Town(npc) => (!town::order_done(npc, garden)).then_some(Target::Person(npc)),
             Self::Regional(frontier) if !frontier.unlocked(garden) => gateway(frontier),

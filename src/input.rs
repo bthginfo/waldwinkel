@@ -29,9 +29,15 @@ struct Tap {
     utility: Option<Utility>,
 }
 
+struct Stick {
+    id: Pointer,
+    anchor: Vec2,
+    position: Vec2,
+}
+
 #[derive(Resource, Default)]
 pub struct Gesture {
-    stick: Option<(Pointer, Vec2)>,
+    stick: Option<Stick>,
     tap: Option<Tap>,
     pub stick_axis: Vec2,
     fingers: Vec<(u64, Vec2)>,
@@ -45,7 +51,11 @@ impl Gesture {
     fn press(&mut self, pointer: Pointer, at: Vec2, layout: HudLayout) {
         if layout.on_stick(at) {
             if self.stick.is_none() {
-                self.stick = Some((pointer, at));
+                self.stick = Some(Stick {
+                    id: pointer,
+                    anchor: at,
+                    position: at,
+                });
             }
         } else if self.tap.is_none()
             && (layout.utility(at).is_some() || layout.on_action(at) || !layout.on_other_ui(at))
@@ -60,10 +70,10 @@ impl Gesture {
     }
 
     fn moved(&mut self, pointer: Pointer, at: Vec2) {
-        if let Some((id, pos)) = &mut self.stick {
-            if *id == pointer {
-                *pos = at;
-            }
+        if let Some(stick) = &mut self.stick
+            && stick.id == pointer
+        {
+            stick.position = at;
         }
     }
 
@@ -74,7 +84,7 @@ impl Gesture {
         layout: HudLayout,
         controls: &mut Controls,
     ) {
-        if self.stick.is_some_and(|(id, _)| id == pointer) {
+        if self.stick.as_ref().is_some_and(|stick| stick.id == pointer) {
             self.stick = None;
         }
         if self.tap.is_some_and(|tap| tap.id == pointer) {
@@ -198,8 +208,8 @@ pub fn collect(
     if let Some(at) = window.cursor_position() {
         gesture.moved(Pointer::Mouse, at);
     }
-    let axis = gesture.stick.map_or(Vec2::ZERO, |(_, pos)| {
-        let direction = (pos - layout.stick_center()) / (44.0 * layout.scale);
+    let axis = gesture.stick.as_ref().map_or(Vec2::ZERO, |stick| {
+        let direction = (stick.position - stick.anchor) / (44.0 * layout.scale);
         let magnitude = ((direction.length() - 0.10) / 0.90).clamp(0., 1.);
         Vec2::new(direction.x, -direction.y).normalize_or_zero() * magnitude.powf(1.24)
     });

@@ -14,7 +14,7 @@ use crate::{
     garden::Garden,
     seasons::MEETING_POINT,
     terrain,
-    world::{IslandCamera, camera_offset, exterior_ground},
+    world::{IslandCamera, camera_offset, exterior_ground, surface_height},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -320,7 +320,7 @@ pub fn precipitation(
             reset_drop(&mut drop, &mut transform, center, width, true);
             continue;
         }
-        let ground = exterior_ground(point).max(-0.79);
+        let ground = surface_height(point, &garden).max(-0.79);
         let surface = ground.max(terrain::weather_cover(point));
         if next.y <= surface {
             if !drop.snow

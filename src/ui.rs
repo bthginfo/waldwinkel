@@ -12,7 +12,7 @@ use crate::{
     town::Dialog,
     travel::District,
     weather::{Season, Sky},
-    world::{Gardener, IslandCamera, PLOTS, can_work},
+    world::{Gardener, IslandCamera, PLOTS, work_reach},
 };
 
 const MARGIN: f32 = 23.0;
@@ -253,7 +253,7 @@ pub fn map_labels(
             landmark_center(
                 camera,
                 view,
-                adventure.position(label.0),
+                adventure.position(label.0, &garden),
                 layout.scale,
                 landmark_offset(label.0),
             )
@@ -276,7 +276,7 @@ pub fn map_labels(
             landmark_center(
                 camera,
                 view,
-                adventure.position(target),
+                adventure.position(target, &garden),
                 layout.scale,
                 GUIDE_OFFSET,
             )
@@ -985,9 +985,10 @@ pub fn update(
         panel.detail = match stage {
             Stage::Grass => "Lockere die Erde.".into(),
             Stage::Soil => format!(
-                "{} · {} Saatgut",
+                "{} · {} Saatgut · {} Gießtage",
                 adventure.crop.name(),
-                garden.seed_count(adventure.crop)
+                garden.seed_count(adventure.crop),
+                adventure.crop.days()
             ),
             Stage::Ripe => format!("{} sind reif.", plot.crop().name()),
             _ => "Die Pflanzen wachsen.".into(),
@@ -1010,9 +1011,10 @@ pub fn update(
         panel.fallback = if garden.clock.night() {
             panel.detail = "Zeit zum Schlafen. Im Bett beginnt der nächste Tag.".into();
             "Morgen weiter"
-        } else if focus.pending.is_some()
-            && !can_work(player.position, PLOTS[index], &adventure, &garden)
-        {
+        } else if focus.pending.is_some_and(|(action, _)| {
+            !work_reach(PLOTS[index], action, &garden)
+                .reached(player.position, &|p| adventure.walkable(p, &garden))
+        }) {
             panel.detail = "Auf dem Weg zum Beet …".into();
             "Zum Beet"
         } else if stage == Stage::Soil && panel.action.is_none() {

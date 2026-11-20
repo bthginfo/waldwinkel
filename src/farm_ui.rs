@@ -3,11 +3,15 @@ use bevy::prelude::*;
 use crate::{
     Adventure, Controls, GardenFocus, Notice,
     adventure::{Area, commit},
+    cinematic::Clip,
     duel::{Battle, CAMP_INTERVAL, Card, DECK_SIZE, Gear, Talent},
     furniture::{self, Blueprint, CATALOG},
     garden::{Crop, FERTILIZER_PRICE, Garden, SavePath},
+    harbor::{self, Phase},
     homestead::{Product, Village},
     input::Gesture,
+    inventory::{self, Material},
+    onboarding::Onboarding,
     processing::{Dish, Method, Preparation},
     progression::{self, CARDS_FOR_SALE, GearSource},
     regions::Bell,
@@ -16,6 +20,7 @@ use crate::{
     story::{Guide, GuideTab},
     ui::{self, UiFonts},
     weather::Season,
+    workshop::{BuildingPlan, Project, ToolKind},
     world::Gardener,
 };
 
@@ -27,6 +32,8 @@ pub enum FarmPage {
     SeedShop,
     Sale,
     Workbench,
+    Projects,
+    Tools { at_forge: bool },
     BlueprintShop,
     Furnish,
     Kitchen,
@@ -39,6 +46,8 @@ pub enum FarmPage {
     Expedition,
     Journal(GuideTab),
     Calendar,
+    Harbor { at_site: bool },
+    Cinematic(Clip),
     SeasonMeeting,
     Battle,
 }
@@ -50,6 +59,7 @@ pub struct FarmMenu {
     selected: Option<Entry>,
     preparation: Option<Preparation>,
     visible_time: f32,
+    clip_time: f32,
     message: String,
     battle: Option<Battle>,
     deck_draft: Vec<Card>,
@@ -58,6 +68,17 @@ pub struct FarmMenu {
 impl FarmMenu {
     pub fn open(&self) -> bool {
         self.page.is_some()
+    }
+
+    pub fn clip(&self) -> Option<(Clip, f32)> {
+        match self.page {
+            Some(FarmPage::Cinematic(clip)) => Some((clip, self.clip_time)),
+            _ => None,
+        }
+    }
+
+    pub fn advance_clip(&mut self, delta: f32) {
+        self.clip_time += delta;
     }
 
     pub fn show(&mut self, page: FarmPage) {
@@ -104,23 +125,41 @@ impl FarmMenu {
             FarmPage::Seeds | FarmPage::SeedShop => {
                 Crop::ALL.into_iter().map(Entry::Seed).collect()
             }
-            FarmPage::Sale | FarmPage::Inventory => {
-                Product::stocked(garden).map(Entry::Stock).collect()
-            }
+            FarmPage::Sale => Product::stocked(garden).map(Entry::Stock).collect(),
+            FarmPage::Inventory => Material::stocked(garden)
+                .map(Entry::Material)
+                .chain(Product::stocked(garden).map(Entry::Stock))
+                .collect(),
             FarmPage::Travel(from) => Bell::ALL
                 .into_iter()
                 .filter(|&bell| bell != from && bell.ready(garden))
                 .map(Entry::Destination)
                 .collect(),
-            FarmPage::Workbench | FarmPage::BlueprintShop | FarmPage::Furnish => CATALOG
-                .iter()
-                .enumerate()
-                .filter(|&(index, design)| match page {
-                    FarmPage::BlueprintShop => matches!(design.blueprint, Blueprint::Shop { .. }),
-                    FarmPage::Furnish => garden.crafted[index],
-                    _ => true,
-                })
-                .map(|(index, _)| Entry::Design(index))
+            FarmPage::Projects => Project::available(garden).map(Entry::Project).collect(),
+            FarmPage::Tools { .. } => ToolKind::ALL.into_iter().map(Entry::Tool).collect(),
+            FarmPage::Workbench | FarmPage::BlueprintShop | FarmPage::Furnish => (page
+                == FarmPage::BlueprintShop)
+                .then_some(BuildingPlan::ALL)
+                .into_iter()
+                .flatten()
+                .map(Entry::BuildingPlan)
+                .chain(
+                    (page == FarmPage::Workbench && garden.harbor.phase == Phase::Landing)
+                        .then_some(Entry::Fittings),
+                )
+                .chain(
+                    CATALOG
+                        .iter()
+                        .enumerate()
+                        .filter(|&(index, design)| match page {
+                            FarmPage::BlueprintShop => {
+                                matches!(design.blueprint, Blueprint::Shop { .. })
+                            }
+                            FarmPage::Furnish => garden.crafted[index],
+                            _ => garden.blueprints[index],
+                        })
+                        .map(|(index, _)| Entry::Design(index)),
+                )
                 .collect(),
             FarmPage::Kitchen => self.preparation.as_ref().map_or_else(
                 || Dish::ALL.into_iter().map(Entry::Dish).collect(),
@@ -145,7 +184,9 @@ impl FarmMenu {
                 .collect(),
             FarmPage::Journal(tab) => Guide::entries(tab).map(Entry::Guide).collect(),
             FarmPage::Calendar => Season::ALL.into_iter().map(Entry::Season).collect(),
-            FarmPage::SeasonMeeting => Vec::new(),
+            FarmPage::SeasonMeeting | FarmPage::Harbor { .. } | FarmPage::Cinematic(_) => {
+                Vec::new()
+            }
             FarmPage::Battle => Vec::new(),
         }
     }
@@ -159,6 +200,11 @@ impl FarmMenu {
 enum Entry {
     Seed(Crop),
     Stock(Product),
+    Material(Material),
+    Fittings,
+    Project(Project),
+    Tool(ToolKind),
+    BuildingPlan(BuildingPlan),
     Design(usize),
     Dish(Dish),
     Step(&'static str),
@@ -176,6 +222,11 @@ impl Entry {
         match self {
             Self::Seed(crop) => crop.name().into(),
             Self::Stock(item) => item.label(),
+            Self::Material(item) => item.name(),
+            Self::Fittings => "Kupferbeschläge".into(),
+            Self::Project(project) => project.name().into(),
+            Self::Tool(tool) => format!("{} · {}", tool.name(), tool.tier(garden)),
+            Self::BuildingPlan(plan) => plan.name().into(),
             Self::Design(i) => CATALOG[i].name.into(),
             Self::Dish(dish) => dish.name().into(),
             Self::Step(text) => text.into(),
@@ -207,11 +258,20 @@ impl Entry {
                 garden.seed_count(crop),
                 crop.days()
             ),
+            Self::Stock(item) if page == FarmPage::Inventory => format!("×{}", garden.stock(item)),
             Self::Stock(item) => format!(
                 "{} Stück · {} Münzen je Stück",
                 garden.stock(item),
                 item.value()
             ),
+            Self::Material(item) => format!("×{}", item.amount(garden)),
+            Self::Fittings if garden.harbor.fittings => "Fertig · Zum Bautisch bringen".into(),
+            Self::Fittings => harbor::fitting_supplies(garden),
+            Self::Project(project) => project.detail(garden),
+            Self::Tool(tool) => {
+                tool.requirements(garden, page == FarmPage::Tools { at_forge: true })
+            }
+            Self::BuildingPlan(plan) => plan.detail(garden),
             Self::Design(i) if page == FarmPage::Furnish => {
                 if garden.furniture.contains(&((i + 1) as u8)) {
                     "Aufgestellt"
@@ -291,6 +351,9 @@ pub enum Choice {
     SaveDeck,
     Talents,
     Gear,
+    Projects,
+    Tools,
+    Recipes,
     Return,
     Guide(GuideTab),
     Calendar,
@@ -305,6 +368,9 @@ pub enum Field {
     CardDetail(usize),
     Work,
 }
+
+#[derive(Component)]
+pub struct ItemPicture(usize);
 
 #[derive(Component)]
 pub enum HeatMeter {
@@ -411,17 +477,37 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                                         width: Val::Percent(48.),
                                         min_height: Val::Px(59.),
                                         padding: UiRect::axes(Val::Px(12.), Val::Px(6.)),
-                                        flex_direction: FlexDirection::Column,
+                                        flex_direction: FlexDirection::Row,
                                         justify_content: JustifyContent::Center,
-                                        row_gap: Val::Px(1.),
+                                        align_items: AlignItems::Center,
+                                        column_gap: Val::Px(9.),
                                         ..default()
                                     },
                                     BackgroundColor(Color::srgb_u8(241, 228, 191)),
                                     BorderRadius::all(Val::Px(12.)),
                                 ))
                                 .with_children(|card| {
-                                    card.spawn((Field::CardName(i), fonts.bold("", 16.)));
-                                    card.spawn((Field::CardDetail(i), fonts.body("", 13.)));
+                                    card.spawn((
+                                        ItemPicture(i),
+                                        ImageNode::default(),
+                                        Node {
+                                            display: Display::None,
+                                            width: Val::Px(43.),
+                                            height: Val::Px(43.),
+                                            flex_shrink: 0.,
+                                            ..default()
+                                        },
+                                    ));
+                                    card.spawn(Node {
+                                        flex_direction: FlexDirection::Column,
+                                        flex_grow: 1.,
+                                        row_gap: Val::Px(1.),
+                                        ..default()
+                                    })
+                                    .with_children(|text| {
+                                        text.spawn((Field::CardName(i), fonts.bold("", 16.)));
+                                        text.spawn((Field::CardDetail(i), fonts.body("", 13.)));
+                                    });
                                 });
                         }
                     });
@@ -446,9 +532,13 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                             (Choice::SaveDeck, "Deck speichern", 129.),
                             (Choice::Talents, "Talente", 84.),
                             (Choice::Gear, "Ausrüstung", 106.),
+                            (Choice::Projects, "Bauprojekte", 110.),
+                            (Choice::Tools, "Werkzeuge", 106.),
+                            (Choice::Recipes, "Möbel", 84.),
                             (Choice::Return, "Zurück", 84.),
                             (Choice::Guide(GuideTab::Orders), "Aufträge", 104.),
                             (Choice::Guide(GuideTab::Story), "Geschichte", 112.),
+                            (Choice::Guide(GuideTab::Town), "Dorf", 76.),
                             (Choice::Calendar, "Kalender", 104.),
                         ] {
                             footer
@@ -488,6 +578,11 @@ pub fn input(
     let Some(choice) = choices
         .iter()
         .find_map(|(choice, pressed)| (*pressed == Interaction::Pressed).then_some(*choice))
+        .or_else(|| {
+            menu.clip()
+                .filter(|(clip, seconds)| *seconds >= clip.duration())
+                .map(|_| Choice::Close)
+        })
     else {
         return;
     };
@@ -497,7 +592,14 @@ pub fn input(
             menu.close();
             *gesture = Gesture::default();
             *controls = Controls::default();
-            None
+            if page == FarmPage::Cinematic(Clip::Arrival)
+                && garden.onboarding == Onboarding::Welcome
+            {
+                garden.onboarding = Onboarding::Till;
+                Some(Ok("Auftrag gestartet · Dein erster Morgen".into()))
+            } else {
+                None
+            }
         }
         Choice::Card(index) => {
             let entry = menu
@@ -602,6 +704,28 @@ pub fn input(
             menu.navigate(FarmPage::Talents);
             None
         }
+        Choice::Projects
+            if page == FarmPage::Workbench || page == (FarmPage::Tools { at_forge: false }) =>
+        {
+            menu.navigate(FarmPage::Projects);
+            None
+        }
+        Choice::Tools
+            if matches!(page, FarmPage::Workbench | FarmPage::Projects)
+                && garden.workshop.restored =>
+        {
+            menu.navigate(FarmPage::Tools { at_forge: false });
+            None
+        }
+        Choice::Recipes
+            if matches!(
+                page,
+                FarmPage::Projects | FarmPage::Tools { at_forge: false }
+            ) && garden.workshop.restored =>
+        {
+            menu.navigate(FarmPage::Workbench);
+            None
+        }
         Choice::Gear if page == FarmPage::Workbench || page == FarmPage::CardShop => {
             let source = if page == FarmPage::Workbench {
                 GearSource::Workbench
@@ -664,9 +788,26 @@ pub fn input(
                 Err("Für diesen Rang fehlen Punkte, oder das Talent ist bereits ausgebaut.".into())
             })
         }
-        Choice::Work if matches!(page, FarmPage::Journal(_) | FarmPage::Calendar) => {
+        Choice::Work if matches!(page, FarmPage::Harbor { .. }) && !garden.harbor.started => {
+            Some(harbor::begin(&mut garden))
+        }
+        Choice::Work if page == (FarmPage::Harbor { at_site: true }) => {
+            let result = harbor::build(&mut garden);
+            if result.is_ok() && garden.harbor.phase == Phase::Open {
+                adventure.map = false;
+                menu.show(FarmPage::Cinematic(Clip::Opening));
+            }
+            Some(result)
+        }
+        Choice::Work
+            if matches!(
+                page,
+                FarmPage::Journal(_) | FarmPage::Calendar | FarmPage::Harbor { at_site: false }
+            ) =>
+        {
             let guide = match (page, menu.selected) {
                 (FarmPage::Calendar, _) => Guide::SeasonMeeting,
+                (FarmPage::Harbor { .. }, _) => Guide::Pier,
                 (_, Some(Entry::Guide(guide))) => guide,
                 _ => return,
             };
@@ -702,7 +843,52 @@ pub fn input(
             };
             Some(source.equip(&mut garden, gear))
         }
+        Choice::Work if page == FarmPage::Projects => {
+            let Some(Entry::Project(project)) = menu.selected else {
+                return;
+            };
+            let result = project.build(&mut garden);
+            if result.is_ok() {
+                if project == Project::Restore {
+                    menu.navigate(FarmPage::Workbench);
+                } else {
+                    menu.selected = None;
+                }
+            }
+            Some(result)
+        }
+        Choice::Work if matches!(page, FarmPage::Tools { .. }) => {
+            let Some(Entry::Tool(tool)) = menu.selected else {
+                return;
+            };
+            Some(tool.upgrade(&mut garden, page == FarmPage::Tools { at_forge: true }))
+        }
+        Choice::Work
+            if page == FarmPage::BlueprintShop
+                && matches!(menu.selected, Some(Entry::BuildingPlan(_))) =>
+        {
+            let Some(Entry::BuildingPlan(plan)) = menu.selected else {
+                unreachable!()
+            };
+            Some(plan.buy(&mut garden))
+        }
         Choice::Work if matches!(page, FarmPage::Workbench | FarmPage::BlueprintShop) => {
+            if page == FarmPage::Workbench && menu.selected == Some(Entry::Fittings) {
+                let result = harbor::make_fittings(&mut garden);
+                if let Ok(message) = &result {
+                    commit(
+                        &garden,
+                        &path,
+                        &mut notice,
+                        now,
+                        message.clone(),
+                        None,
+                        None,
+                    );
+                }
+                menu.message = result.unwrap_or_else(|error| error);
+                return;
+            }
             let Some(Entry::Design(index)) = menu.selected else {
                 return;
             };
@@ -755,15 +941,19 @@ pub fn update(
     adventure: Res<Adventure>,
     garden: Res<Garden>,
     time: Res<Time>,
+    assets: Res<AssetServer>,
     mut veil: Single<&mut Node, With<Pane>>,
     mut fields: Query<(&Field, &mut Text)>,
     mut choices: Query<(&Choice, &Interaction, &mut Node, &mut BackgroundColor), Without<Pane>>,
     mut meter: Query<(&HeatMeter, &mut Node), (Without<Pane>, Without<Choice>)>,
+    mut pictures: Query<
+        (&ItemPicture, &mut ImageNode, &mut Node),
+        (Without<Pane>, Without<Choice>, Without<HeatMeter>),
+    >,
 ) {
-    let Some(page) = menu
-        .page
-        .filter(|&page| session.playing() && page != FarmPage::Battle)
-    else {
+    let Some(page) = menu.page.filter(|&page| {
+        session.playing() && !matches!(page, FarmPage::Battle | FarmPage::Cinematic(_))
+    }) else {
         veil.display = Display::None;
         return;
     };
@@ -776,6 +966,40 @@ pub fn update(
     let balance = garden.farm.coins;
     let selected = menu.selected;
     let progress = menu.preparation.as_ref();
+    for (picture, mut image, mut node) in &mut pictures {
+        let entry = entry_at(picture.0);
+        let slug = match entry {
+            Some(Entry::Stock(item)) => Some(inventory::product_icon(item)),
+            Some(Entry::Material(item)) => Some(item.icon()),
+            Some(Entry::Seed(crop)) => Some(inventory::crop_icon(crop)),
+            Some(Entry::Fittings) => Some("fittings"),
+            Some(Entry::BuildingPlan(BuildingPlan::Barn(_))) => Some("plan_barn"),
+            Some(Entry::BuildingPlan(BuildingPlan::Room(_)) | Entry::Project(Project::Room(_))) => {
+                Some("plan_room")
+            }
+            Some(Entry::Design(_) | Entry::Project(_)) => Some("plan_furniture"),
+            _ => None,
+        }
+        .map(str::to_owned)
+        .or_else(|| {
+            if let Some(Entry::Tool(tool)) = entry {
+                Some(tool.icon(&garden))
+            } else {
+                None
+            }
+        });
+        node.display = if slug.is_some() {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if let Some(slug) = slug {
+            let next = assets.load(format!("ui/items/{slug}.png"));
+            if image.image != next {
+                image.image = next;
+            }
+        }
+    }
     let heat = progress
         .filter(|game| game.dish.method() == Method::Cook)
         .map(|game| game.heat(menu.visible_time));
@@ -799,7 +1023,11 @@ pub fn update(
                 FarmPage::Seeds => "Saatguttasche",
                 FarmPage::SeedShop => "Saatgut und Dünger",
                 FarmPage::Sale => "Verkaufstruhe",
-                FarmPage::Workbench => "Werkbank",
+                FarmPage::Workbench => "Hofwerkbank · Möbel",
+                FarmPage::Projects if !garden.workshop.restored => "Die alte Hofwerkbank",
+                FarmPage::Projects => "Hofwerkbank · Bauprojekte",
+                FarmPage::Tools { at_forge: false } => "Hofwerkbank · Werkzeuge",
+                FarmPage::Tools { at_forge: true } => "Schmiedetisch",
                 FarmPage::BlueprintShop => "Bauplanstand",
                 FarmPage::Furnish => "Deine Möbel",
                 FarmPage::Kitchen => "Hofküche",
@@ -812,6 +1040,9 @@ pub fn update(
                 FarmPage::Expedition => "Dämmergänge",
                 FarmPage::Journal(GuideTab::Story) => "Das Licht der Wegglocken",
                 FarmPage::Journal(GuideTab::Orders) => "Aufträge",
+                FarmPage::Journal(GuideTab::Town) => "Eichenhafen",
+                FarmPage::Harbor { .. } => "Der alte Fischersteg",
+                FarmPage::Cinematic(_) => "",
                 FarmPage::Calendar => "Jahreszeitenkalender",
                 FarmPage::SeasonMeeting => Season::at(garden.day).meeting(),
                 FarmPage::Battle => "",
@@ -828,12 +1059,26 @@ pub fn update(
                 }
                 FarmPage::Sale => format!("{balance} Münzen · Erlös sofort verfügbar"),
                 FarmPage::Workbench => format!(
-                    "Seite {} / {} · Wähle ein Möbel für die Werkbank.",
+                    "{} gelernte Baupläne · Seite {}/{}",
+                    garden.blueprints.iter().filter(|&&known| known).count(),
                     menu.list_page + 1,
                     pages + 1
                 ),
+                FarmPage::Projects if !garden.workshop.restored => {
+                    "Repariere die Werkbank und lerne deine ersten drei Möbelbaupläne.".into()
+                }
+                FarmPage::Projects => format!(
+                    "Wohnraum · {} von 14 Möbelplätzen. Baupläne gibt es am Bauplanstand.",
+                    garden.workshop.slots()
+                ),
+                FarmPage::Tools { at_forge: false } => {
+                    "Verbessere deine Werkzeuge auf Kupfer. Die Silberstufe fertigt der Schmiedetisch.".into()
+                }
+                FarmPage::Tools { at_forge: true } => {
+                    "Hier kannst du Werkzeuge mit Silber aus der tiefen Mine verbessern.".into()
+                }
                 FarmPage::BlueprintShop => {
-                    format!("{balance} Münzen · Wähle einen Bauplan für deine Werkbank.")
+                    format!("{balance} Münzen · Baupläne für Ställe, Anbauten und Möbel.")
                 }
                 FarmPage::Furnish => {
                     "Wähle ein fertiges Möbel und stelle es auf einen freien Platz.".into()
@@ -846,8 +1091,10 @@ pub fn update(
                 }
                 FarmPage::Travel(_) => "Wähle eine reparierte Wegglocke als Ziel.".into(),
                 FarmPage::Inventory => format!(
-                    "Holz {} · Stein {} · Kupfer {} · Dünger {} · Futter {}",
-                    garden.wood, garden.stone, garden.copper, garden.fertilizer, garden.farm.feed
+                    "{} Stapel · Seite {}/{}",
+                    entries.len(),
+                    menu.list_page + 1,
+                    pages + 1
                 ),
                 FarmPage::Binder => format!(
                     "{}/{} Karten im Deck · {} in der Sammlung · Seite {}/{}",
@@ -885,6 +1132,11 @@ pub fn update(
                 FarmPage::Journal(GuideTab::Orders) => {
                     "Hof, Eichenhafen und die Außenregionen".into()
                 }
+                FarmPage::Journal(GuideTab::Town) => {
+                    "Wähle eine Person oder den Fischersteg für die Karte.".into()
+                }
+                FarmPage::Harbor { .. } => garden.harbor.phase.label().into(),
+                FarmPage::Cinematic(_) => String::new(),
                 FarmPage::Calendar => {
                     let season = Season::at(garden.day);
                     let day = Season::day(garden.day);
@@ -925,6 +1177,11 @@ pub fn update(
                 )
             }
             Field::Message if !menu.message.is_empty() => menu.message.clone(),
+            Field::Message if matches!(page, FarmPage::Harbor { .. }) => {
+                let phase = garden.harbor.phase;
+                let needs = harbor::supplies(&garden);
+                format!("{}\n{needs}", phase.instructions())
+            }
             Field::Message if page == FarmPage::Calendar => {
                 let season = match selected {
                     Some(Entry::Season(season)) => season,
@@ -956,6 +1213,9 @@ pub fn update(
                 )
             }
             Field::Message if selected.is_some() => match selected.unwrap() {
+                Entry::Tool(tool) => tool.effect().into(),
+                Entry::BuildingPlan(BuildingPlan::Barn(_)) => "Den Stall baust du auf der markierten Hoffläche.".into(),
+                Entry::BuildingPlan(BuildingPlan::Room(_)) => "Den Anbau baust du an deiner Hofwerkbank.".into(),
                 Entry::Stock(item) => format!(
                     "{} · {} Stück · {} Münzen für den Stapel",
                     item.label(),
@@ -1007,6 +1267,9 @@ pub fn update(
             }),
             Field::Work => match (page, selected) {
                 (FarmPage::BlueprintShop, _) => "Bauplan kaufen",
+                (FarmPage::Projects, Some(Entry::Project(Project::Restore))) => "Werkbank reparieren",
+                (FarmPage::Projects, _) => "Bauen",
+                (FarmPage::Tools { .. }, _) => "Verbessern",
                 (FarmPage::CardShop, _) => "Karte kaufen",
                 (FarmPage::Talents, _) => "Rang steigern",
                 (FarmPage::Gear(_), Some(Entry::Gear(gear)))
@@ -1019,6 +1282,10 @@ pub fn update(
                 (FarmPage::Journal(_), Some(Entry::Guide(Guide::Farm))) => "Belohnung holen",
                 (FarmPage::Journal(_), _) => "Auf Karte zeigen",
                 (FarmPage::Calendar, _) => "Treffpunkt zeigen",
+                (FarmPage::Harbor { .. }, _) if !garden.harbor.started => "Auftrag annehmen",
+                (FarmPage::Harbor { at_site: true }, _) => garden.harbor.phase.action(),
+                (FarmPage::Harbor { at_site: false }, _) => "Auf Karte zeigen",
+                (FarmPage::Workbench, Some(Entry::Fittings)) => "Beschläge fertigen",
                 (FarmPage::SeasonMeeting, _) => "Beitrag abgeben",
                 _ => "Herstellen",
             }
@@ -1041,6 +1308,22 @@ pub fn update(
             Choice::Next => (pages > 0, menu.list_page < pages),
             Choice::SellOne | Choice::SellAll => (page == FarmPage::Sale, selected.is_some()),
             Choice::Talents => (page == FarmPage::Binder, true),
+            Choice::Projects => (
+                page == FarmPage::Workbench || page == (FarmPage::Tools { at_forge: false }),
+                true,
+            ),
+            Choice::Tools => (
+                matches!(page, FarmPage::Workbench | FarmPage::Projects)
+                    && garden.workshop.restored,
+                true,
+            ),
+            Choice::Recipes => (
+                matches!(
+                    page,
+                    FarmPage::Projects | FarmPage::Tools { at_forge: false }
+                ) && garden.workshop.restored,
+                true,
+            ),
             Choice::Gear => (
                 matches!(page, FarmPage::Workbench | FarmPage::CardShop),
                 true,
@@ -1067,6 +1350,15 @@ pub fn update(
             Choice::SaveDeck => (page == FarmPage::Binder, menu.deck_draft.len() == DECK_SIZE),
             Choice::Work => {
                 let available = match (page, selected) {
+                    (FarmPage::Projects, Some(Entry::Project(project))) => {
+                        project.can_build(&garden)
+                    }
+                    (FarmPage::Tools { at_forge }, Some(Entry::Tool(tool))) => {
+                        tool.can_upgrade(&garden, at_forge)
+                    }
+                    (FarmPage::BlueprintShop, Some(Entry::BuildingPlan(plan))) => {
+                        plan.can_buy(&garden)
+                    }
                     (FarmPage::Workbench, Some(Entry::Design(i))) => {
                         garden.blueprints[i] && !garden.crafted[i] && CATALOG[i].can_build(&garden)
                     }
@@ -1090,12 +1382,20 @@ pub fn update(
                     }
                     (FarmPage::Calendar, _) => true,
                     (FarmPage::SeasonMeeting, _) => seasons::can_contribute(&garden),
+                    (FarmPage::Harbor { .. }, _) if !garden.harbor.started => true,
+                    (FarmPage::Harbor { at_site: true }, _) => harbor::can_build(&garden),
+                    (FarmPage::Harbor { at_site: false }, _) => true,
+                    (FarmPage::Workbench, Some(Entry::Fittings)) => {
+                        harbor::can_make_fittings(&garden)
+                    }
                     _ => false,
                 };
                 (
                     matches!(
                         page,
                         FarmPage::Workbench
+                            | FarmPage::Projects
+                            | FarmPage::Tools { .. }
                             | FarmPage::BlueprintShop
                             | FarmPage::CardShop
                             | FarmPage::Talents
@@ -1103,6 +1403,7 @@ pub fn update(
                             | FarmPage::Journal(_)
                             | FarmPage::Calendar
                             | FarmPage::SeasonMeeting
+                            | FarmPage::Harbor { .. }
                     ),
                     available,
                 )

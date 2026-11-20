@@ -1,15 +1,30 @@
-# Waldwinkel 1.2
+# Waldwinkel 1.3
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
-![Der Hof im Frühling, Sommer, Herbst und Winter](docs/12-jahreszeiten.jpg)
+![Die verbundene Insel mit Gebirgspässen und Flusstälern](docs/13-insel.jpg)
 
 ## Installieren
 
 - Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK](https://github.com/bthginfo/waldwinkel/releases/latest/download/Waldwinkel-Android.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
 
-## Neu in 1.2
+## Neu in 1.3
+
+- **Eine zusammenhängende Insel.** Bergkämme rahmen Farnwald, Hof und Kupferklamm. Die Wege ins Nebelmoor und in die Klamm führen durch Pässe, die Windweiden sind über die neue Weidebrücke erreichbar. Felsgruppen und Wälder markieren die Übergänge.
+- **Dein erster Morgen.** Ein neuer Spielstand beginnt mit einer kurzen Kamerafahrt und Untertiteln. Danach führt dein erster Auftrag vom Hacken, Säen und Gießen bis zum Gespräch mit Bo. Über **Überspringen** kommst du direkt zum Auftrag.
+- **Der alte Fischersteg.** Sprich mit Bo oder lies den Aushang am Bautisch in Eichenhafen. Treibholz vom Hafenufer und zwei Holz genügen für den ersten Anleger. Danach stellst du Kupferbeschläge an der Werkbank her und bringst Baumaterial und etwas aus deiner Ernte. Zur Wiedereröffnung gibt es eine zweite Kamerafahrt, den Zugang zur Seeseite mit Hafenheringen und den Bauplan für die Hafenlaterne.
+- **Dorf.** Bo und Fiete laufen zwischen Rathaus, Markt und Hafen. Unter **Journal → Dorf** siehst du ihren aktuellen Aufenthaltsort und kannst ihn auf der Karte markieren. Gespräche ändern sich mit den Jahreszeiten und dem Ausbau des Stegs.
+- **Tasche.** Gegenstände, Material, Saatgut und Ernte erscheinen mit eigenen Illustrationen und Stückzahl. Im Garten lassen sich die sichtbaren Blätter antippen, um das dazugehörige Beet zu wählen.
+- **Wege und Ton.** Die Figur bremst am Ziel ab und rundet freie Kurven. Wenn die Materialien und Stadtaufträge bereit sind, öffnet die Aktion das Tor und führt dich hindurch. Am Wasser hörst du Wellen, bei Regen leises Trommeln auf Holz. Schritte klingen auf Dielen, Gras und Schnee unterschiedlich. Unter **Menü → Ton** lässt sich die Ausgabe umschalten.
+- **Abbau.** Zusätzlich zu den Rohstoffbäumen am Hof kannst du 487 Wildbäume fällen und 172 weitere Findlinge abbauen. Beim Axtschlag fliegen Späne, und der Baum kippt. Felsen und Erzadern brechen beim Spitzhackenschlag in Stücke. Gefällte Bäume wachsen nach drei Spieltagen nach.
+- **Hofwerkbank und Baupläne.** Setze die Werkbank vor der Hütte mit zwei Holz und einem Stein instand. Damit lernst du die ersten drei Möbelbaupläne. Weitere Pläne kaufst du bei Bo oder am Bauplanstand, findest sie unterwegs oder verdienst sie mit Aufträgen.
+- **Werkzeugstufen.** Axt, Spitzhacke, Hacke und Gießkanne lassen sich auf Kupfer und Silber verbessern. Baue für Silber den Schmiedetisch. Axt und Spitzhacke erhöhen die Ausbeute. Hacke und Gießkanne gewinnen Reichweite.
+- **Haus und Tierhaltung.** Die Baupläne der Gartenstube und Lesekammer öffnen zwei begehbare Anbauten. Pro Raum kommen vier Möbelplätze dazu. Kaufe für den Hühnerstall oder die Schafscheune zuerst den Bauplan und baue das Gebäude auf dem Hof. Bei einem bestehenden Spielstand ist die Hofwerkbank bereits instand gesetzt.
+
+[Einführung](docs/13-ankunft.jpg) · [Tasche auf dem Handy](docs/13-tasche.jpg) · [Tasche auf dem Tablet](docs/13-tablet.jpg) · [Fischersteg](docs/13-steg.jpg) · [Wiedereröffnung](docs/13-eroeffnung.jpg) · [Baumfällen im Spiel](docs/13-abbau.mp4) · [Werkzeugausbau](docs/13-werkbank.jpg) · [Haus mit zwei Anbauten](docs/13-haus.jpg)
+
+## Seit 1.2
 
 - **Vier Jahreszeiten.** Alle sieben Spieltage wechseln Laubbäume und Wiesen ihr Aussehen. Im Winter tragen Nadelbäume und Dächer Schnee. Die Obstwiese ruht bis zum Frühling. Gegossene Gartenbeete wachsen weiterhin.
 - **Kalender und Sammeln.** Unter **Journal → Kalender** findest du den nächsten Wechsel, Hinweise zu zwölf saisonalen Fundorten und deine Sammlung. Blütenzweige, Sonnenmuscheln, Bernsteinnüsse und Frostbeeren kannst du am Dorftisch abgeben oder verkaufen. Ein abgeernteter Fundort füllt sich nach zwei Tagen derselben Jahreszeit wieder.
@@ -93,10 +108,10 @@ Im Startmenü kannst du auf bis zu drei getrennten Plätzen ein **Neues Spiel** 
 | Kalender | Uhrzeit und Wetter stehen oben im HUD. Im Journal siehst du Saisonfunde und die nächsten Dorftreffen. Schlafen setzt die Uhr auf 06:00 und lässt gegossene Pflanzen wachsen. Regen gießt Pflanzen und neue Saat automatisch. |
 | Obstwiese | Pflücke Äpfel und Waldbeeren von Frühling bis Herbst. Abgeerntete Bäume und Sträucher tragen nach zwei Spieltagen wieder Früchte. |
 | Hafenmarkt | Beim Saatgutstand jeweils drei Samen der gewählten Sorte kaufen. Beim Ankäufer wechselt die linke Auswahltaste zwischen den verfügbaren Waren. Obst, Gemüse, Fisch, Eier, Wolle, Silber und Kristalle bringen Münzen. |
-| Tiere | Baue das passende Gebäude am Hof und nimm ein Tier auf. Pflege und Ernte erfolgen am eigenen Stall. Futter kannst du an der Futterkiste auf der Tierweide nachkaufen. |
-| Mine | Kupfer und Silber liegen in den ersten Ebenen. Ab Tiefe 3 kommen Kristallnester und dunkles Gestein hinzu. Die Hafenschmiede kann die Spitzhacke für zwei Kupfer, zwei Holz und zwölf Münzen verbessern. Die verbesserte Hacke liefert zwei Erze pro Ader. |
+| Tiere | Kaufe den Bauplan bei Bo oder am Bauplanstand, baue das passende Gebäude am Hof und nimm ein Tier auf. Pflege und Ernte erfolgen am eigenen Stall. Futter kannst du an der Futterkiste auf der Tierweide nachkaufen. |
+| Mine | Kupfer und Silber liegen in den ersten Ebenen. Ab Tiefe 3 kommen Kristallnester und dunkles Gestein hinzu. Mit einer Kupferspitzhacke erhältst du zwei Erze pro Ader, mit einer Silberspitzhacke drei. |
 | Aufgaben | Am Brett oder unter **Journal → Aufträge** öffnen. Die acht Hofaufgaben fördern Garten, Sammeln, Handel, Tiere und Mine. Für eine erfüllte Aufgabe gibt es Saatgut und Münzen. |
-| Haus, Wald und Steg | Möbel herstellen und versetzen, markierte Kiefern fällen, Stein abbauen und am Steg angeln. |
+| Haus, Wald und Steg | Möbel an der Hofwerkbank herstellen und im Haus versetzen. Wildbäume fällen, Findlinge abbauen und am Steg angeln. |
 
 ### Steuerung
 
@@ -105,6 +120,8 @@ Im Startmenü kannst du auf bis zu drei getrennten Plätzen ein **Neues Spiel** 
 - **Tastatur und Maus.** WASD und Pfeiltasten bewegen den Tanuki. Tab wechselt das Beet, Leertaste führt die Aktion aus. Das Mausrad zoomt. M öffnet die Karte, E die Saatguttasche, Q das Journal und I die Tasche. Im Kampf spielen die Ziffern 1–8 eine Karte aus. Leertaste oder Enter beenden den Zug. F10 blendet das HUD aus, F12 speichert ein Spielbild.
 
 ## Projekt ausführen und bauen
+
+Unter Linux braucht Bevy für die Tonausgabe die ALSA-Entwicklungsbibliothek. Auf Debian und Ubuntu heißt das Paket `libasound2-dev`.
 
 ```sh
 cargo run --release --locked
@@ -124,6 +141,7 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 - `art/Waldwinkel.blend` enthält die Modelle und eine Gesamtansicht der Landschaft. `blender -b -P art/build_scene.py` exportiert die Modelle als GLB und erzeugt das Höhenfeld für Ufer, Brücken und Hindernisse. Bevy animiert Beine, Schuhe, Arme und den Schweif des Tanuki über getrennte Drehpunkte.
 - `art/draw_icons.py` zeichnet die HUD-Symbole und das App-Icon. Die verwendeten Schriften sind DM Sans und DM Serif Text mit beigefügter OFL-Lizenz.
+- `art/draw_inventory.py` zeichnet die Gegenstandsbilder. `art/build_audio.py` erzeugt Schritte, Regen und Wellen.
 - Android leitet Controller-Ereignisse aus der NDK-Eingabewarteschlange an dasselbe Spiel- und UI-Eingabesystem weiter wie Touch. Die Schnittstelle liegt in `src/controller.rs`.
 - Blender liefert die Regen- und Schneemodelle. Bevy animiert den Niederschlag, färbt die Außenansicht nach Wetter und Jahreszeit und zeigt gegossenen Boden.
 - Blender exportiert saisonales Laub, Schneeauflagen und Fensterlicht als getrennte GLB-Ebenen. Beim Backen entsteht auch ein Höhenfeld für Regendach und Baumkronen. Die Wiesen verwenden ein gemeinsames Mesh mit saisonalen Vertexfarben. Die Niederschlagspartikel werden wiederverwendet.
@@ -138,6 +156,8 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 ## Tests
 
-50 Rust-Tests decken Jahreszeitenwechsel, Fundorte, Dorftreffen, Spielstandmigration, Kollisionen und die 25 Dämmergänge ab. Die Android-Builds werden im Android-14-Emulator über die vorherige Installation geprüft. Die Aufnahmen stammen aus dem laufenden Bevy-Spiel.
+60 Rust-Tests decken den ersten Hofauftrag, Stegbau, Werkzeugstufen, Baupläne, Rohstoffabbau, die Gebirgspässe, Beetauswahl und die 25 Dämmergänge ab. Die Android-Builds werden im Android-14-Emulator über die vorherige Installation geprüft. Die Aufnahmen stammen aus dem laufenden Bevy-Spiel.
 
-Die Blender-Landschaften entstanden nach eigenen Bildreferenzen. [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)
+Die Blender-Landschaften entstanden nach eigenen Bildreferenzen. [Insel und Pässe](art/references/insel.jpg) · [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)
+
+Für den Hausausbau dienten Baupläne und Handwerksfortschritt in Palia sowie der Kauf von Haus- und Stallausbauten beim Schreiner in Coral Island als Referenzen. [Palia](https://palia.com/news/dev-update-8) · [Coral Island](https://blog.stairwaygames.com/post/october-2021-dev-update)

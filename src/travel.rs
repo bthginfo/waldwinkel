@@ -86,7 +86,9 @@ impl District {
             Some(Self::Forest)
         } else if point.y > 33. && point.x < 29. {
             Some(Self::Beach)
-        } else if point.x > 32. && point.y < 25. {
+        } else if point.x > 32.
+            && (point.y < 25. || (54. ..=60.).contains(&point.x) && point.y <= 37.)
+        {
             Some(Self::Town)
         } else {
             None
@@ -276,7 +278,7 @@ pub const FINDS: [Find; 51] = [
     },
     Find {
         district: District::Forest,
-        local: Vec2::new(-17.3, -20.1),
+        local: Vec2::new(-17.3, -18.95),
         loot: FindLoot::Product(Product::Hazel),
         quantity: 2,
     },

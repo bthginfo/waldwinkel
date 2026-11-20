@@ -20,6 +20,10 @@ sys.path.insert(0, str(ROOT / "art"))
 import landscape
 import frontier
 import route_details
+import harbor
+import geography
+import workshop_art
+from harvestable import Harvestables, LEAF
 from season_art import SeasonalArt, gathering_assets
 OUT = ROOT / "assets" / "models"
 RNG = random.Random(406)
@@ -376,6 +380,13 @@ def flowers(m,x,z,y,s,color):
 
 
 def pine(m,x,z,h,s,index):
+    if m.asset == "wood_tree":
+        return pine_geometry(m,x,z,h,s,index)
+    with harvest.capture(m,x,z,h,s,index%6):
+        pine_geometry(m,x,z,h,s,index)
+
+
+def pine_geometry(m,x,z,h,s,index):
     phase=RNG.uniform(0,TAU)
     r=.32*s
     if m.asset != "wood_tree":
@@ -749,7 +760,8 @@ def furniture_models():
     for i in range(13):
         y=.10+i*.197
         house.box(0,-2.96,y,7.15,.18,.19,["ead0a1","e6c59b","eac99d"][i%3],.019)
-        house.box(3.56,0,y,.18,5.9,.19,["d9b68e","e9c99c","e2bd91"][i%3],.019)
+        for z,depth in [(-1.71,2.48),(2.32,1.26)]:
+            house.box(3.56,z,y,.18,depth,.19,["d9b68e","e9c99c","e2bd91"][i%3],.019)
     for x in [-3.46,0,3.46]:
         house.box(x,-2.80,1.35,.19,.22,2.68,"916044",.038)
     house.box(0,-2.83,2.66,7.45,.30,.31,"9f6748",.049)
@@ -1565,12 +1577,13 @@ def farnwald():
           (-7.2,-3.2,.71),(3.1,4.23,.61),(5.91,4.96,.64),(-4.5,5.8,.58),(-2.83,-3.18,.62)]):
         pine(forest,x,z,0,s,i)
     for i,(x,z,sc) in enumerate([(-7.69,2.05,1.0),(-5.75,-4.5,.95),(.5,-4.9,1.12),(5.2,-2.5,.91),(6.2,3.9,.73),(-3.8,3.6,.79)]):
-        forest.obstacle_circle(x,z,.27*sc)
-        forest.pole((x,z,0),(x+.11,z,2.24*sc),.27*sc,"8b6449",9,tip=.142)
-        seasonal.bare_tree(forest,x,z,0,sc,2.24*sc)
-        for dx,dz,h,r in [(-.61,.14,2.13,.79),(.49,.1,2.47,.79),(.12,-.40,2.67,.88),(0,.24,3.0,.71)]:
-            seasonal.crown(forest,x+dx*sc,z+dz*sc,h*sc,r*sc,r*.87*sc,r*.70*sc,
-                             ["c9a752","dbb35b","b9a057","e2bf71"][(i+int(h*10))%4],9,4,rough=.17)
+        with harvest.capture(forest,x,z,0,sc,LEAF):
+            forest.obstacle_circle(x,z,.27*sc)
+            forest.pole((x,z,0),(x+.11,z,2.24*sc),.27*sc,"8b6449",9,tip=.142)
+            seasonal.bare_tree(forest,x,z,0,sc,2.24*sc)
+            for dx,dz,h,r in [(-.61,.14,2.13,.79),(.49,.1,2.47,.79),(.12,-.40,2.67,.88),(0,.24,3.0,.71)]:
+                seasonal.crown(forest,x+dx*sc,z+dz*sc,h*sc,r*sc,r*.87*sc,r*.70*sc,
+                                 ["c9a752","dbb35b","b9a057","e2bf71"][(i+int(h*10))%4],9,4,rough=.17)
     for i,(x,z,h) in enumerate([(-3.35,-6.74,.82),(-1.84,-7.02,1.20),(-.6,-7.16,1.44),(.78,-6.85,1.11),(-1.29,-5.95,.67)]):
         trail.obstacle_circle(x,z,.72)
         trail.ellipsoid(x,z,.14+h*.36,.93,.7,h,"969892",8,4,rough=.21)
@@ -1827,12 +1840,12 @@ def mainland_details():
         if i%5:
             pine(forest,x,z,h,sc,i)
         else:
-            forest.pole((x,z,h),(x+.04,z,h+2.04*sc),.24*sc,"8e6950",8,tip=.14)
-            seasonal.bare_tree(forest,x,z,h,sc,2.04*sc)
-            for dx,dz,r,y in [(-.51,.15,.83,1.87),(.49,.02,.86,2.26),(.01,-.21,.88,2.56)]:
-                seasonal.crown(forest,x+dx*sc,z+dz*sc,h+y*sc,r*sc,r*.85*sc,r*.80*sc,
-                                 rng.choice(["b1a053","caa350","d8ad5d","dec17d"]),9,4,rough=.16)
-        landscape.block_circle(wx,wz,.42*sc)
+            with harvest.capture(forest,x,z,h,sc,LEAF):
+                forest.pole((x,z,h),(x+.04,z,h+2.04*sc),.24*sc,"8e6950",8,tip=.14)
+                seasonal.bare_tree(forest,x,z,h,sc,2.04*sc)
+                for dx,dz,r,y in [(-.51,.15,.83,1.87),(.49,.02,.86,2.26),(.01,-.21,.88,2.56)]:
+                    seasonal.crown(forest,x+dx*sc,z+dz*sc,h+y*sc,r*sc,r*.85*sc,r*.80*sc,
+                                     rng.choice(["b1a053","caa350","d8ad5d","dec17d"]),9,4,rough=.16)
         if len(trees)>=92:
             break
     for i in range(208):
@@ -1954,7 +1967,6 @@ def mainland_details():
         if i%7==0 and z<33:
             sc=rng.uniform(.48,.83)
             pine(meadow,x,z,y,sc,i)
-            landscape.block_circle(x,z,.31*sc)
         elif i%3==0:
             flowers(meadow,x,z,y,rng.uniform(.69,1.1),rng.choice(["edd6b1","d7adc2","dacba0"]))
         else:
@@ -1976,14 +1988,14 @@ def mainland_details():
             y=landscape.height(x,z)
             sc=rng.uniform(.49,.88)
             if j%3==0:
-                meadow.pole((x,z,y),(x,z,y+1.78*sc),.182*sc,"987654",8,tip=.089)
-                seasonal.bare_tree(meadow,x,z,y,sc,1.78*sc)
-                for dx,dz,hh,r in [(-.40,.08,1.49,.66),(.38,.08,1.82,.73),(.07,-.08,2.12,.70)]:
-                    seasonal.crown(meadow,x+dx*sc,z+dz*sc,y+hh*sc,r*sc,r*.87*sc,r*.70*sc,
-                                     ["afad68","babb73","c8a65e","d4b268"][j%4],9,4,rough=.14)
+                with harvest.capture(meadow,x,z,y,sc,LEAF):
+                    meadow.pole((x,z,y),(x,z,y+1.78*sc),.182*sc,"987654",8,tip=.089)
+                    seasonal.bare_tree(meadow,x,z,y,sc,1.78*sc)
+                    for dx,dz,hh,r in [(-.40,.08,1.49,.66),(.38,.08,1.82,.73),(.07,-.08,2.12,.70)]:
+                        seasonal.crown(meadow,x+dx*sc,z+dz*sc,y+hh*sc,r*sc,r*.87*sc,r*.70*sc,
+                                         ["afad68","babb73","c8a65e","d4b268"][j%4],9,4,rough=.14)
             else:
                 pine(meadow,x,z,y,sc,j)
-            landscape.block_circle(x,z,.31*sc)
             if len(planted)>=count:
                 break
     for x,z,r in [(-35,15,1.5),(-26,23,1.05),(-20,32,1.17),(-12,28,1.23),
@@ -2235,7 +2247,7 @@ def build_object(model, bvh, material, collection, offset=Vector((0,0,0))):
 
 def scenery_patches(model, width=24.0):
     """Export spatial bounds small enough for the mobile renderer to cull distant scenery."""
-    if not model.asset.startswith(("district_","season_","world_ground","night_windows")) or len(model.faces) < 2600:
+    if not model.asset.startswith(("district_","season_","world_ground","night_windows","island_relief")) or len(model.faces) < 2600:
         yield model
         return
     patches={}
@@ -2545,10 +2557,11 @@ def dungeon_assets():
     return styles
 
 def generate():
-    global seasonal
+    global seasonal, harvest
     bpy.ops.wm.read_factory_settings(use_empty=True)
     OUT.mkdir(parents=True,exist_ok=True)
     seasonal=SeasonalArt(Model,blend)
+    harvest=Harvestables(Model,seasonal.layers)
     landscape.prepare_collisions()
     with landscape.original_layout():
         world=[*cabin(),*woods(),*grounds(),*expansion(),*homestead_models(),*travel_gates()]
@@ -2556,8 +2569,10 @@ def generate():
     existing_rng=RNG.getstate()
     districts.extend(frontier.models(SimpleNamespace(Model=Model,blend=blend,landscape=landscape,
                                                      city_house=city_house,pine=pine,barrel=barrel,lantern=lantern,
-                                                     seasonal=seasonal,
+                                                     seasonal=seasonal,harvest=harvest,
                                                      window=window,flowers=flowers,fern=fern,grass=grass)))
+    RNG.setstate(existing_rng)
+    world.extend(geography.models(SimpleNamespace(Model=Model,landscape=landscape,pine=pine,grass=grass)))
     RNG.setstate(existing_rng)
     terrain=landscape.terrain_models(SimpleNamespace(Model=Model, blend=blend))
     landscape.bake_heightmap(ROOT)
@@ -2566,13 +2581,16 @@ def generate():
            *deep_mine_assets(resources),*find_assets(),*npc_models(),*workshop_assets(),*regional_assets(),*dungeon_assets()]
     extra.extend([route_details.windmill_sails(Model),*route_details.story_models(Model,lantern)])
     extra.extend(gathering_assets(Model,lantern))
+    extra.extend(harbor.models(Model,lantern,barrel))
+    extra.extend(workshop_art.models(Model,lantern,window))
+    extra.extend(harvest.bake(ROOT))
     extra.extend([seasonal.wood_snow, seasonal.night_windows])
     exterior=[*world,*districts,*terrain,*seasonal.layers.values()]
     exterior_assets={model.asset for model in exterior}
     offsets={asset:Vector(point(*location,0)) for asset,location in landscape.ORIGINS.items()}
     zero=Vector((0,0,0))
     verts,faces=[],[]
-    for m in exterior:
+    for m in [*exterior,harvest.shadows]:
         if m.casts and m.asset not in ("season_spring","season_autumn","season_winter"):
             faces.extend(tuple(i+len(verts) for i in f) for f in m.faces)
             offset=offsets.get(m.asset,zero)
@@ -2615,7 +2633,7 @@ def generate():
 
     # Arrange the asset source pieces for inspection while leaving exported model origins intact.
     for asset, selection in objects.items():
-        if asset in ("island","mainland","world_ground","season_spring"):
+        if asset in ("island","mainland","world_ground","season_spring","island_relief"):
             continue
         for obj in selection:
             obj.hide_set(True)
@@ -2627,6 +2645,14 @@ def generate():
             preview.objects.link(replica)
             replica.location=offset
             replica.hide_set(False)
+    for x,z,h,scale,angle,variant in harvest.nodes:
+        for base in objects[f"forage_{variant}_summer"]:
+            replica=base.copy()
+            preview.objects.link(replica)
+            replica.location=point(x,z,h)
+            replica.rotation_euler.z=angle
+            replica.scale=(scale,)*3
+            replica.hide_set(False)
     for i, (x, z) in enumerate([(x,z) for z in [.48,2.10] for x in [1.59,3.15,4.71]]):
         groups = [("lawn",), ("soil","young"), ("soil","carrot"),
                   ("soil","sprout"), ("lawn",), ("soil",)][i]
@@ -2635,7 +2661,7 @@ def generate():
             preview.objects.link(replica)
             replica.location=point(x,z,0)
             replica.hide_set(False)
-    for asset,x,z,h in [("gardener",-.62,3.47,0),("tail",-.62,3.29,.58),("arm",-.864,3.47,.81),("arm",-.376,3.47,.81),
+    for asset,x,z,h in [("workbench_old",-.45,1.34,0),("gardener",-.62,3.47,0),("tail",-.62,3.29,.58),("arm",-.864,3.47,.81),("arm",-.376,3.47,.81),
                          ("leg",-.732,3.47,.356),("leg",-.508,3.47,.356),
                          ("boot",-.732,3.484,.132),("boot",-.508,3.484,.132),("hoe",-.371,3.512,.548),
                          ("cloud_1",-8.28,-6.64,3.72),("cloud_2",11.95,-4.03,2.62),("cloud_3",13.10,-2.99,2.21),

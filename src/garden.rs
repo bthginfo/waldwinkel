@@ -3,6 +3,7 @@ use crate::{
     duel,
     furniture::{self, CATALOG},
     homestead::{Homestead, Product},
+    onboarding::Onboarding,
     regions::RegionProgress,
     session::Checkpoint,
     story::StoryProgress,
@@ -20,7 +21,7 @@ use std::{
 pub const PLOT_COUNT: usize = 12;
 pub const FERTILIZER_PRICE: u32 = 4;
 const FERTILIZER_PACK: u32 = 2;
-const SAVE_VERSION: u8 = 11;
+const SAVE_VERSION: u8 = 13;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Quality {
@@ -163,7 +164,7 @@ impl Action {
     }
 }
 
-pub const FURNITURE_COUNT: usize = 6;
+pub const FURNITURE_COUNT: usize = 14;
 
 #[derive(Resource, Debug, Deserialize, Serialize)]
 #[serde(default)]
@@ -190,7 +191,7 @@ pub struct Garden {
     pub broken: Vec<usize>,
     pub mined: std::collections::BTreeSet<(u32, u16)>,
     pub deepest: u32,
-    pub furniture: [u8; FURNITURE_COUNT],
+    pub furniture: Vec<u8>,
     pub crafted: Vec<bool>,
     pub blueprints: Vec<bool>,
     pub challenge: usize,
@@ -201,7 +202,11 @@ pub struct Garden {
     pub rpg: duel::Progress,
     pub story: StoryProgress,
     pub seasons: crate::seasons::SeasonProgress,
+    pub harbor: crate::harbor::Progress,
+    pub onboarding: Onboarding,
     pub large_ui: bool,
+    pub sound_muted: bool,
+    pub workshop: crate::workshop::Progress,
 }
 
 impl Default for Garden {
@@ -229,9 +234,9 @@ impl Default for Garden {
             broken: Vec::new(),
             mined: Default::default(),
             deepest: 0,
-            furniture: [0; FURNITURE_COUNT],
-            crafted: (0..CATALOG.len()).map(|index| index == 0).collect(),
-            blueprints: furniture::starting_blueprints(),
+            furniture: vec![0; FURNITURE_COUNT],
+            crafted: vec![false; CATALOG.len()],
+            blueprints: vec![false; CATALOG.len()],
             challenge: 0,
             farm: Homestead::default(),
             checkpoint: None,
@@ -240,7 +245,11 @@ impl Default for Garden {
             rpg: duel::Progress::default(),
             story: StoryProgress::default(),
             seasons: Default::default(),
+            harbor: Default::default(),
+            onboarding: Onboarding::Welcome,
             large_ui: false,
+            sound_muted: false,
+            workshop: Default::default(),
         }
     }
 }
@@ -283,6 +292,7 @@ impl Garden {
             Product::Spoils(loot) => &mut self.rpg.trophies[loot as usize],
             Product::Seasonal(season) => &mut self.seasons.stock[season as usize],
             Product::Fish => &mut self.fish,
+            Product::Herring => &mut self.harbor.herring,
             Product::Mushroom => &mut self.town.goods[0],
             Product::Hazel => &mut self.town.goods[1],
             Product::Shell => &mut self.town.goods[2],
@@ -302,6 +312,7 @@ impl Garden {
             Product::Spoils(loot) => self.rpg.trophies[loot as usize],
             Product::Seasonal(season) => self.seasons.stock[season as usize],
             Product::Fish => self.fish,
+            Product::Herring => self.harbor.herring,
             Product::Mushroom => self.town.goods[0],
             Product::Hazel => self.town.goods[1],
             Product::Shell => self.town.goods[2],
@@ -470,6 +481,8 @@ impl Garden {
                 (Plot::Tilled, message)
             }
         };
+        self.onboarding
+            .farm_action(action, new.remaining().is_some_and(|(_, wet)| wet));
         self.plots[index] = new;
         Some(message)
     }
@@ -482,13 +495,21 @@ impl Garden {
         value ^ (value >> 31)
     }
 
+    pub fn wood_per_tree(&self) -> u32 {
+        3 + u32::from(crate::workshop::ToolKind::Axe.level(self))
+    }
+
+    pub fn stone_per_rock(&self) -> u32 {
+        2 + u32::from(crate::workshop::ToolKind::Pickaxe.level(self))
+    }
+
     pub fn chop_tree(&mut self, index: usize) -> bool {
         if self.felled.contains(&index) {
             return false;
         }
         self.felled.push(index);
         self.tree_regrowth.push((index, self.day.saturating_add(3)));
-        self.wood = self.wood.saturating_add(3);
+        self.wood = self.wood.saturating_add(self.wood_per_tree());
         true
     }
 
@@ -569,15 +590,10 @@ impl Garden {
             ));
         }
         garden.plots.resize(PLOT_COUNT, Plot::Grass);
+        garden.furniture.resize(FURNITURE_COUNT, 0);
+        garden.workshop.house = garden.workshop.house.min(2);
         garden.crafted.resize(CATALOG.len(), false);
         garden.blueprints.resize(CATALOG.len(), false);
-        for (known, starting) in garden
-            .blueprints
-            .iter_mut()
-            .zip(furniture::starting_blueprints())
-        {
-            *known |= starting;
-        }
         for (index, &built) in garden.crafted.iter().enumerate() {
             garden.blueprints[index] |= built;
         }
@@ -605,6 +621,24 @@ impl Garden {
         }
         if garden.version < 9 {
             crate::progression::restore_quest_cards(&mut garden);
+        }
+        if garden.version < 12 {
+            garden.onboarding = Onboarding::Done;
+        }
+        if garden.version < 13 {
+            garden.workshop.restored = true;
+            garden.workshop.barns = garden.farm.housing;
+            for plan in 0..3 {
+                furniture::learn(&mut garden, plan);
+            }
+        }
+        if garden.onboarding == Onboarding::Water
+            && garden
+                .plots
+                .iter()
+                .any(|plot| plot.remaining().is_some_and(|(_, wet)| wet))
+        {
+            garden.onboarding = Onboarding::Harbor;
         }
         garden.rpg.normalize();
         garden.version = SAVE_VERSION;
@@ -829,7 +863,10 @@ mod tests {
         let g = Garden::load(&path).unwrap();
         fs::remove_file(path).unwrap();
         assert_eq!(g.crafted.len(), CATALOG.len());
-        assert_eq!(g.furniture, [2, 0, 0, 0, 1, 0]);
+        assert_eq!(&g.furniture[..6], &[2, 0, 0, 0, 1, 0]);
+        assert!(g.workshop.restored);
+        assert!(g.workshop.barns[0]);
+        assert_eq!(g.furniture.len(), 14);
         assert!(g.crafted[2] && g.farm.animals[0].owned);
         assert_eq!(g.farm.housing, [true, false]);
         assert!(g.blueprints[crate::furniture::ARMCHAIR]);

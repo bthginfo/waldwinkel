@@ -19,7 +19,7 @@ use crate::{
     garden::{Action, Crop, Garden, Stage},
     season_view::SeasonLayer,
     terrain,
-    town::Npc,
+    town::{Npc, Resident},
     travel::District,
     weather::{self, Season, Sky},
 };
@@ -69,6 +69,7 @@ pub enum Tool {
     Axe,
     Pickaxe,
     WateringCan,
+    Rod,
     Weapon(Gear),
 }
 
@@ -130,7 +131,7 @@ pub struct Models {
     arm: Handle<Scene>,
     leg: Handle<Scene>,
     boot: Handle<Scene>,
-    tools: [(Tool, Handle<Scene>); 8],
+    tools: [(Tool, Handle<Scene>); 9],
     fertilized_soil: Handle<Scene>,
     water_drop: Handle<Scene>,
     clouds: [Handle<Scene>; 3],
@@ -147,6 +148,7 @@ impl FromWorld for Models {
                 (Vec2::ZERO, get("island")),
                 (Vec2::ZERO, get("mainland")),
                 (Vec2::ZERO, get("world_ground")),
+                (Vec2::ZERO, get("island_relief")),
             ]
             .into_iter()
             .chain(District::ALL.map(|district| (district.origin(), get(district.model()))))
@@ -177,6 +179,7 @@ impl FromWorld for Models {
                 (Tool::Axe, get("axe")),
                 (Tool::Pickaxe, get("pickaxe")),
                 (Tool::WateringCan, get("watering_can")),
+                (Tool::Rod, get("fishing_rod")),
                 (Tool::Weapon(Gear::TrailStick), get("gear_staff")),
                 (Tool::Weapon(Gear::CopperSickle), get("gear_sickle")),
                 (Tool::Weapon(Gear::SilverGuard), get("gear_silver")),
@@ -191,7 +194,12 @@ impl FromWorld for Models {
     }
 }
 
-pub fn setup(mut commands: Commands, models: Res<Models>, assets: Res<AssetServer>) {
+pub fn setup(
+    mut commands: Commands,
+    models: Res<Models>,
+    assets: Res<AssetServer>,
+    garden: Res<Garden>,
+) {
     let mill = Vec2::new(16., 122.8);
     commands.spawn((
         MillSails,
@@ -250,9 +258,10 @@ pub fn setup(mut commands: Commands, models: Res<Models>, assets: Res<AssetServe
             .observe(scene_ready);
     }
     for (i, person) in Npc::ALL.into_iter().enumerate() {
-        let point = person.position();
+        let point = person.position(&garden);
         commands.spawn((
             Exterior,
+            Resident(person),
             SceneRoot(assets.load(format!("models/{}.glb#Scene0", person.model()))),
             Transform::from_translation(position3(point, exterior_ground(point) + 0.04))
                 .with_rotation(Quat::from_rotation_y(-0.48 + i as f32 * 0.13)),
@@ -368,32 +377,20 @@ pub fn setup(mut commands: Commands, models: Res<Models>, assets: Res<AssetServe
     }
 }
 
-pub fn click_plot(camera: &Camera, transform: &GlobalTransform, screen: Vec2) -> Option<usize> {
-    let ray = camera.viewport_to_world(transform, screen).ok()?;
-    let t = (0.18 - ray.origin.y) / ray.direction.y;
-    if t < 0.0 {
-        return None;
-    }
-    let hit = (ray.origin + ray.direction * t).xz();
-    PLOTS
-        .iter()
-        .position(|position| (hit - position).abs().cmple(Vec2::splat(0.755)).all())
-}
-
-pub fn ground_point(ray: Ray3d, area: Area) -> Option<Vec2> {
+pub fn ground_point(ray: Ray3d, area: Area, garden: &Garden) -> Option<Vec2> {
     let plane = InfinitePlane3d::new(Dir3::NEG_Y);
     if !area.outdoors() {
         return Some(ray.get_point(ray.intersect_plane(Vec3::ZERO, plane)?).xz());
     }
-    let first = ray.intersect_plane(Vec3::Y * 5., plane)?;
+    let first = ray.intersect_plane(Vec3::Y * 34., plane)?;
     let last = ray.intersect_plane(Vec3::NEG_Y * 2., plane)?;
     let below = |distance| {
         let p = ray.get_point(distance);
-        p.y <= exterior_ground(p.xz())
+        p.y <= surface_height(p.xz(), garden)
     };
     let mut previous = first;
-    for i in 1..=20 {
-        let distance = first.lerp(last, i as f32 / 20.);
+    for i in 1..=38 {
+        let distance = first.lerp(last, i as f32 / 38.);
         if below(distance) {
             let mut top = previous;
             let mut bottom = distance;
@@ -440,6 +437,7 @@ pub fn update_camera(
     mut camera: Single<(&mut Projection, &mut Transform), With<IslandCamera>>,
     player: Single<&Gardener>,
     adventure: Res<Adventure>,
+    garden: Res<Garden>,
     time: Res<Time>,
     mut last: Local<Option<Area>>,
 ) {
@@ -448,9 +446,19 @@ pub fn update_camera(
         return;
     };
     let (base, center) = match (adventure.area, adventure.map) {
-        (Area::Island | Area::District(_), true) => (252., Vec3::new(0., 0.75, 49.)),
+        (Area::Island | Area::District(_), true) => (258., Vec3::new(0., 3., 54.)),
         (Area::Island | Area::District(_), false) => (12.3, position3(player.position, 0.89)),
-        (Area::Home, _) => (8.55, position3(adventure.area.origin(), 0.95)),
+        (Area::Home, _) => {
+            let (height, east) = match garden.workshop.house {
+                0 => (8.55, 0.),
+                1 => (10.6, 1.65),
+                _ => (11.7, 0.),
+            };
+            (
+                height,
+                position3(adventure.area.origin() + Vec2::X * east, 0.95),
+            )
+        }
         (Area::Mine(_) | Area::Expedition(_), true) => {
             (23., position3(adventure.area.origin(), 0.38))
         }
@@ -462,7 +470,7 @@ pub fn update_camera(
         base * (-adventure.zoom).exp()
     };
     let width = if adventure.map && adventure.area.outdoors() {
-        430.0
+        448.0
     } else {
         height * 1.30
     };
@@ -484,6 +492,11 @@ pub fn update_camera(
             width
         },
         min_height: applied,
+    };
+    ortho.far = if adventure.map && adventure.area.outdoors() {
+        775.
+    } else {
+        385.
     };
     transform.translation = if *last != Some(adventure.area) {
         desired
@@ -549,7 +562,7 @@ pub fn update_plots(
     }
 }
 
-fn replace_model(commands: &mut Commands, mount: Entity, scene: Option<&Handle<Scene>>) {
+pub(crate) fn replace_model(commands: &mut Commands, mount: Entity, scene: Option<&Handle<Scene>>) {
     let mut mount = commands.entity(mount);
     mount.despawn_related::<Children>();
     if let Some(scene) = scene {
@@ -592,11 +605,18 @@ pub fn advance_player(
     } else {
         Vec2::ZERO
     };
-    let old = player.position;
+    let old = adventure.step_away_from_resident(player.position, &garden);
+    player.position = old;
     let steps = (delta / MAX_STEP).ceil() as u32;
     let step_time = delta / steps as f32;
     let passable = |p| adventure.walkable(p, &garden);
     for _ in 0..steps {
+        if let Some((&corner, &next)) = player.route.front().zip(player.route.get(1))
+            && corner.distance_squared(player.position) < 0.55 * 0.55
+            && clear_walk(player.position, next, &passable)
+        {
+            player.route.pop_front();
+        }
         while player
             .route
             .front()
@@ -609,9 +629,15 @@ pub fn advance_player(
         }
         if let Some(point) = player.route.front() {
             let diff = *point - player.position;
+            let distance = diff.length();
+            let limit = if player.route.len() == 1 {
+                (2.0 * BRAKING * distance).sqrt().min(SPEED)
+            } else {
+                SPEED
+            };
             let speed = (player.velocity.length() + ACCELERATION * step_time)
-                .min(SPEED)
-                .min(diff.length() / step_time);
+                .min(limit)
+                .min(distance / step_time);
             player.velocity = diff.normalize_or_zero() * speed;
         } else {
             let rate = if desired.length_squared() < player.velocity.length_squared()
@@ -651,7 +677,7 @@ pub fn advance_player(
     }
     let height = transform.translation.y.lerp(
         match adventure.area {
-            Area::Island | Area::District(_) => exterior_ground(moved),
+            Area::Island | Area::District(_) => surface_height(moved, &garden),
             _ => 0.0,
         },
         1.0 - (-delta * 20.0).exp(),
@@ -809,7 +835,11 @@ pub fn animate_gardener(
         length
     };
     let point = root.translation.xz() + direction * softness * 0.19;
-    let ground = if outdoor { exterior_ground(point) } else { 0. };
+    let ground = if outdoor {
+        surface_height(point, &garden)
+    } else {
+        0.
+    };
     shadow.translation = position3(point, ground + 0.023);
     shadow.rotation = Quat::from_rotation_y(-azimuth);
     shadow.scale = Vec3::new(0.38 + softness * 0.40, 1.0, 0.32);
@@ -932,11 +962,19 @@ pub fn exterior_ground(p: Vec2) -> f32 {
     terrain::ground(p)
 }
 
+pub fn surface_height(point: Vec2, garden: &Garden) -> f32 {
+    garden
+        .harbor
+        .phase
+        .deck_height(point)
+        .unwrap_or_else(|| exterior_ground(point))
+}
+
 fn rect(p: Vec2, x: (f32, f32), z: (f32, f32)) -> bool {
     (x.0..=x.1).contains(&p.x) && (z.0..=z.1).contains(&p.y)
 }
 
-fn on_dock(p: Vec2) -> bool {
+pub fn on_dock(p: Vec2) -> bool {
     rect(p, (4.97, 6.63), (15.10, 19.48))
 }
 
@@ -955,8 +993,14 @@ fn clear_walk(a: Vec2, b: Vec2, passable: &impl Fn(Vec2) -> bool) -> bool {
     (1..=steps).all(|i| passable(a.lerp(b, i as f32 / steps as f32)))
 }
 
-pub fn can_work(player: Vec2, plot: Vec2, adventure: &Adventure, garden: &Garden) -> bool {
-    Reach::ground(plot).reached(player, &|p| adventure.walkable(p, garden))
+pub fn work_reach(plot: Vec2, action: Action, garden: &Garden) -> Reach {
+    use crate::workshop::ToolKind;
+    let tier = match action {
+        Action::Till => ToolKind::Hoe.level(garden),
+        Action::Water => ToolKind::Can.level(garden),
+        _ => 0,
+    };
+    Reach::target(plot, 0., REACH + f32::from(tier) * 0.22)
 }
 
 #[derive(Clone, Copy)]
@@ -967,6 +1011,11 @@ pub struct Reach {
 }
 
 impl Reach {
+    pub fn walk(point: Vec2) -> Self {
+        Self::target(point, 0., 0.30)
+    }
+
+    #[cfg(test)]
     pub fn ground(point: Vec2) -> Self {
         Self {
             point,
@@ -1149,6 +1198,33 @@ fn approach(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_three_passes_and_their_terrain_barriers_allow_only_the_marked_routes() {
+        use crate::regions::Frontier;
+        let open: Garden = serde_json::from_str(r#"{"regions":{"gates":[2,2,2]}}"#).unwrap();
+        let sealed = Garden::default();
+        let adventure = Adventure::default();
+        for gate in Frontier::ALL {
+            let exit = gate.entrance();
+            let entrance = gate.position() * 2. - exit;
+            assert!(adventure.walkable(entrance, &sealed), "{gate:?}");
+            assert!(!adventure.walkable(exit, &sealed), "{gate:?}");
+            let passable = |p| adventure.walkable(p, &open);
+            let path = approach(entrance, Reach::walk(exit), Vec2::ZERO, passable);
+            assert!(
+                path.back().is_some_and(|pos| pos.distance(exit) < 0.30),
+                "{gate:?}"
+            );
+        }
+        for outside in [
+            Vec2::new(78., -4.),
+            Vec2::new(-87., 2.),
+            Vec2::new(17., 76.),
+        ] {
+            assert!(!adventure.walkable(outside, &open), "{outside}");
+        }
+    }
 
     #[test]
     fn blocked_diagonal_preserves_the_longer_free_component() {
