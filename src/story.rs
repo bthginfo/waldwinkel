@@ -283,11 +283,23 @@ impl Guide {
             Self::Watch(site) => site.name(),
             Self::WatchFinale => "Junas Inselkarte",
             Self::Resident(npc) => npc.name(),
-            Self::Town(npc) => town::order_name(npc),
+            Self::Town(npc) => town::order_name(npc, garden),
             Self::Regional(frontier) => garden
                 .regions
                 .next_order(frontier)
                 .unwrap_or(frontier.district().name()),
+        }
+    }
+
+    pub fn preview(self, garden: &Garden) -> String {
+        match self {
+            Self::Town(npc) => town::order_preview(npc, garden),
+            Self::Regional(frontier) if !frontier.unlocked(garden) => "Zugang gesperrt".into(),
+            Self::Regional(frontier) => format!("{}/3 abgeschlossen · {}",
+                garden.regions.story_steps(frontier), frontier.district().name()),
+            Self::TownGarden => garden.town_garden.summary(garden.day),
+            Self::Pier => garden.harbor.phase.label().into(),
+            _ => self.detail(garden),
         }
     }
 
@@ -298,7 +310,10 @@ impl Guide {
                 "Erfüllt · Juna hat dir von den Klangsteinen erzählt.".into()
             }
             Self::BuildPlan => garden.plan.map_or_else(String::new, |plan| format!("Angeheftet · {}", plan.summary(garden))),
-            Self::TownGarden => garden.town_garden.summary(garden.day),
+            Self::TownGarden => format!(
+                "Lina, Bo und Mara wollen den Dorfplatz wieder gemeinsam nutzen. Aus deinen Lieferungen entstehen Beete, eine Pumpe und ein blühender Sitzplatz.\n{}",
+                garden.town_garden.summary(garden.day)
+            ),
             Self::FishSupper => garden.fish_supper.detail().into(),
             Self::EveningMarket => crate::evening_market::detail(garden).lines().next().unwrap_or("").into(),
             Self::Workshop if garden.workshop.restored => {
@@ -357,11 +372,12 @@ impl Guide {
             Self::Farm => "Hofaufgabe · +5 Münzen und Saatgut".into(),
             Self::FirstMorning => garden.onboarding.hint().into(),
             Self::Pier if !garden.harbor.started => {
-                "Sprich mit Bo oder lies den Aushang am Bautisch.".into()
+                "Seit dem Sturm bringen die Fischer ihren Fang über den rutschigen Uferweg. Bo möchte den Steg wieder öffnen. Sprich mit ihm oder lies den Aushang am Bautisch.".into()
             }
             Self::Pier => format!(
-                "{} · {}",
+                "{}\n{}\n{}",
                 garden.harbor.phase.label(),
+                garden.harbor.phase.instructions(),
                 crate::harbor::supplies(garden)
             ),
             Self::Watch(site) => site.summary(garden),
@@ -374,15 +390,7 @@ impl Guide {
             Self::Regional(frontier) if !frontier.unlocked(garden) => {
                 format!("Weg gesperrt · {}", frontier.describe(garden).0)
             }
-            Self::Regional(frontier) => {
-                let done = garden.regions.story_steps(frontier);
-                if done >= 3 {
-                    return "Erfüllt · Alle drei Aufträge der Region".into();
-                }
-                let (detail, action, _) = regions::story(frontier, garden);
-                let supplies = detail.lines().last().unwrap_or_default();
-                format!("{done}/3 erfüllt · {action} · {supplies}")
-            }
+            Self::Regional(frontier) => regions::journal_detail(frontier, garden),
         }
     }
 
@@ -445,7 +453,7 @@ impl Guide {
             Self::Resident(_) => None,
             Self::TownGarden if garden.town_garden.stage.model().is_some() => Some(Target::TownGarden),
             Self::TownGarden | Self::SeasonMeeting => Some(Target::SeasonMeeting),
-            Self::Town(npc) => (!town::order_done(npc, garden)).then_some(Target::Person(npc)),
+            Self::Town(npc) => town::order_target(npc, garden).then_some(Target::Person(npc)),
             Self::Regional(frontier) if !frontier.unlocked(garden) => gateway(frontier),
             Self::Regional(frontier) if garden.regions.story_steps(frontier) >= 3 => None,
             Self::Regional(frontier) => person(match frontier {

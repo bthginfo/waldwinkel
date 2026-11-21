@@ -8,7 +8,7 @@ use crate::{
     world::{Gardener, IslandCamera},
 };
 
-const MAP_WIDTH: f32 = 176.;
+pub(crate) const MAP_WIDTH: f32 = 176.;
 const GLINTS: usize = 8;
 
 #[derive(Component)]

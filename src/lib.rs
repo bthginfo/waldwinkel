@@ -16,6 +16,7 @@ mod feedback;
 mod fieldwork;
 mod figure;
 mod fish_supper;
+mod fishing;
 mod forest;
 mod furniture;
 mod garden;
@@ -31,6 +32,7 @@ mod mobile;
 mod night;
 mod onboarding;
 mod processing;
+mod quest_tracker;
 mod progression;
 mod regions;
 mod resident;
@@ -214,7 +216,7 @@ pub fn main() {
             ),
         )
         .add_systems(Update, ui::tablet_controls.after(ui::resize))
-        .add_systems(Startup, (context_menu::setup, night::setup, wheel::setup, navigation_ui::setup, decorate::setup, feedback::setup))
+        .add_systems(Startup, (context_menu::setup, night::setup, wheel::setup, navigation_ui::setup, quest_tracker::setup, decorate::setup, feedback::setup))
         .add_systems(
             Update,
             (
@@ -236,7 +238,9 @@ pub fn main() {
              wheel::update.after(wheel::input).before(ui::sync_visibility),
              decorate::draw.after(adventure::interact),
              decorate::originals.after(decorate::draw).after(adventure::draw),
-             feedback::update.after(adventure::interact)),
+             decorate::animate_assembly.after(decorate::originals).before(sound::play),
+             feedback::update.after(quest_tracker::update),
+             quest_tracker::update.after(adventure::interact)),
         )
         .add_systems(
             Update,

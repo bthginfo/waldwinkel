@@ -13,12 +13,12 @@ use crate::{
     furniture::{self, Blueprint, CATALOG},
     garden::{Crop, FERTILIZER_PRICE, Garden, SavePath},
     harbor::{self, Phase},
-    homestead::{Product, Village},
+    homestead::{Animal, Product, Village},
     input::Gesture,
     inventory::{self, Material},
     logbook::Path,
     onboarding::Onboarding,
-    processing::{Dish, Method, Preparation},
+    processing::{Dish, Method, Phase as KitchenPhase, Preparation},
     progression::{self, CARDS_FOR_SALE, GearSource},
     regions::Bell,
     seasons::{self, CONTRIBUTION, MEETING_START, PRIZE},
@@ -60,6 +60,7 @@ pub enum FarmPage {
     Gear(GearSource),
     Expedition,
     Journal(GuideTab),
+    Quest(Guide),
     Logbook,
     Calendar,
     Harbor { at_site: bool },
@@ -147,14 +148,19 @@ impl FarmMenu {
         *self = Self::default();
     }
 
-    pub fn cook_with_bo(&mut self, garden: &Garden, now: f32) {
+    pub fn cook_with_bo(&mut self, garden: &Garden) {
         self.show(FarmPage::Kitchen);
         self.selected = Some(Entry::Dish(Dish::HarborBroth));
         if Dish::HarborBroth.ready(garden) {
-            self.preparation = Some(Preparation::new(Dish::HarborBroth, now));
+            self.preparation = Some(Preparation::new(Dish::HarborBroth));
         } else {
             self.message = format!("Bo hält den Topf warm · {}", Dish::HarborBroth.supplies(garden));
         }
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn preparing(&self) -> bool {
+        self.preparation.is_some()
     }
 
     pub fn show_battle(&mut self, battle: Battle) {
@@ -271,6 +277,17 @@ impl FarmMenu {
                 .chain(crate::decorate::Building::ALL.into_iter()
                     .filter(|building| page == FarmPage::Yard && building.built(garden))
                     .map(Entry::Building))
+                .chain(Animal::ALL.into_iter()
+                    .filter(|kind| page == FarmPage::Yard && !garden.farm.housing[*kind as usize]
+                        && garden.workshop.barns[*kind as usize])
+                    .map(Entry::NewBarn))
+                .chain(Animal::ALL.into_iter().filter(|kind| page == FarmPage::Yard
+                    && garden.farm.housing[*kind as usize] && !garden.farm.barn_extended[*kind as usize])
+                    .map(Entry::ExpandBarn))
+                .chain(Animal::ALL.into_iter().filter(|kind| page == FarmPage::Yard
+                    && garden.farm.housing[*kind as usize]
+                    && garden.farm.animals[*kind as usize].count() < kind.capacity(garden))
+                    .map(Entry::Adopt))
                 .chain(
                     CATALOG
                         .iter()
@@ -308,6 +325,7 @@ impl FarmMenu {
                 .chain((1..=garden.rpg.camp() / CAMP_INTERVAL).map(|index| index * CAMP_INTERVAL))
                 .map(Entry::Level)
                 .collect(),
+            FarmPage::Quest(_) => Vec::new(),
             FarmPage::Journal(tab) => Guide::entries(tab)
                 .filter(|entry| !matches!(entry, Guide::Resident(npc) if !npc.available(garden)))
                 .filter(|entry| *entry != Guide::FirstMorning || garden.prologue.is_none())
@@ -345,6 +363,9 @@ enum Entry {
     BuildingPlan(BuildingPlan),
     Design(usize),
     Building(crate::decorate::Building),
+    NewBarn(Animal),
+    ExpandBarn(Animal),
+    Adopt(Animal),
     Dish(Dish),
     Ration(Ration),
     Step(&'static str),
@@ -395,7 +416,7 @@ impl Entry {
                     quantity,
                 })
             }
-            (FarmPage::Journal(_), Self::Guide(Guide::BuildPlan)) => garden.plan,
+            (FarmPage::Journal(_) | FarmPage::Quest(_), Self::Guide(Guide::BuildPlan)) => garden.plan,
             _ => None,
         }
     }
@@ -403,6 +424,15 @@ impl Entry {
     fn title(self, garden: &Garden) -> String {
         match self {
             Self::Building(building) => building.name().into(),
+            Self::NewBarn(kind) => {
+                if garden.farm.barn_work[kind as usize].is_some() {
+                    format!("{} im Bau", kind.housing_name())
+                } else {
+                    format!("{} bauen", kind.housing_name())
+                }
+            }
+            Self::ExpandBarn(kind) => format!("{} ausbauen", kind.housing_name()),
+            Self::Adopt(kind) => format!("{} aufnehmen", kind.name()),
             Self::Seed(crop) => crop.name().into(),
             Self::Stock(item) => item.label(),
             Self::Material(item) => item.name(),
@@ -438,6 +468,10 @@ impl Entry {
     fn detail(self, page: FarmPage, garden: &Garden, batches: u32, controller: bool) -> String {
         match self {
             Self::Building(_) => "Im Hofraster verschieben und drehen".into(),
+            Self::NewBarn(kind) => kind.housing_hint(garden).0,
+            Self::ExpandBarn(kind) => kind.expansion_hint(garden),
+            Self::Adopt(kind) => format!("{} Münzen · {}/{} Plätze belegt", kind.price(),
+                garden.farm.animals[kind as usize].count(), kind.capacity(garden)),
             Self::Material(Material::Fertilizer) if page == FarmPage::SeedShop =>
                 format!("2 Portionen · {FERTILIZER_PRICE} Münzen · {} im Vorrat", garden.fertilizer),
             Self::Seed(crop) if page == FarmPage::SeedShop => {
@@ -520,6 +554,7 @@ impl Entry {
             Self::Guide(Guide::Campaign) if controller && matches!(crate::campaign::next(garden),
                 crate::campaign::Step::Tutorial(_) | crate::campaign::Step::Garden) =>
                 crate::campaign::next(garden).hint(garden, true),
+            Self::Guide(guide) if matches!(page, FarmPage::Journal(_)) => guide.preview(garden),
             Self::Guide(guide) => guide.detail(garden),
             Self::Season(season) => {
                 let discovery = if garden.seasons.discovered[season as usize] {
@@ -584,6 +619,7 @@ pub enum Choice {
 #[derive(Component)]
 pub enum Field {
     Title,
+    Close,
     Instruction,
     Message,
     CardName(usize),
@@ -608,6 +644,9 @@ pub enum HeatMeter {
 
 #[derive(Component)]
 pub struct StationArt;
+
+#[derive(Component)]
+pub struct StationSteam(usize);
 
 pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
     commands
@@ -654,7 +693,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                         header.spawn((Field::Title, fonts.title("", 33.)));
                         header
                             .spawn((Choice::Close, ui::dialog_button(106.)))
-                            .with_child(fonts.button("Schließen", 14.));
+                            .with_child((Field::Close, fonts.button("Schließen", 14.)));
                     });
                 paper.spawn((Field::Instruction, fonts.body("", 15.)));
                 paper.spawn((
@@ -665,8 +704,18 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                         width: Val::Px(146.), height: Val::Px(89.),
                         ..default()
                     },
+                    BorderRadius::all(Val::Px(12.)),
                     ui::shadow(),
-                ));
+                )).with_children(|illustration| {
+                    for i in 0..5 {
+                        illustration.spawn((
+                            StationSteam(i),
+                            Node { display: Display::None, position_type: PositionType::Absolute, ..default() },
+                            BackgroundColor(Color::NONE),
+                            BorderRadius::MAX,
+                        ));
+                    }
+                });
                 paper.spawn((Field::StationProgress, fonts.bold("", 13.)));
                 paper
                     .spawn((
@@ -851,6 +900,11 @@ pub fn input(
     let Some(choice) = choices
         .iter()
         .find_map(|(choice, pressed)| (*pressed == Interaction::Pressed).then_some(*choice))
+        .or_else(|| menu.preparation.as_ref().and_then(|game| {
+            controller.kitchen_action
+                .filter(|&index| index < game.buttons().len())
+                .map(Choice::Card)
+        }))
         .or_else(|| {
             if menu.preparation.is_some() || menu.clip().is_some() {
                 return None;
@@ -932,6 +986,10 @@ pub fn input(
             }
             None
         }
+        Choice::Close if menu.preparation.is_some() || matches!(page, FarmPage::Quest(_)) => {
+            menu.back();
+            None
+        }
         Choice::Close => {
             menu.close();
             *gesture = Gesture::default();
@@ -946,9 +1004,10 @@ pub fn input(
             }
         }
         Choice::Card(index) => {
+            let offset = if menu.preparation.is_some() { 0 } else { menu.list_page * PAGE_SIZE };
             let entry = menu
                 .entries(page, &garden)
-                .get(menu.list_page * PAGE_SIZE + index)
+                .get(offset + index)
                 .copied();
             match entry {
                 Some(Entry::Design(i)) if page.arranging() => {
@@ -970,10 +1029,38 @@ pub fn input(
                     *controls = Controls::default();
                     None
                 }
+                Some(Entry::Guide(guide)) if matches!(page, FarmPage::Journal(_)) => {
+                    menu.selected = entry;
+                    menu.open_child(FarmPage::Quest(guide));
+                    menu.selected = entry;
+                    None
+                }
+                Some(Entry::NewBarn(kind)) if page == FarmPage::Yard => {
+                    match decor.build_barn(&adventure, kind, &garden, player.0.position) {
+                        Ok(()) => {
+                            player.0.stop();
+                            menu.close();
+                            *gesture = Gesture::default();
+                            *controls = Controls::default();
+                            None
+                        }
+                        Err(message) => Some(Err(message)),
+                    }
+                }
+                Some(Entry::ExpandBarn(kind)) if page == FarmPage::Yard => {
+                    let result = kind.expand(&mut garden);
+                    if result.is_ok() {
+                        let building = crate::decorate::Building::animal(kind);
+                        decor.show_assembly(adventure.area, building.point(&garden), now);
+                        menu.close();
+                    }
+                    Some(result)
+                }
+                Some(Entry::Adopt(kind)) if page == FarmPage::Yard => Some(kind.adopt(&mut garden)),
                 Some(Entry::Dish(dish)) => {
                     menu.message.clear();
                     if dish.ready(&garden) {
-                        menu.preparation = Some(Preparation::new(dish, now));
+                        menu.preparation = Some(Preparation::new(dish));
                         None
                     } else {
                         Some(Err(format!(
@@ -1009,10 +1096,10 @@ pub fn input(
                         .preparation
                         .as_mut()
                         .expect("preparation offers step buttons");
-                    let phase = game.progress().0;
+                    let phase = game.phase();
                     if game.try_step(index, visible_time) {
                         let cue = match game.dish.method() {
-                            Method::Cook if phase == 0 => crate::sound::Cue::KitchenChop,
+                            Method::Cook if phase == KitchenPhase::Chop => crate::sound::Cue::KitchenChop,
                             Method::Cook => crate::sound::Cue::KitchenStir,
                             Method::Preserve => crate::sound::Cue::KitchenJar,
                             Method::Mill => crate::sound::Cue::KitchenMill,
@@ -1028,7 +1115,8 @@ pub fn input(
                             let when = if garden.fish_supper.offered_today(garden.day) { "heute" } else { "morgen" };
                             format!("+{servings} Hafenbrühe · Bo serviert sie {when} ab 18 Uhr am Brunnen.")
                         } else {
-                            format!("+{servings} {}", dish.name())
+                            let extra = if servings == 2 { " · Zweite Portion für saubere Zubereitung" } else { "" };
+                            format!("+{servings} {}{extra}", dish.name())
                         };
                         Some(Ok(message))
                     } else {
@@ -1264,7 +1352,7 @@ pub fn input(
         Choice::Work
             if matches!(
                 page,
-                FarmPage::Journal(_) | FarmPage::Calendar | FarmPage::Harbor { at_site: false }
+                FarmPage::Quest(_) | FarmPage::Calendar | FarmPage::Harbor { at_site: false }
             ) || (page == FarmPage::Logbook && menu.selected == Some(Entry::Guide(Guide::TownGarden))) =>
         {
             let guide = match (page, menu.selected) {
@@ -1398,6 +1486,18 @@ pub fn input(
             let Some(Entry::Project(project)) = menu.selected else {
                 return;
             };
+            if let Some(result) = decor.build_station(&adventure, project, &garden, player.0.position) {
+                match result {
+                    Ok(()) => {
+                        player.0.stop();
+                        menu.close();
+                        *gesture = Gesture::default();
+                        *controls = Controls::default();
+                    }
+                    Err(message) => menu.message = message,
+                }
+                return;
+            }
             let result = project.build(&mut garden);
             if result.is_ok() {
                 if project == Project::Restore {
@@ -1524,6 +1624,9 @@ pub fn update(
     mut station: Single<(&mut ImageNode, &mut Node), (
         With<StationArt>, Without<Pane>, Without<Choice>, Without<ItemPicture>, Without<HeatMeter>,
     )>,
+    mut steam: Query<(&StationSteam, &mut Node, &mut BackgroundColor), (
+        Without<Pane>, Without<Choice>, Without<ItemPicture>, Without<HeatMeter>, Without<StationArt>,
+    )>,
 ) {
     let (veil, shade) = &mut *veil;
     let Some(page) = menu.page.filter(|&page| {
@@ -1547,10 +1650,14 @@ pub fn update(
         if preview.is_some() { 0.04 } else { 0.47 },
     );
     menu.visible_time = time.elapsed_secs();
+    if let Some(game) = &mut menu.preparation {
+        game.advance(time.delta_secs().min(0.12));
+    }
 
     let entries = menu.entries(page, &garden);
     let pages = entries.len().saturating_sub(1) / PAGE_SIZE;
-    let entry_at = |i| entries.get(menu.list_page * PAGE_SIZE + i).copied();
+    let offset = if menu.preparation.is_some() { 0 } else { menu.list_page * PAGE_SIZE };
+    let entry_at = |i| entries.get(offset + i).copied();
     let balance = garden.farm.coins;
     let batches = menu.batches.max(1);
     let selected = menu.selected;
@@ -1560,16 +1667,34 @@ pub fn update(
     if let Some(game) = progress {
         frame.display = Display::Flex;
         let pulse = game.pulse(menu.visible_time);
-        frame.width = Val::Px(146. + 13.*pulse);
+        frame.width = Val::Px(234. + 12. * pulse);
+        frame.height = Val::Px(132.);
         illustration.color = Color::srgb(1., 1.-0.06*pulse, 1.-0.13*pulse);
         illustration.image = assets.load(game.illustration());
     } else if page == FarmPage::TownGarden {
         frame.display = Display::Flex;
         frame.width = Val::Px(148.);
+        frame.height = Val::Px(89.);
         illustration.color = Color::WHITE;
         illustration.image = assets.load(garden.town_garden.stage.art());
     } else {
         frame.display = Display::None;
+    }
+    for (StationSteam(i), mut node, mut tint) in &mut steam {
+        if !progress.is_some_and(|game| game.phase() == KitchenPhase::Simmer) {
+            node.display = Display::None;
+            continue;
+        }
+        node.display = Display::Flex;
+        let rise = (menu.visible_time * 0.63 + *i as f32 * 0.24).fract();
+        let drift = (rise * 5. + *i as f32 * 2.).sin() * 8.;
+        let heat = progress.and_then(Preparation::gauge).map_or(0.5, |(heat, _)| heat);
+        let size = 6. + 25. * rise;
+        node.left = Val::Px(81. + *i as f32 * 12. + drift);
+        node.top = Val::Px(68. - rise * 74.);
+        node.width = Val::Px(size);
+        node.height = Val::Px(size * 0.8);
+        tint.0 = Color::srgba(1., 0.96, 0.85, heat * 0.70 * (rise * std::f32::consts::PI).sin());
     }
     for (picture, mut image, mut node) in &mut pictures {
         let entry = entry_at(picture.0);
@@ -1590,6 +1715,7 @@ pub fn update(
             }
             Some(Entry::Design(i)) => Some(CATALOG[i].model),
             Some(Entry::Building(building)) => Some(building.model()),
+            Some(Entry::NewBarn(kind) | Entry::ExpandBarn(kind) | Entry::Adopt(kind)) => Some(kind.housing_model()),
             Some(Entry::Project(_)) => Some("plan_furniture"),
             _ => None,
         }
@@ -1615,8 +1741,9 @@ pub fn update(
             }
         }
     }
-    let range = progress.and_then(Preparation::timing_range);
-    let heat = progress.map(|game| game.heat(menu.visible_time));
+    let gauge = progress.and_then(Preparation::gauge);
+    let heat = gauge.as_ref().map(|(value, _)| *value);
+    let range = gauge.map(|(_, range)| range);
     for (part, mut node) in &mut meter {
         match part {
             HeatMeter::RowTrack(i) | HeatMeter::RowFill(i) => {
@@ -1648,10 +1775,12 @@ pub fn update(
     for (field, mut text) in &mut fields {
         let mut value = match *field {
             Field::StationProgress if page == FarmPage::TownGarden => garden.town_garden.stage.title().into(),
-            Field::StationProgress => progress.map_or_else(String::new, |game| {
-                let (passed, total) = game.progress();
-                format!("{} · {passed} von {total} erledigt", game.dish.method().title())
-            }),
+            Field::StationProgress => progress.map_or_else(String::new, Preparation::title),
+            Field::Close => if progress.is_some() || matches!(page, FarmPage::Quest(_)) {
+                "Zurück"
+            } else {
+                "Schließen"
+            }.into(),
             Field::Title if progress.is_some() => progress.unwrap().dish.name().into(),
             Field::Title => match page {
                 FarmPage::SeedShop => "Saatgut und Dünger",
@@ -1680,6 +1809,7 @@ pub fn update(
                 FarmPage::CardShop => "Runas Karten",
                 FarmPage::Gear(_) => "Ausrüstung",
                 FarmPage::Expedition => "Dämmergänge",
+                FarmPage::Quest(guide) => guide.title(&garden),
                 FarmPage::Journal(GuideTab::Story) => "Das Licht der Wegglocken",
                 FarmPage::Journal(GuideTab::Orders) => "Aufträge",
                 FarmPage::Journal(GuideTab::Town) => "Bewohner der Insel",
@@ -1693,14 +1823,7 @@ pub fn update(
                 FarmPage::Battle => "",
             }
             .into(),
-            Field::Instruction if progress.is_some_and(|p| p.dish == Dish::HarborBroth) && garden.fish_supper.stage == crate::fish_supper::Stage::Cooking => {
-                match progress.unwrap().progress().0 {
-                    0 => "Bo reicht dir das Brett. „Die Möhre klein schneiden, dann den Fisch in den Topf.“",
-                    1..=3 => "Bo hält die Kelle. „Jetzt behutsam rühren, einmal pro Runde im grünen Bereich.“",
-                    _ => "Bo stellt zwei Schalen hin. „Schöpf die Brühe ab. So soll es auch am Hafen duften.“",
-                }.into()
-            }
-            Field::Instruction if progress.is_some() => progress.unwrap().instructions(),
+            Field::Instruction if progress.is_some() => progress.unwrap().instructions().into(),
             Field::Instruction => match page {
                 FarmPage::SeedShop => {
                     format!("Du hast {balance} Münzen und {} Dünger.", garden.fertilizer)
@@ -1796,6 +1919,7 @@ pub fn update(
                     garden.rpg.hp,
                     garden.rpg.max_hp()
                 ),
+                FarmPage::Quest(guide) => guide.detail(&garden),
                 FarmPage::Journal(GuideTab::Story) => crate::campaign::next(&garden).chapter().into(),
                 FarmPage::Journal(GuideTab::Orders) => {
                     "Hof, Eichenhafen und die Außenregionen".into()
@@ -1915,7 +2039,7 @@ pub fn update(
             Field::Message if plan.is_some() => plan.unwrap().detail(&garden),
             Field::Message if selected.is_some() => match selected.unwrap() {
                 Entry::Tool(tool) => tool.effect().into(),
-                Entry::BuildingPlan(BuildingPlan::Barn(_)) => "Den Stall baust du auf der markierten Hoffläche.".into(),
+                Entry::BuildingPlan(BuildingPlan::Barn(_)) => "Wähle den Standort unter „Hof einrichten“.".into(),
                 Entry::BuildingPlan(BuildingPlan::Room(_)) => "Den Anbau baust du an deiner Hofwerkbank.".into(),
                 Entry::Stock(item) => format!(
                     "{} · {} Stück · {} Münzen für den Stapel",
@@ -1961,9 +2085,19 @@ pub fn update(
             }
             Field::Message => String::new(),
             Field::CardName(i) => {
-                entry_at(i).map_or_else(String::new, |entry| entry.title(&garden))
+                entry_at(i).map_or_else(String::new, |entry| {
+                    let title = entry.title(&garden);
+                    if controller.active && matches!(entry, Entry::Step(_)) {
+                        format!("{}  {title}", ["X", "A", "Y"][i])
+                    } else {
+                        title
+                    }
+                })
             }
             Field::CardDetail(i) => entry_at(i).map_or_else(String::new, |entry| {
+                if let Some(game) = progress {
+                    return game.action_hint(i).into();
+                }
                 let extra = entry.detail(page, &garden, batches, controller.active);
                 match entry {
                     Entry::CombatCard(card) if page == FarmPage::Binder => {
@@ -1985,6 +2119,7 @@ pub fn update(
                 (FarmPage::BlueprintShop, _) => "Bauplan kaufen",
                 (FarmPage::EveningMarket, _) => "Proviant kaufen",
                 (FarmPage::Projects, Some(Entry::Project(Project::Restore))) => "Werkbank reparieren",
+                (FarmPage::Projects, Some(Entry::Project(Project::Forge | Project::Loom))) => "Standort wählen",
                 (FarmPage::Projects, _) => "Bauen",
                 (FarmPage::Tools { .. }, _) => "Verbessern",
                 (FarmPage::CardShop, _) => "Karte kaufen",
@@ -1997,8 +2132,8 @@ pub fn update(
                 }
                 (FarmPage::Gear(GearSource::Smith), _) => "Kaufen & anlegen",
                 (FarmPage::Gear(GearSource::Workbench), _) => "Bauen & anlegen",
-                (FarmPage::Journal(_), Some(Entry::Guide(Guide::Farm))) => "Belohnung holen",
-                (FarmPage::Journal(_), _) => "Auf Karte zeigen",
+                (FarmPage::Quest(Guide::Farm), _) => "Belohnung holen",
+                (FarmPage::Quest(_), _) => "Auf Karte zeigen",
                 (FarmPage::Calendar, _) => "Treffpunkt zeigen",
                 (FarmPage::Harbor { .. }, _) if !garden.harbor.started => "Auftrag annehmen",
                 (FarmPage::Harbor { at_site: true }, _) => garden.harbor.phase.action(),
@@ -2011,7 +2146,9 @@ pub fn update(
             }
             .into(),
         };
-        if matches!(field, Field::Instruction) && controller.active {
+        if matches!(field, Field::Instruction) && controller.active && progress.is_some() {
+            value.push_str("\nX / A / Y · Handgriff   B · Zurück");
+        } else if matches!(field, Field::Instruction) && controller.active {
             if !value.is_empty() {
                 value.push('\n');
             }
@@ -2026,6 +2163,9 @@ pub fn update(
     }
 
     for (&choice, &interaction, mut node, mut bg, mut focus_enabled) in &mut choices {
+        if matches!(choice, Choice::Card(_)) {
+            node.width = Val::Percent(if progress.is_some() && entries.len() == 3 { 31.8 } else { 48. });
+        }
         let (visible, enabled) = match choice {
             Choice::Card(i) => (
                 entry_at(i).is_some(),
@@ -2067,7 +2207,7 @@ pub fn update(
                 matches!(page, FarmPage::Workbench | FarmPage::CardShop),
                 true,
             ),
-            Choice::Return => (!menu.history.is_empty(), true),
+            Choice::Return => (!menu.history.is_empty() && !matches!(page, FarmPage::Quest(_)), true),
             Choice::Materials => (
                 matches!(
                     page,
@@ -2156,8 +2296,8 @@ pub fn update(
                     (FarmPage::Gear(source), Some(Entry::Gear(gear))) => {
                         source.ready(&garden, gear)
                     }
-                    (FarmPage::Journal(_), Some(Entry::Guide(Guide::Farm))) => garden.task().1,
-                    (FarmPage::Journal(_), Some(Entry::Guide(guide))) => {
+                    (FarmPage::Quest(Guide::Farm), _) => garden.task().1,
+                    (FarmPage::Quest(guide), _) => {
                         guide.target(&garden).is_some()
                     }
                     (FarmPage::Calendar, _) => true,
@@ -2190,7 +2330,7 @@ pub fn update(
                             | FarmPage::Talents
                             | FarmPage::Styles
                             | FarmPage::Gear(_)
-                            | FarmPage::Journal(_)
+                            | FarmPage::Quest(_)
                             | FarmPage::Calendar
                             | FarmPage::Logbook
                             | FarmPage::TownGarden
@@ -2262,7 +2402,7 @@ mod tests {
     fn back_from_a_station_returns_to_the_recipes() {
         let mut menu = FarmMenu::default();
         menu.show(FarmPage::Kitchen);
-        menu.preparation = Some(Preparation::new(Dish::CarrotSoup, 0.));
+        menu.preparation = Some(Preparation::new(Dish::CarrotSoup));
         menu.back();
         assert!(menu.page == Some(FarmPage::Kitchen));
         assert!(menu.preparation.is_none());

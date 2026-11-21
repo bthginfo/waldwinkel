@@ -69,6 +69,7 @@ pub struct SpellMote(u8);
 struct Feedback {
     at: f32,
     card: Option<Card>,
+    rival: Option<Intent>,
     from: Vec2,
     to: Vec2,
     amount: u16,
@@ -148,7 +149,7 @@ pub fn animate_guardian(
 ) {
     let now = time.elapsed_secs();
     let pulse = motion.feedback.filter(|fx| fx.opponent && menu.battle().is_some()).map_or(0., |fx| {
-        let start = fx.at + if fx.card.is_some() { 0.21 } else { 0.08 };
+        let start = fx.at + if fx.card.is_some() || fx.rival.is_some() { 0.21 } else { 0.08 };
         let progress = ((now - start) / 0.31).clamp(0., 1.);
         (std::f32::consts::PI * progress).sin()
     });
@@ -557,6 +558,7 @@ pub fn input(
     let old = (battle.enemy_hp, battle.enemy_guard, battle.hp, battle.guard);
     let expected_attack = matches!(battle.intent(), Intent::Attack(_) | Intent::Flurry(_));
     let mut played = None;
+    let mut rival = None;
     let (player, transform) = &mut *player;
     if battle.outcome == Outcome::Running {
         match (battle.retreat_pending, button) {
@@ -643,6 +645,7 @@ pub fn input(
         }
         (Outcome::Running, DuelButton::End) => {
             battle.end_turn();
+            rival = battle.last_rival_card;
             motion.selected = None;
         }
         _ => return,
@@ -658,6 +661,10 @@ pub fn input(
         (Emblem::Strike, strike, true)
     } else if played.is_none() && expected_attack {
         (Emblem::Guard, 0, false)
+    } else if let Some(Intent::Mend(_)) = rival {
+        (Emblem::Heal, battle.enemy_hp.saturating_sub(old.0), true)
+    } else if matches!(rival, Some(Intent::Brace(_) | Intent::Charge { .. })) {
+        (Emblem::Guard, battle.enemy_guard, true)
     } else if mend > 0 {
         (Emblem::Heal, mend, false)
     } else if shield > 0 {
@@ -673,7 +680,8 @@ pub fn input(
         })
         .unwrap_or(Vec2::new(50., 76.));
     motion.feedback = Some(Feedback {
-        at: now, card: played, from,
+        at: now, card: played, rival,
+        from: if rival.is_some() { Vec2::new(81., 18.) } else { from },
         to: if opponent { Vec2::new(71., 39.) } else { Vec2::new(29., 40.) },
         amount, armor, kind, opponent, sounded: false,
     });
@@ -717,7 +725,7 @@ pub fn animate_motes(
     mut motes: Query<(&SpellMote, &mut Node, &mut ImageNode)>,
 ) {
     let effect = motion.feedback.filter(|_| menu.battle().is_some()).and_then(|fx| {
-        let age = time.elapsed_secs() - fx.at - if fx.card.is_some() { 0.21 } else { 0.08 };
+        let age = time.elapsed_secs() - fx.at - if fx.card.is_some() || fx.rival.is_some() { 0.21 } else { 0.08 };
         (0.0..0.50).contains(&age).then_some((fx, age / 0.50))
     });
     for (mote, mut node, mut image) in &mut motes {
@@ -772,8 +780,9 @@ pub fn animate_feedback(
     }
     let Some(fx) = &mut motion.feedback else { return };
     let age = time.elapsed_secs() - fx.at;
-    if let Some(card) = fx.card.filter(|_| age < 0.36) {
-        let t = (age / 0.36).clamp(0., 1.);
+    let flight_time = if fx.rival.is_some() { 0.53 } else { 0.36 };
+    if let Some(card) = fx.card.or_else(|| fx.rival.map(Intent::illustration)).filter(|_| age < flight_time) {
+        let t = (age / flight_time).clamp(0., 1.);
         let ease = 1. - (1. - t).powi(3);
         let center = fx.from.lerp(fx.to, ease) - Vec2::Y * (std::f32::consts::PI*t).sin()*12.;
         let width = 106. + 40. * (std::f32::consts::PI * t).sin();
@@ -784,9 +793,10 @@ pub fn animate_feedback(
         fly_node.width = Val::Px(width);
         fly_node.height = Val::Px(width*0.60);
         art.image = icons.portraits[card as usize].clone();
-        art.color = Color::srgba(1., 1., 1., (1.45-t).min(1.));
+        let (g, b) = if fx.rival.is_some() { (0.79, 0.69) } else { (1., 1.) };
+        art.color = Color::srgba(1., g, b, (1.45-t).min(1.));
     }
-    let local = age - if fx.card.is_some() { 0.23 } else { 0.08 };
+    let local = age - if fx.card.is_some() || fx.rival.is_some() { 0.23 } else { 0.08 };
     if local < 0. {
         return;
     }
@@ -811,6 +821,8 @@ pub fn animate_feedback(
         Emblem::Strike if fx.armor > 0 && fx.amount == 0 => (format!("−{} Rüstung", fx.armor), (0.80, 0.88, 1.)),
         Emblem::Strike if fx.amount > 0 =>
             (format!("−{} Leben", fx.amount), if fx.opponent { (1., 0.77, 0.48) } else { (1., 0.56, 0.45) }),
+        Emblem::Guard if matches!(fx.rival, Some(Intent::Brace(_) | Intent::Charge { .. })) =>
+            (format!("+{} Rüstung", fx.amount), (0.95, 0.73, 0.47)),
         Emblem::Guard if fx.card.is_none() => ("Abgewehrt".into(), (0.69, 0.87, 1.)),
         Emblem::Guard => (format!("+{} Schild", fx.amount), (0.69, 0.87, 1.)),
         Emblem::Heal => (format!("+{} Leben", fx.amount), (0.72, 1., 0.66)),
@@ -907,16 +919,25 @@ pub fn update(
                     "{} / {} Leben · {} Schild",
                     battle.hp, battle.max_hp, battle.guard
                 ),
-                DuelText::Foe => format!(
-                    "{} / {} Leben · {} Rüstung",
-                    battle.enemy_hp, battle.enemy_max, battle.enemy_guard
-                ),
+                DuelText::Foe => {
+                    let mut label = format!("{} / {} Leben · {} Rüstung",
+                        battle.enemy_hp, battle.enemy_max, battle.enemy_guard);
+                    if let Some((hand, draw)) = battle.rival_piles() {
+                        label.push_str(&format!("\n{hand} Handkarten · {draw} im Stapel"));
+                    }
+                    label
+                },
                 DuelText::Intent if battle.outcome == Outcome::Won => "Begegnung gewonnen".into(),
                 DuelText::Intent if battle.outcome == Outcome::Lost => {
                     "Die Rastglocke ruft dich zurück".into()
                 }
                 DuelText::Intent if battle.retreat_pending => {
                     "Zum sicheren Ort zurückkehren?".into()
+                }
+                DuelText::Intent if motion.feedback.is_some_and(|fx|
+                    fx.rival.is_some() && time.elapsed_secs() - fx.at < 0.57) => {
+                    let card = motion.feedback.unwrap().rival.unwrap();
+                    format!("{} spielt {}", battle.enemy.name(), card.card_name())
                 }
                 DuelText::Intent => match battle.intent() {
                     intent @ Intent::Attack(raw) => format!(

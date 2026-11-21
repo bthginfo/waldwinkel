@@ -1,4 +1,7 @@
-use std::{io, path::PathBuf};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 use bevy::{
     prelude::*,
@@ -72,9 +75,21 @@ enum SlotStatus {
     Unreadable,
 }
 
+impl SlotStatus {
+    fn details(&self) -> String {
+        match *self {
+            Self::Empty => "Freier Platz".into(),
+            Self::Saved { day, place, quests } => format!("Tag {day} · {place} · Aufträge {quests}/6"),
+            Self::Recoverable { day, place } => format!("Sicherung · Tag {day} · {place}"),
+            Self::Unreadable => "Keine lesbare Sicherung gefunden.".into(),
+        }
+    }
+}
+
 #[derive(Resource)]
 pub struct SaveSlots {
     files: [PathBuf; SLOT_COUNT],
+    legacy: PathBuf,
     status: [SlotStatus; SLOT_COUNT],
     note: String,
 }
@@ -107,27 +122,61 @@ impl SaveSlots {
         }
         Self {
             files,
+            legacy,
             status,
             note,
         }
     }
 
-    fn inspect(file: &std::path::Path) -> SlotStatus {
+    fn inspect(file: &Path) -> SlotStatus {
         let error = match Garden::load(file) {
             Ok(garden) => return Self::summary(&garden),
             Err(error) => error,
         };
-        if let Ok(garden) = Garden::load(&Garden::backup_path(file)) {
-            return SlotStatus::Recoverable {
+        match Garden::load(&Garden::backup_path(file)) {
+            Ok(garden) => SlotStatus::Recoverable {
                 day: garden.day,
                 place: garden.checkpoint.map_or("Waldwinkel", Checkpoint::place),
-            };
+            },
+            Err(backup)
+                if error.kind() == io::ErrorKind::NotFound
+                    && backup.kind() == io::ErrorKind::NotFound =>
+            {
+                SlotStatus::Empty
+            }
+            Err(_) => SlotStatus::Unreadable,
         }
-        if error.kind() == io::ErrorKind::NotFound {
-            SlotStatus::Empty
-        } else {
-            SlotStatus::Unreadable
+    }
+
+    fn delete(&mut self, index: usize) -> io::Result<()> {
+        let file = self.files[index].as_path();
+        let backup = Garden::backup_path(file);
+        let legacy_backup = Garden::backup_path(&self.legacy);
+        let legacy_files = (index == 0).then_some([self.legacy.as_path(), legacy_backup.as_path()]);
+        let copies = [file, backup.as_path()]
+            .into_iter()
+            .chain(legacy_files.into_iter().flatten());
+        // Remove the playable copy last so a cleanup error leaves it available.
+        // The old single-slot file must also go, or startup would reimport it.
+        let last = match Self::inspect(file) {
+            SlotStatus::Saved { .. } => file,
+            SlotStatus::Recoverable { .. } => backup.as_path(),
+            _ if index == 0 => self.legacy.as_path(),
+            _ => file,
+        };
+        for path in copies.clone() {
+            remove_if_present(&Garden::temporary_path(path))?;
         }
+        remove_if_present(&file.with_extension("beschaedigt.json"))?;
+        for path in copies.filter(|&path| path != last) {
+            remove_if_present(path)?;
+        }
+        remove_if_present(last)?;
+        self.status[index] = SlotStatus::Empty;
+        if index == 0 {
+            self.note.clear();
+        }
+        Ok(())
     }
 
     fn summary(garden: &Garden) -> SlotStatus {
@@ -137,7 +186,7 @@ impl SaveSlots {
         SlotStatus::Saved {
             day: garden.day,
             place,
-            quests: garden.town.completed(),
+            quests: garden.town.total_completed(),
         }
     }
 
@@ -147,7 +196,7 @@ impl SaveSlots {
             let garden = Garden::load(&Garden::backup_path(file))?;
             let damaged = file.with_extension("beschaedigt.json");
             if file.try_exists()? && !damaged.try_exists()? {
-                std::fs::copy(file, damaged)?;
+                fs::copy(file, damaged)?;
             }
             garden.save(file)?;
             self.status[index] = Self::summary(&garden);
@@ -192,12 +241,31 @@ impl SaveSlots {
     }
 }
 
+fn remove_if_present(path: &Path) -> io::Result<()> {
+    match fs::remove_file(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        result => result,
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Screen {
     #[default]
     Title,
     Playing,
     Pause,
+    ConfirmDelete(usize),
+}
+
+impl Screen {
+    fn menu(self) -> Option<MenuScreen> {
+        match self {
+            Self::Title => Some(MenuScreen::Title),
+            Self::Pause => Some(MenuScreen::Pause),
+            Self::ConfirmDelete(_) => Some(MenuScreen::ConfirmDelete),
+            Self::Playing => None,
+        }
+    }
 }
 
 #[derive(Resource, Default)]
@@ -224,6 +292,29 @@ enum DocumentTask {
 impl Session {
     pub fn playing(&self) -> bool {
         self.screen == Screen::Playing
+    }
+
+    pub fn slot(&self) -> Option<usize> {
+        self.index
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn confirming_delete(&self) -> bool {
+        matches!(self.screen, Screen::ConfirmDelete(_))
+    }
+
+    fn choosing_slot(&self) -> bool {
+        #[cfg(target_os = "android")]
+        if self.importing || self.document.is_some() {
+            return false;
+        }
+        self.screen == Screen::Title
+    }
+
+    fn return_to_title(&mut self) {
+        self.screen = Screen::Title;
+        self.index = None;
+        self.message.clear();
     }
 
     pub(crate) fn save(
@@ -262,12 +353,19 @@ pub fn playing(
         && !wheel.open() && !night.active() && !layout.open()
 }
 
-#[derive(Component)]
-pub struct MenuScreen(Screen);
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+pub enum MenuScreen {
+    Title,
+    Pause,
+    ConfirmDelete,
+}
 
 #[derive(Component, Clone, Copy)]
 pub enum MenuButton {
     Slot(usize),
+    DeleteSlot(usize),
+    CancelDelete,
+    ConfirmDelete,
     Resume,
     Save,
     Title,
@@ -284,9 +382,11 @@ pub enum MenuText {
     TitlePrompt,
     SlotMeta(usize),
     SlotAction(usize),
-    Message(Screen),
+    DeleteTitle,
+    DeleteDetails,
+    Message(MenuScreen),
     ActiveSlot,
-    PadHelp(Screen),
+    PadHelp(MenuScreen),
     UiSize,
     Sound,
     #[cfg(target_os = "android")]
@@ -294,13 +394,19 @@ pub enum MenuText {
 }
 
 pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
-    for screen in [Screen::Title, Screen::Pause] {
+    use crate::controller::{Panel, SecondaryFocus};
+
+    for screen in [MenuScreen::Title, MenuScreen::Pause, MenuScreen::ConfirmDelete] {
         commands
             .spawn((
-                MenuScreen(screen),
-                crate::controller::Panel::Session,
+                screen,
+                if screen == MenuScreen::ConfirmDelete {
+                    Panel::ConfirmDelete
+                } else {
+                    Panel::Session
+                },
                 Node {
-                    display: if screen == Screen::Title {
+                    display: if screen == MenuScreen::Title {
                         Display::Flex
                     } else {
                         Display::None
@@ -319,7 +425,11 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                 overlay
                     .spawn((
                         Node {
-                            width: Val::Px(if screen == Screen::Title { 546. } else { 398. }),
+                            width: Val::Px(match screen {
+                                MenuScreen::Title => 566.,
+                                MenuScreen::Pause => 398.,
+                                MenuScreen::ConfirmDelete => 444.,
+                            }),
                             flex_direction: FlexDirection::Column,
                             align_items: AlignItems::Stretch,
                             row_gap: Val::Px(10.),
@@ -333,60 +443,14 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                         ui::shadow(),
                     ))
                     .with_children(|panel| {
-                        panel.spawn(fonts.title(
-                            if screen == Screen::Title {
-                                "Waldwinkel"
-                            } else {
-                                "Spiel pausiert"
-                            },
-                            39.,
-                        ));
-                        if screen == Screen::Title {
+                        if screen == MenuScreen::Title {
+                            panel.spawn(fonts.title("Waldwinkel", 39.));
                             panel.spawn((
                                 MenuText::TitlePrompt,
                                 fonts.body("Wähle deinen Spielstand.", 16.),
                             ));
                             for index in 0..SLOT_COUNT {
-                                panel
-                                    .spawn((
-                                        Node {
-                                            flex_direction: FlexDirection::Row,
-                                            align_items: AlignItems::Center,
-                                            justify_content: JustifyContent::SpaceBetween,
-                                            padding: UiRect::axes(Val::Px(13.), Val::Px(7.)),
-                                            min_height: Val::Px(60.),
-                                            ..default()
-                                        },
-                                        BackgroundColor(Color::srgb_u8(241, 229, 198)),
-                                        BorderRadius::all(Val::Px(15.)),
-                                    ))
-                                    .with_children(|row| {
-                                        row.spawn(Node {
-                                            flex_direction: FlexDirection::Column,
-                                            row_gap: Val::Px(1.),
-                                            ..default()
-                                        })
-                                        .with_children(
-                                            |labels| {
-                                                labels.spawn(fonts.bold(
-                                                    &format!("Spielstand {}", index + 1),
-                                                    18.,
-                                                ));
-                                                labels.spawn((
-                                                    MenuText::SlotMeta(index),
-                                                    fonts.body("Frei", 13.),
-                                                ));
-                                            },
-                                        );
-                                        row.spawn((
-                                            MenuButton::Slot(index),
-                                            ui::dialog_button(146.),
-                                        ))
-                                        .with_child((
-                                            MenuText::SlotAction(index),
-                                            fonts.button("Neues Spiel", 15.),
-                                        ));
-                                    });
+                                spawn_slot(panel, &fonts, index);
                             }
                             #[cfg(target_os = "android")]
                             panel
@@ -395,7 +459,8 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                                     MenuText::Import,
                                     fonts.button("Spielstand importieren", 16.),
                                 ));
-                        } else {
+                        } else if screen == MenuScreen::Pause {
+                            panel.spawn(fonts.title("Spiel pausiert", 39.));
                             panel.spawn((MenuText::ActiveSlot, fonts.body("", 15.)));
                             for (action, label) in [
                                 (MenuButton::Resume, "Weiterspielen"),
@@ -417,12 +482,80 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                             panel
                                 .spawn((MenuButton::Export, ui::dialog_button(350.)))
                                 .with_child(fonts.button("Spielstand exportieren", 16.));
+                        } else {
+                            panel.spawn((MenuText::DeleteTitle, fonts.title("", 33.)));
+                            panel.spawn((MenuText::DeleteDetails, fonts.bold("", 15.)));
+                            panel.spawn(fonts.body(
+                                "Der Fortschritt und die lokale Sicherung werden dauerhaft gelöscht.",
+                                16.,
+                            ));
+                            panel
+                                .spawn(Node {
+                                    column_gap: Val::Px(10.),
+                                    justify_content: JustifyContent::SpaceBetween,
+                                    ..default()
+                                })
+                                .with_children(|row| {
+                                    row.spawn((MenuButton::CancelDelete, ui::dialog_button(192.)))
+                                        .with_child(fonts.button("Abbrechen", 16.));
+                                    row.spawn((
+                                        MenuButton::ConfirmDelete,
+                                        SecondaryFocus,
+                                        ui::dialog_button(192.),
+                                    ))
+                                    .with_child(fonts.button("Endgültig löschen", 16.));
+                                });
                         }
                         panel.spawn((MenuText::Message(screen), fonts.body("", 13.)));
                         panel.spawn((MenuText::PadHelp(screen), fonts.body("", 13.)));
                     });
             });
     }
+}
+
+fn spawn_slot(panel: &mut ChildSpawnerCommands, fonts: &UiFonts, index: usize) {
+    panel
+        .spawn((
+            Node {
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::SpaceBetween,
+                column_gap: Val::Px(8.),
+                padding: UiRect::axes(Val::Px(13.), Val::Px(7.)),
+                min_height: Val::Px(60.),
+                ..default()
+            },
+            BackgroundColor(Color::srgb_u8(241, 229, 198)),
+            BorderRadius::all(Val::Px(15.)),
+        ))
+        .with_children(|row| {
+            row.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(1.),
+                ..default()
+            })
+            .with_children(|labels| {
+                labels.spawn(fonts.bold(&format!("Spielstand {}", index + 1), 18.));
+                labels.spawn((MenuText::SlotMeta(index), fonts.body("Frei", 13.)));
+            });
+            row.spawn(Node {
+                column_gap: Val::Px(8.),
+                flex_shrink: 0.,
+                ..default()
+            })
+            .with_children(|actions| {
+                actions
+                    .spawn((MenuButton::Slot(index), ui::dialog_button(146.)))
+                    .with_child((MenuText::SlotAction(index), fonts.button("Neues Spiel", 15.)));
+                actions
+                    .spawn((
+                        MenuButton::DeleteSlot(index),
+                        crate::controller::SecondaryFocus,
+                        Visibility::Hidden,
+                        ui::dialog_button(88.),
+                    ))
+                    .with_child(fonts.bold("Löschen", 14.));
+            });
+        });
 }
 
 pub fn input(
@@ -452,6 +585,10 @@ pub fn input(
         return;
     }
     if keys.just_pressed(KeyCode::Escape) {
+        if matches!(session.screen, Screen::ConfirmDelete(_)) {
+            session.return_to_title();
+            return;
+        }
         #[cfg(target_os = "android")]
         if session.screen == Screen::Title && session.importing {
             session.importing = false;
@@ -516,6 +653,23 @@ pub fn input(
     };
     let (player, transform) = &mut *player;
     match (session.screen, action) {
+        (Screen::Title, MenuButton::DeleteSlot(index))
+            if ready.0 && session.choosing_slot() && slots.status[index] != SlotStatus::Empty =>
+        {
+            session.screen = Screen::ConfirmDelete(index);
+            session.message.clear();
+        }
+        (Screen::ConfirmDelete(_), MenuButton::CancelDelete) => session.return_to_title(),
+        (Screen::ConfirmDelete(index), MenuButton::ConfirmDelete) => match slots.delete(index) {
+            Ok(()) => {
+                session.return_to_title();
+                session.message = format!("Spielstand {} gelöscht. Der Platz ist wieder frei.", index + 1);
+            }
+            Err(error) => {
+                warn!("Spielstand {} konnte nicht gelöscht werden: {error}", index + 1);
+                session.message = "Löschen fehlgeschlagen. Bitte versuche es erneut.".into();
+            }
+        },
         #[cfg(target_os = "android")]
         (Screen::Title, MenuButton::Import) if ready.0 => {
             session.importing = !session.importing;
@@ -605,9 +759,7 @@ pub fn input(
             let checkpoint = Checkpoint::new(adventure.area, player.position);
             match session.save(&mut slots, &mut g, checkpoint, time.elapsed_secs()) {
                 Ok(()) if matches!(action, MenuButton::Title) => {
-                    session.screen = Screen::Title;
-                    session.index = None;
-                    session.message.clear();
+                    session.return_to_title();
                     slots.note.clear();
                 }
                 Ok(()) => {
@@ -714,10 +866,17 @@ pub fn update(
     ready: Res<Ready>,
     mut overlay: Query<(&MenuScreen, &mut Node)>,
     mut texts: Query<(&MenuText, &mut Text)>,
-    mut buttons: Query<(&MenuButton, &Interaction, &mut BackgroundColor, &mut crate::controller::FocusEnabled)>,
+    mut buttons: Query<(
+        &MenuButton,
+        &Interaction,
+        &mut BackgroundColor,
+        &mut crate::controller::FocusEnabled,
+        &mut Visibility,
+    )>,
 ) {
+    let current = session.screen.menu();
     for (screen, mut node) in &mut overlay {
-        let display = if screen.0 == session.screen {
+        let display = if Some(*screen) == current {
             Display::Flex
         } else {
             Display::None
@@ -756,34 +915,36 @@ pub fn update(
                 SlotStatus::Unreadable => "Nicht lesbar",
             }
             .into(),
-            MenuText::SlotMeta(i) => match slots.status[i] {
-                SlotStatus::Empty => "Freier Platz".into(),
-                SlotStatus::Saved { day, place, quests } => {
-                    format!("Tag {day} · {place} · Aufträge {quests}/3")
-                }
-                SlotStatus::Recoverable { day, place } => {
-                    format!("Sicherung · Tag {day} · {place}")
-                }
-                SlotStatus::Unreadable => "Datei bleibt erhalten.".into(),
+            MenuText::SlotMeta(i) => slots.status[i].details(),
+            MenuText::DeleteTitle => match session.screen {
+                Screen::ConfirmDelete(i) => format!("Spielstand {} löschen?", i + 1),
+                _ => continue,
+            },
+            MenuText::DeleteDetails => match session.screen {
+                Screen::ConfirmDelete(i) => slots.status[i].details(),
+                _ => continue,
             },
             MenuText::Message(screen) => {
-                if screen != session.screen {
+                if Some(screen) != current {
                     String::new()
                 } else if !session.message.is_empty() {
                     session.message.clone()
                 } else if !ready.0 {
                     "Die Insel lädt …".into()
-                } else if screen == Screen::Title {
+                } else if screen == MenuScreen::Title {
                     slots.note.clone()
                 } else {
                     String::new()
                 }
             }
             MenuText::PadHelp(_) if !controller.active => String::new(),
-            MenuText::PadHelp(Screen::Title) => {
+            MenuText::PadHelp(MenuScreen::Title) => {
                 "Steuerkreuz · Spielstand wählen   A · Bestätigen".into()
             }
-            MenuText::PadHelp(_) => {
+            MenuText::PadHelp(MenuScreen::ConfirmDelete) => {
+                "Steuerkreuz · Auswählen   A · Bestätigen   B · Abbrechen".into()
+            }
+            MenuText::PadHelp(MenuScreen::Pause) => {
                 "A · Aktion vor dir   X · Werkzeugrad   Y · Inselkarte\nLT · Saatgut / Einrichten   View · Tasche   ↑ · Journal\nLB/RB · Zoomen   RT · Düngen   B · Zurück".into()
             }
             MenuText::ActiveSlot => format!(
@@ -810,7 +971,7 @@ pub fn update(
             text.0 = value;
         }
     }
-    for (button, interaction, mut bg, mut focus) in &mut buttons {
+    for (button, interaction, mut bg, mut focus, mut visibility) in &mut buttons {
         let enabled = match button {
             MenuButton::Slot(i) => {
                 #[cfg(target_os = "android")]
@@ -820,10 +981,27 @@ pub fn update(
                 let unavailable = false;
                 ready.0 && !unavailable && slots.status[*i] != SlotStatus::Unreadable
             }
+            MenuButton::DeleteSlot(i) => {
+                let occupied = session.choosing_slot() && slots.status[*i] != SlotStatus::Empty;
+                visibility.set_if_neq(if occupied {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                });
+                ready.0 && occupied
+            }
             _ => true,
         };
         focus.0 = enabled;
-        let color = ui::button_color(*interaction, enabled);
+        let color = match (*button, *interaction) {
+            (MenuButton::DeleteSlot(_), Interaction::Pressed) if enabled => Color::srgb_u8(209, 164, 143),
+            (MenuButton::DeleteSlot(_), Interaction::Hovered) if enabled => Color::srgb_u8(224, 182, 159),
+            (MenuButton::DeleteSlot(_), Interaction::None) if enabled => Color::srgb_u8(233, 207, 182),
+            (MenuButton::ConfirmDelete, Interaction::Pressed) => Color::srgb_u8(109, 43, 31),
+            (MenuButton::ConfirmDelete, Interaction::Hovered) => Color::srgb_u8(158, 73, 50),
+            (MenuButton::ConfirmDelete, Interaction::None) => Color::srgb_u8(139, 59, 40),
+            _ => ui::button_color(*interaction, enabled),
+        };
         if bg.0 != color {
             bg.0 = color;
         }
@@ -834,7 +1012,6 @@ pub fn update(
 mod tests {
     use super::*;
     use crate::world::SPAWN;
-    use std::fs;
 
     #[test]
     fn an_import_preserves_occupied_slots_and_recovers_the_previous_save() {
@@ -890,6 +1067,69 @@ mod tests {
             SPAWN.to_array()
         );
         assert_eq!(Garden::load(&legacy).unwrap().day, 9);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_deleted_slot_stays_empty_and_leaves_other_saves_and_exports_intact() {
+        let root = std::env::temp_dir().join(format!("waldwinkel-delete-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let legacy = root.join("garten.json");
+        let old = br#"{"version":3,"day":9,"harvested":14}"#;
+        fs::write(&legacy, old).unwrap();
+        let mut slots = SaveSlots::new(legacy.clone());
+        let export = root.join("Hof-Export.json");
+        fs::write(&export, old).unwrap();
+        let file = slots.files[0].clone();
+        let backup = Garden::backup_path(&file);
+        let legacy_backup = Garden::backup_path(&legacy);
+        let debris = [
+            backup.clone(),
+            legacy_backup.clone(),
+            file.with_extension("beschaedigt.json"),
+            Garden::temporary_path(&file),
+            Garden::temporary_path(&backup),
+            Garden::temporary_path(&legacy),
+            Garden::temporary_path(&legacy_backup),
+        ];
+        for path in &debris {
+            fs::write(path, old).unwrap();
+        }
+        slots
+            .import(1, br#"{"version":18,"day":5,"wood":23}"#)
+            .unwrap();
+        let other = fs::read(&slots.files[1]).unwrap();
+        slots.delete(0).unwrap();
+        assert_eq!(slots.status[0], SlotStatus::Empty);
+        assert!(slots.note.is_empty());
+        assert!(debris.iter().chain([&file, &legacy]).all(|path| !path.exists()));
+        assert_eq!(fs::read(&slots.files[1]).unwrap(), other);
+        assert_eq!(fs::read(&export).unwrap(), old);
+        let mut reopened = SaveSlots::new(legacy);
+        assert_eq!(reopened.status[0], SlotStatus::Empty);
+        let fresh = reopened.open(0).unwrap();
+        assert_eq!((fresh.day, fresh.harvested), (1, 0));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_failed_delete_keeps_the_playable_backup_and_can_be_retried() {
+        let root = std::env::temp_dir().join(format!("waldwinkel-retry-delete-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let mut slots = SaveSlots::new(root.join("garten.json"));
+        let file = slots.files[1].clone();
+        let backup = Garden::backup_path(&file);
+        fs::create_dir(&file).unwrap();
+        fs::write(&backup, br#"{"version":18,"day":12}"#).unwrap();
+        assert!(slots.delete(1).is_err());
+        assert_eq!(Garden::load(&backup).unwrap().day, 12);
+        fs::remove_dir(&file).unwrap();
+        slots.delete(1).unwrap();
+        assert!(!backup.exists());
+        fs::write(&backup, b"unreadable").unwrap();
+        assert_eq!(SaveSlots::inspect(&file), SlotStatus::Unreadable);
+        slots.delete(1).unwrap();
+        assert_eq!(SaveSlots::inspect(&file), SlotStatus::Empty);
         fs::remove_dir_all(root).unwrap();
     }
 }

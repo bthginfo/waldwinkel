@@ -223,8 +223,11 @@ pub fn supplies(garden: &Garden) -> String {
 }
 
 pub fn can_build(garden: &Garden) -> bool {
+    !garden.clock.night() && has_materials(garden)
+}
+
+pub(crate) fn has_materials(garden: &Garden) -> bool {
     garden.harbor.started
-        && !garden.clock.night()
         && match garden.harbor.phase {
             Phase::Damaged => garden.harbor.driftwood && garden.wood >= 2,
             Phase::Landing => (garden.harbor.fittings || garden.copper >= FITTING_COPPER)

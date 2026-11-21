@@ -3,6 +3,7 @@ use bevy::prelude::*;
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Panel {
     Session,
+    ConfirmDelete,
     Farm,
     Dialogue,
     Duel,
@@ -13,10 +14,15 @@ pub enum Panel {
     Rest,
     #[cfg(target_os = "android")]
     Decor,
+    #[cfg(target_os = "android")]
+    Kitchen,
 }
 
 #[derive(Component)]
 pub struct FocusEnabled(pub bool);
+
+#[derive(Component)]
+pub struct SecondaryFocus;
 
 #[derive(Resource, Default)]
 pub struct Controller {
@@ -40,6 +46,7 @@ pub struct Controller {
     pub end_turn: bool,
     pub page_step: i8,
     pub provisions: bool,
+    pub kitchen_action: Option<usize>,
     #[cfg(target_os = "android")]
     pointer: Option<Vec2>,
     #[cfg(target_os = "android")]
@@ -56,9 +63,9 @@ fn focus_step(
 ) -> Option<Entity> {
     let axis = step.normalize_or_zero();
     buttons
-        .filter_map(|(entity, point, close)| {
+        .filter_map(|(entity, point, secondary)| {
             let Some(from) = from else {
-                let score = point.y * 4. + point.x * 0.01 + if close { 10_000. } else { 0. };
+                let score = point.y * 4. + point.x * 0.01 + if secondary { 10_000. } else { 0. };
                 return Some((entity, false, score));
             };
             let offset = point - from;
@@ -87,7 +94,7 @@ mod android {
     };
     use ndk_sys as ndk;
 
-    use super::{Controller, FocusEnabled, Panel, focus_step};
+    use super::{Controller, FocusEnabled, Panel, SecondaryFocus, focus_step};
     use crate::{
         Adventure,
         farm_ui::{Choice, FarmMenu, FarmPage},
@@ -277,6 +284,7 @@ mod android {
                 Option<&'static FocusEnabled>,
                 Option<&'static Choice>,
                 Option<&'static DialogueButton>,
+                Has<SecondaryFocus>,
             ),
             With<Button>,
         >,
@@ -350,7 +358,9 @@ mod android {
             || pad != Vec2::ZERO
             || triggers.0
             || triggers.1;
-        let layer = if !session.playing() {
+        let layer = if session.confirming_delete() {
+            Some(Panel::ConfirmDelete)
+        } else if !session.playing() {
             Some(Panel::Session)
         } else if night.active() {
             Some(Panel::Rest)
@@ -358,6 +368,8 @@ mod android {
             Some(Panel::Wheel)
         } else if decor.open() {
             Some(Panel::Decor)
+        } else if menu.preparing() {
+            Some(Panel::Kitchen)
         } else if menu.clip().is_some() {
             Some(Panel::Cinematic)
         } else if menu.battle().is_some() {
@@ -371,7 +383,7 @@ mod android {
         };
         let hand = layer == Some(Panel::Duel)
             && menu.battle().is_some_and(crate::duel::Battle::hand_controls);
-        let direct = hand || matches!(layer, Some(Panel::Wheel | Panel::Rest | Panel::Decor));
+        let direct = hand || matches!(layer, Some(Panel::Wheel | Panel::Rest | Panel::Decor | Panel::Kitchen));
         let panel = layer.map(|layer| (layer, menu.page()));
         let changed_panel = panel != last.panel;
         if changed_panel {
@@ -449,6 +461,13 @@ mod android {
         controller.fertilizer = world && triggers.1 && !last.triggers.1;
         controller.end_turn = hand && hit(7);
         controller.provisions = layer == Some(Panel::Duel) && hit(6);
+        controller.kitchen_action = if layer == Some(Panel::Kitchen) {
+            [(6, 0), (4, 1), (7, 2)]
+                .into_iter()
+                .find_map(|(button, action)| hit(button).then_some(action))
+        } else {
+            None
+        };
         controller.page_step = if layer == Some(Panel::Farm) {
             i8::from(hit(9)) - i8::from(hit(8))
         } else {
@@ -476,7 +495,7 @@ mod android {
             let candidates: Vec<_> = targets
                 .buttons
                 .iter()
-                .filter_map(|(entity, node, pose, visible, enabled, button, dialogue)| {
+                .filter_map(|(entity, node, pose, visible, enabled, button, dialogue, secondary)| {
                     if !visible.get()
                         || enabled.is_some_and(|state| !state.0)
                         || node.size().min_element() < 4.
@@ -491,10 +510,10 @@ mod android {
                     }
                     let point = pose.translation().truncate() / window.scale_factor();
                     let bounds = node.size() / window.scale_factor();
-                    let close = matches!(button, Some(Choice::Close))
+                    let secondary = secondary || matches!(button, Some(Choice::Close))
                         || matches!(dialogue, Some(DialogueButton::Close));
                     (point.cmpge(Vec2::ZERO).all() && point.cmple(size).all())
-                        .then_some((entity, point, bounds, close))
+                        .then_some((entity, point, bounds, secondary))
                 })
                 .collect();
             let current = candidates
@@ -502,7 +521,7 @@ mod android {
                 .find(|(id, _, _, _)| Some(*id) == controller.focused);
             if current.is_none() || step != Vec2::ZERO {
                 controller.focused = focus_step(
-                    candidates.iter().map(|&(id, p, _, close)| (id, p, close)),
+                    candidates.iter().map(|&(id, p, _, secondary)| (id, p, secondary)),
                     current.map(|(_, p, _, _)| *p),
                     step,
                 )

@@ -459,6 +459,27 @@ pub fn story(area: Frontier, g: &Garden) -> (String, &'static str, bool) {
     )
 }
 
+pub fn journal_detail(area: Frontier, g: &Garden) -> String {
+    let step = usize::from(g.regions.story_steps(area));
+    let Some(order) = ORDERS[area as usize].get(step) else {
+        return format!("{} · Alle drei Aufgaben abgeschlossen.", area.district().name());
+    };
+    let brief = match (area, step) {
+        (Frontier::Copper, 0) => "Die Arbeiter der Klamm haben den westlichen Steg repariert. Runa will am anderen Ufer helle Wegmarken setzen, damit später auch Ortsfremde sicher hinüberkommen.",
+        (Frontier::Copper, 1) => "Sobald die letzten Wagen das Erzgleis verlassen, liegt die Klamm im Dunkeln. Runa hat alte Lampen aus dem Schuppen geholt. Mit neuen Sockeln können sie wieder am Weg stehen.",
+        (Frontier::Copper, _) => "Zum ersten Mal seit Wochen können die Bauleute die Werkstatt vor Einbruch der Nacht verlassen. Runa möchte mit ihnen essen und bittet dich um einen Topf für alle.",
+        (Frontier::Wind, 0) => "Nele hat die Mühlenflügel im letzten Sturm festgebunden. Aus dem Flachs der Wiesen will sie neues Garn spinnen, damit die Segel bei der nächsten Böe halten.",
+        (Frontier::Wind, 1) => "Die Mühle läuft wieder. Jetzt zieht die Kälte durch den Raum darüber. Nele möchte eine warme Stube einrichten, in der die Helfer nach ihrer Schicht sitzen können.",
+        (Frontier::Wind, _) => "Die Wiesenwege sind nach dem Regen wieder trocken. Nele führt die Nachbarn bei Sonnenaufgang über den Deich und möchte ihnen Proviant aus der Inselküche mitgeben.",
+        (Frontier::Moor, 0) => "Edda erkennt die trockenen Stellen am Geruch der Minze. Sie zeigt dir, wie du sie am Ufer findest, und will den Duft an den sicheren Übergängen auffrischen.",
+        (Frontier::Moor, 1) => "Ein Herbsthochwasser hat Eddas Markierungen fortgespült. Sie baut mit den Nachbarn neue Orientierungspunkte für Leute, die in der Dämmerung heimkehren.",
+        (Frontier::Moor, _) => "Als der Nebel dünner wird, lädt Edda die Pfadkundigen ans Ufer. Sie sammelt Wolle für warme Decken und ein Glas Konfitüre für das gemeinsame Essen.",
+    };
+    let who = match area { Frontier::Copper => "Runa", Frontier::Wind => "Nele", Frontier::Moor => "Edda" };
+    format!("{brief}\n{}\nBei {who} · {} · {}/3 abgeschlossen",
+        order.request, progress(order.materials, g), step)
+}
+
 pub(crate) fn story_mark(area: Frontier, garden: &Garden) -> Option<crate::town::QuestMark> {
     use crate::town::QuestMark::{Available, TurnIn};
     let state = garden.regions.stories[area as usize];
@@ -468,6 +489,14 @@ pub(crate) fn story_mark(area: Frontier, garden: &Garden) -> Option<crate::town:
     } else {
         has_supplies(order.materials, garden).then_some(TurnIn)
     }
+}
+
+pub(crate) fn tracking(area: Frontier, garden: &Garden) -> Option<(&'static str, String, bool)> {
+    let state = garden.regions.stories[area as usize];
+    let order = ORDERS[area as usize].get(usize::from(state / 2))?;
+    (state % 2 == 1).then(|| (
+        order.title, progress(order.materials, garden), has_supplies(order.materials, garden),
+    ))
 }
 
 pub fn finish_story(area: Frontier, g: &mut Garden) -> Result<String, String> {

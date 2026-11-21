@@ -217,6 +217,20 @@ impl Npc {
         }
     }
 
+    fn current_quest(self, garden: &Garden) -> Option<Quest> {
+        let first = self.quest()?;
+        if garden.town.state(first) != QuestState::Done {
+            return Some(first);
+        }
+        let follow = match self {
+            Self::Mara if garden.harbor.phase == harbor::Phase::Open => Quest::LongTable,
+            Self::Fiete if garden.workshop.forge => Quest::StormBell,
+            Self::Bo if garden.farm.housing.iter().all(|&built| built) => Quest::FirstFair,
+            _ => return Some(first),
+        };
+        Some(follow)
+    }
+
     pub fn quest_mark(self, garden: &Garden) -> Option<QuestMark> {
         use QuestMark::{Available, TurnIn};
         if let Some(region) = self.frontier() {
@@ -226,8 +240,8 @@ impl Npc {
                 .flatten();
         }
         let city = self
-            .quest()
-            .and_then(|quest| match garden.town.quests[quest as usize] {
+            .current_quest(garden)
+            .and_then(|quest| match garden.town.state(quest) {
                 QuestState::Offered => Some(Available),
                 QuestState::Accepted if quest.ready(garden) => Some(TurnIn),
                 _ => None,
@@ -259,6 +273,9 @@ enum Quest {
     Soup,
     Chime,
     Fountain,
+    LongTable,
+    StormBell,
+    FirstFair,
 }
 
 #[derive(Clone, Copy)]
@@ -313,13 +330,18 @@ impl Require {
 }
 
 impl Quest {
-    const ALL: [Self; 3] = [Self::Soup, Self::Chime, Self::Fountain];
+    const ALL: [Self; 6] = [
+        Self::Soup, Self::Chime, Self::Fountain, Self::LongTable, Self::StormBell, Self::FirstFair,
+    ];
 
     fn blueprint(self) -> usize {
         match self {
             Self::Soup => crate::furniture::ARMCHAIR,
             Self::Chime => crate::furniture::VINE_SHELF,
             Self::Fountain => crate::furniture::WALL_HANGING,
+            Self::LongTable => crate::furniture::HARBOR_CHEST,
+            Self::StormBell => crate::furniture::VINE_SHELF,
+            Self::FirstFair => crate::furniture::ARMCHAIR,
         }
     }
 
@@ -328,6 +350,9 @@ impl Quest {
             Self::Soup => "Für Maras Küche",
             Self::Chime => "Klang der Bucht",
             Self::Fountain => "Ein Brunnen für alle",
+            Self::LongTable => "Ein Platz am langen Tisch",
+            Self::StormBell => "Eine Glocke für den Sturm",
+            Self::FirstFair => "Der erste Hofmarkt",
         }
     }
     fn request(self) -> &'static str {
@@ -335,8 +360,22 @@ impl Quest {
             Self::Soup => "3 Pilze und 2 Haselnüsse aus dem Farnwald",
             Self::Chime => "3 Muscheln aus der Muschelbucht",
             Self::Fountain => "4 Holz und 3 Stein aus Wald, Bucht oder Mine",
+            Self::LongTable => "Zwei Möhren-Pilz-Suppen kochen und Waldbeeren einmachen.",
+            Self::StormBell => "Bretter an der Werkbank und Nieten am Schmiedetisch herstellen.",
+            Self::FirstFair => "Eier und Wolle einsammeln und Haselnüsse zu Mehl mahlen.",
         }
     }
+    fn brief(self) -> &'static str {
+        match self {
+            Self::Soup => "Mara rührt seit Sonnenaufgang in einem leeren Topf. Für die späte Schicht am Hafen will sie die Pilzsuppe ihrer Großmutter kochen. Die letzten Haselnüsse hat der Herbststurm vom Dach gefegt.",
+            Self::Chime => "Fiete hat am Strand einen Holzrahmen aus seiner Kindheit gefunden. Am Fenster soll er wieder wie die Muscheln an der Bucht klingen. Drei Muscheln mit heilen Rändern fehlen ihm.",
+            Self::Fountain => "Beim Wasserschöpfen hat Bo die losen Steine am Brunnen gezählt. Mit einem neuen Rand könnten sich die Nachbarn wieder dort treffen und ihre Eimer sicher abstellen.",
+            Self::LongTable => "Seit der Fischersteg wieder offen ist, bleiben die Heimkehrenden abends am Brunnen stehen. Mara möchte einen langen Tisch decken. Sie bittet dich um etwas Warmes und um ein Glas vom letzten Beerenfund.",
+            Self::StormBell => "Beim letzten Nebel konnte Fiete die Fischerboote vom Ufer aus kaum erkennen. Er möchte eine Schutzhaube für ihre Glocke bauen. An deinem Schmiedetisch entstehen Nieten, die dem Wind standhalten.",
+            Self::FirstFair => "Bo will die Türen am Hafenmarkt für die Höfe der Insel öffnen. Er verspricht, das erste Brot aus deinem Mehl mit den Nachbarn zu teilen. Für seinen Tisch fehlen Eier und Wolle von versorgten Tieren.",
+        }
+    }
+
     fn requirements(self) -> &'static [Require] {
         match self {
             Self::Soup => &[
@@ -345,6 +384,19 @@ impl Quest {
             ],
             Self::Chime => &[Require::Product(Product::Shell, 3)],
             Self::Fountain => &[Require::Wood(4), Require::Stone(3)],
+            Self::LongTable => &[
+                Require::Product(Product::Prepared(crate::processing::Dish::CarrotSoup), 2),
+                Require::Product(Product::Prepared(crate::processing::Dish::BerryJam), 1),
+            ],
+            Self::StormBell => &[
+                Require::Product(Product::Crafted(crate::craft::Recipe::Boards), 5),
+                Require::Product(Product::Crafted(crate::craft::Recipe::Rivets), 3),
+            ],
+            Self::FirstFair => &[
+                Require::Product(Product::Egg, 4),
+                Require::Product(Product::Wool, 2),
+                Require::Product(Product::Prepared(crate::processing::Dish::HazelFlour), 1),
+            ],
         }
     }
     fn reward(self) -> (u32, Crop) {
@@ -352,6 +404,9 @@ impl Quest {
             Self::Soup => (18, Crop::Tomato),
             Self::Chime => (16, Crop::Strawberry),
             Self::Fountain => (24, Crop::Sunflower),
+            Self::LongTable => (48, Crop::Pumpkin),
+            Self::StormBell => (56, Crop::Sunflower),
+            Self::FirstFair => (72, Crop::Strawberry),
         }
     }
 
@@ -362,9 +417,9 @@ impl Quest {
     }
 
     fn advance(self, g: &mut Garden) -> Result<String, String> {
-        match g.town.quests[self as usize] {
+        match g.town.state(self) {
             QuestState::Offered => {
-                g.town.quests[self as usize] = QuestState::Accepted;
+                *g.town.state_mut(self) = QuestState::Accepted;
                 Ok("Auftrag angenommen.".into())
             }
             QuestState::Accepted if self.ready(g) => {
@@ -374,9 +429,9 @@ impl Quest {
                 let (coins, crop) = self.reward();
                 g.farm.coins = g.farm.coins.saturating_add(coins);
                 g.add_seeds(crop, 2);
-                g.town.quests[self as usize] = QuestState::Done;
+                *g.town.state_mut(self) = QuestState::Done;
                 crate::furniture::learn(g, self.blueprint());
-                Ok(format!("Erfüllt · +{coins} Münzen · +2 Samen · Bauplan"))
+                Ok(format!("{} erfüllt · +{coins} Münzen · +2 Samen", self.name()))
             }
             QuestState::Accepted => Err("Dir fehlen noch Zutaten oder Materialien.".into()),
             QuestState::Done => Err("Dieser Auftrag ist erfüllt.".into()),
@@ -396,23 +451,35 @@ enum QuestState {
 #[serde(default)]
 pub struct Journal {
     quests: [QuestState; 3],
+    follow_up: [QuestState; 3],
     picked: Vec<Option<u32>>,
     pub goods: [u32; 3],
 }
 
 impl Journal {
+    fn state(&self, quest: Quest) -> QuestState {
+        let index = quest as usize;
+        if index < self.quests.len() { self.quests[index] } else { self.follow_up[index - self.quests.len()] }
+    }
+
+    fn state_mut(&mut self, quest: Quest) -> &mut QuestState {
+        let index = quest as usize;
+        if index < self.quests.len() { &mut self.quests[index] } else { &mut self.follow_up[index - self.quests.len()] }
+    }
+
     pub fn earned_blueprints(&self) -> impl Iterator<Item = usize> + '_ {
         Quest::ALL
             .into_iter()
-            .filter(|&quest| self.quests[quest as usize] == QuestState::Done)
+            .filter(|&quest| self.state(quest) == QuestState::Done)
             .map(Quest::blueprint)
     }
 
     pub fn completed(&self) -> usize {
-        self.quests
-            .iter()
-            .filter(|&&state| state == QuestState::Done)
-            .count()
+        self.quests.iter().filter(|&&state| state == QuestState::Done).count()
+    }
+
+    pub fn total_completed(&self) -> usize {
+        Quest::ALL.into_iter().filter(|&quest| self.state(quest) == QuestState::Done).count()
     }
 
     pub fn find_ready(&self, index: usize, day: u32) -> bool {
@@ -655,7 +722,7 @@ pub fn input(
             if let Some(area) = npc.frontier() {
                 Some(regions::finish_story(area, &mut garden))
             } else {
-                npc.quest().map(|quest| quest.advance(&mut garden))
+                npc.current_quest(&garden).map(|quest| quest.advance(&mut garden))
             }
         }
         DialogueButton::FishSupper if npc == Npc::Bo && !dialog.trading => {
@@ -666,7 +733,7 @@ pub fn input(
                     dialog.close();
                     *gesture = Gesture::default();
                     *controls = Controls::default();
-                    farm_menu.cook_with_bo(&garden, time.elapsed_secs());
+                    farm_menu.cook_with_bo(&garden);
                     None
                 }
                 Stage::Served if garden.fish_supper.offered_today(garden.day) && evening_market::hours(&garden) => {
@@ -754,9 +821,9 @@ pub fn update(
     let merchant = npc.merchant();
     let trade =
         merchant.map(|merchant| merchant.describe(&garden, dialog.crop(), dialog.product(&garden)));
-    let quest = npc.quest();
+    let quest = npc.current_quest(&garden);
     let region_quest = npc.frontier().map(|area| regions::story(area, &garden));
-    let quest_state = quest.map(|q| garden.town.quests[q as usize]);
+    let quest_state = quest.map(|q| garden.town.state(q));
     for (field, mut text) in &mut fields {
         let value = match field {
             DialogueText::Name => npc.name().into(),
@@ -825,8 +892,9 @@ pub fn update(
                         match state {
                             QuestState::Done => format!("{} · Erfüllt", quest.name()),
                             _ => format!(
-                                "{}\n{}\n{coins} Münzen und 2 Samen für {} als Belohnung",
+                                "{}\n{}\n{}\n{coins} Münzen und 2 Samen für {} als Belohnung",
                                 quest.name(),
+                                quest.brief(),
                                 quest.request(),
                                 crop.name(),
                             ),
@@ -922,13 +990,17 @@ pub fn update(
     }
 }
 
-pub fn order_name(npc: Npc) -> &'static str {
-    npc.quest().map_or(npc.name(), Quest::name)
+pub fn order_name(npc: Npc, garden: &Garden) -> &'static str {
+    npc.current_quest(garden).map_or(npc.name(), Quest::name)
+}
+
+pub fn order_target(npc: Npc, garden: &Garden) -> bool {
+    npc.current_quest(garden).is_some_and(|quest| garden.town.state(quest) != QuestState::Done)
 }
 
 pub fn order_done(npc: Npc, garden: &Garden) -> bool {
     npc.quest()
-        .is_some_and(|q| garden.town.quests[q as usize] == QuestState::Done)
+        .is_some_and(|q| garden.town.state(q) == QuestState::Done)
 }
 
 pub fn next_city_order(garden: &Garden) -> Option<Npc> {
@@ -937,14 +1009,25 @@ pub fn next_city_order(garden: &Garden) -> Option<Npc> {
         .find(|&npc| !order_done(npc, garden))
 }
 
+pub fn order_preview(npc: Npc, garden: &Garden) -> String {
+    let Some(quest) = npc.current_quest(garden) else { return npc.name().into() };
+    let state = match garden.town.state(quest) {
+        QuestState::Offered => "Verfügbar",
+        QuestState::Accepted if quest.ready(garden) => "Abgabebereit",
+        QuestState::Accepted => "Angenommen",
+        QuestState::Done => "Erfüllt",
+    };
+    format!("{state} · {}", npc.name())
+}
+
 pub fn order_detail(npc: Npc, garden: &Garden) -> String {
-    let Some(quest) = npc.quest() else {
+    let Some(quest) = npc.current_quest(garden) else {
         return String::new();
     };
-    if order_done(npc, garden) {
-        return format!("Erfüllt · {}", npc.name());
+    if garden.town.state(quest) == QuestState::Done {
+        return format!("{}\nAbgeschlossen · {}", quest.brief(), npc.name());
     }
-    let state = match garden.town.quests[quest as usize] {
+    let state = match garden.town.state(quest) {
         QuestState::Offered => "Offen",
         QuestState::Accepted if quest.ready(garden) => "Abgabebereit",
         _ => "Angenommen",
@@ -955,7 +1038,19 @@ pub fn order_detail(npc: Npc, garden: &Garden) -> String {
         .map(|item| item.progress(garden))
         .collect::<Vec<_>>()
         .join(" · ");
-    format!("{state} · {} · {supplies}", npc.name())
+    format!("{}\n{state} · {} · {supplies}", quest.brief(), npc.name())
+}
+
+pub(crate) fn tracking(npc: Npc, garden: &Garden) -> Option<(&'static str, String, bool)> {
+    let quest = npc.current_quest(garden)?;
+    if garden.town.state(quest) != QuestState::Accepted {
+        return None;
+    }
+    let materials = quest.requirements().iter()
+        .map(|item| item.progress(garden))
+        .collect::<Vec<_>>()
+        .join(" · ");
+    Some((quest.name(), materials, quest.ready(garden)))
 }
 
 #[cfg(test)]
@@ -979,5 +1074,28 @@ mod tests {
         assert_eq!(garden.farm.coins, coins + 16);
         assert_eq!(garden.town.completed(), 1);
         assert!(quest.advance(&mut garden).is_err());
+    }
+
+    #[test]
+    fn maras_follow_up_opens_after_the_pier_and_is_tracked_separately() {
+        let mut garden = Garden::default();
+        *garden.town.state_mut(Quest::Soup) = QuestState::Done;
+        assert_eq!(Npc::Mara.current_quest(&garden), Some(Quest::Soup));
+        assert!(!order_target(Npc::Mara, &garden));
+        garden.harbor.phase = harbor::Phase::Open;
+        assert_eq!(Npc::Mara.quest_mark(&garden), Some(QuestMark::Available));
+        let quest = Npc::Mara.current_quest(&garden).unwrap();
+        assert_eq!(quest, Quest::LongTable);
+        quest.advance(&mut garden).unwrap();
+        assert!(!tracking(Npc::Mara, &garden).unwrap().2);
+        for need in quest.requirements() {
+            if let Require::Product(product, quantity) = *need {
+                garden.add_stock(product, quantity);
+            }
+        }
+        assert!(tracking(Npc::Mara, &garden).unwrap().2);
+        let mut garden = Garden::decode(&serde_json::to_vec(&garden).unwrap()).unwrap();
+        quest.advance(&mut garden).unwrap();
+        assert_eq!((garden.town.completed(), garden.town.total_completed()), (1, 2));
     }
 }

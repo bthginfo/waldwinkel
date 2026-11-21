@@ -178,7 +178,7 @@ impl Lesson {
             Self::Harvest if pad => format!("Wähle über X den Erntekorb. Schau zu Beet {plot} und drücke A."),
             Self::Harvest => format!("Wähle bei „Werkzeuge“ den Erntekorb und ernte Beet {plot}."),
             Self::Kitchen if indoors => "Geh durch die Haustür zur Hofküche. Sie steht neben den Beeten.".into(),
-            Self::Kitchen if Dish::CarrotSoup.ready(garden) => "Öffne die Hofküche und koche Möhren-Pilz-Suppe. Füge die Zutaten hinzu, rühre und schöpfe ab.".into(),
+            Self::Kitchen if Dish::CarrotSoup.ready(garden) => "Öffne die Hofküche und koche Möhren-Pilz-Suppe. Schneide, gare und schmecke sie ab.".into(),
             Self::Kitchen => "Für die Suppe brauchst du zwei Möhren und einen Pilz. Pilze findest du am Farnbach.".into(),
             Self::Cards if indoors => "Öffne den Kartenbinder und wähle „Üben“. Der Strohwächter zeigt dir Angriff, Schutz und Zugwechsel.".into(),
             Self::Cards => "Geh durch die Haustür zum Kartenbinder. Dort wartet ein Übungsduell.".into(),
@@ -421,10 +421,9 @@ mod tests {
         assert_eq!(Prologue::current(&garden), Some(Lesson::Harvest));
         garden.work(4, Crop::Carrot, Action::Harvest).unwrap();
         assert!(Dish::CarrotSoup.ready(&garden));
-        let mut soup = Preparation::new(Dish::CarrotSoup, 0.);
-        for at in [0., 0.9, 4.1, 7.3, 7.6] {
-            assert!(soup.try_step(0, at));
-        }
+        let mut soup = Preparation::new(Dish::CarrotSoup);
+        let at = soup.cook_to_plate_for_test();
+        assert!(soup.try_step(2, at));
         assert_eq!(soup.finish(&mut garden), Some(1));
         assert_eq!(Prologue::current(&garden), Some(Lesson::Cards));
         let snapshot = serde_json::to_vec(&garden).unwrap();

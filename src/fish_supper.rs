@@ -154,14 +154,13 @@ mod tests {
         assert!(!Dish::HarborBroth.ready(&garden));
         assert!(!harbor::catch(&mut garden, Fishing::Seaward).contains("besucht"));
         assert!(Dish::HarborBroth.ready(&garden));
-        let mut cooking = Preparation::new(Dish::HarborBroth, 0.);
+        let mut cooking = Preparation::new(Dish::HarborBroth);
         assert!(!cooking.try_step(1, 0.1));
         assert_eq!(cooking.finish(&mut garden), None);
         assert_eq!(garden.stock(Product::Herring), 1);
         assert!(!evening_market::stall_present(&garden));
-        for time in [0.1, 0.87, 4.07, 7.27, 7.65] {
-            assert!(cooking.try_step(0, time));
-        }
+        let at = cooking.cook_to_plate_for_test();
+        assert!(cooking.try_step(0, at));
         assert_eq!(cooking.finish(&mut garden), Some(1));
         assert_eq!(cooking.finish(&mut garden), None);
         assert_eq!(garden.stock(Product::Herring), 0);

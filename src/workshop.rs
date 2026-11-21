@@ -275,11 +275,11 @@ impl Project {
             }
             Self::Forge => {
                 garden.workshop.forge = true;
-                "Der Schmiedetisch steht jetzt am östlichen Hofweg.".into()
+                "Schmiedetisch gebaut.".into()
             }
             Self::Loom => {
                 garden.workshop.loom = true;
-                "Der Webrahmen steht am östlichen Hofweg.".into()
+                "Webrahmen gebaut.".into()
             }
             Self::Field => {
                 garden.expanded_field = true;
@@ -319,8 +319,8 @@ impl BuildingPlan {
 
     fn price(self) -> u32 {
         match self {
-            Self::Barn(Animal::Hen) => 14,
-            Self::Barn(Animal::Sheep) => 27,
+            Self::Barn(Animal::Hen) => 30,
+            Self::Barn(Animal::Sheep) => 52,
             Self::Room(i) => ROOM_PRICES[i],
         }
     }
@@ -336,12 +336,22 @@ impl BuildingPlan {
         if self.known(garden) {
             "Bauplan gelernt".into()
         } else {
-            format!("Bauplan · {} Münzen", self.price())
+            let requirement = match self {
+                Self::Barn(Animal::Hen) if !garden.workshop.restored => " · Erst Werkbank reparieren",
+                Self::Barn(Animal::Sheep) if !garden.farm.housing[Animal::Hen as usize] => " · Erst Hühnerstall fertigstellen",
+                _ => "",
+            };
+            format!("Bauplan · {} Münzen{requirement}", self.price())
         }
     }
 
     pub fn can_buy(self, garden: &Garden) -> bool {
         !self.known(garden) && garden.clock.market_open() && garden.farm.coins >= self.price()
+            && match self {
+                Self::Barn(Animal::Hen) => garden.workshop.restored,
+                Self::Barn(Animal::Sheep) => garden.farm.housing[Animal::Hen as usize],
+                _ => true,
+            }
     }
 
     pub fn buy(self, garden: &mut Garden) -> Result<String, String> {

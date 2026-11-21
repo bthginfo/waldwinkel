@@ -150,144 +150,264 @@ pub(crate) fn read_pantry<'de, D: serde::Deserializer<'de>>(reader: D) -> Result
     Ok(pantry)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase {
+    Chop,
+    Simmer,
+    Garnish,
+    Fill,
+    Seal,
+    Grind,
+    Done,
+}
+
 pub struct Preparation {
     pub dish: Dish,
     progress: usize,
-    start: f32,
-    last_cycle: i32,
     last_step: Option<f32>,
+    level: f32,
+    infusion: f32,
+    stirs: u8,
+    steady_turns: u8,
     mistakes: u8,
     pub message: &'static str,
 }
 
-impl Preparation {
-    const PERIOD: f32 = 3.2;
-    const HEAT_RANGE: std::ops::RangeInclusive<f32> = 0.36..=0.73;
-    const SEAL_RANGE: std::ops::RangeInclusive<f32> = 0.52..=0.86;
-    const SEASONING: [&'static str; 3] = ["Zitrone", "Honig", "Kräuter"];
+impl Dish {
+    fn cuts(self) -> [(usize, &'static str); 3] {
+        match self {
+            Self::CarrotSoup => [(0, "Möhre würfeln · Fein schneiden"), (1, "Pilz · Grob teilen"), (0, "Möhre würfeln · Fein schneiden")],
+            Self::TomatoStew => [(1, "Tomate · Grob teilen"), (1, "Tomate · Grob teilen"), (0, "Kräuter · Fein schneiden")],
+            _ => [(0, "Möhre würfeln · Fein schneiden"), (1, "Fisch · Grob teilen"), (0, "Kräuter · Fein schneiden")],
+        }
+    }
 
-    pub fn new(dish: Dish, now: f32) -> Self {
+    fn garnish(self) -> (usize, &'static str) {
+        match self {
+            Self::HarborBroth => (1, "Der kräftigen Brühe fehlt etwas Frisches."),
+            Self::TomatoStew => (2, "Geröstetes rundet die Säure der Tomaten ab."),
+            _ => (0, "Zu den erdigen Pilzen passt etwas Würziges."),
+        }
+    }
+}
+
+impl Preparation {
+    pub fn new(dish: Dish) -> Self {
         Self {
             dish,
-            start: now,
             progress: 0,
-            last_cycle: -1,
             last_step: None,
+            level: 0.,
+            infusion: 0.,
+            stirs: 0,
+            steady_turns: 0,
             mistakes: 0,
             message: "",
         }
     }
 
-    pub fn heat(&self, now: f32) -> f32 {
-        let phase = ((now - self.start) / Self::PERIOD).fract();
-        1.0 - (phase * 2.0 - 1.0).abs()
+    pub fn phase(&self) -> Phase {
+        match self.dish.method() {
+            Method::Cook => match self.progress {
+                0..=2 => Phase::Chop,
+                3 => Phase::Simmer,
+                4 => Phase::Garnish,
+                _ => Phase::Done,
+            },
+            Method::Preserve if self.progress < 3 => Phase::Fill,
+            Method::Preserve if self.progress == 3 => Phase::Seal,
+            Method::Mill if self.progress < self.turns() => Phase::Grind,
+            _ => Phase::Done,
+        }
     }
 
-    pub fn instructions(&self) -> String {
-        match self.dish.method() {
-            Method::Cook if self.progress == 0 => "Schneide die Zutaten und gib sie in den Topf.".into(),
-            Method::Cook if self.progress < 4 =>
-                "Rühre einmal pro Runde im grünen Bereich. Warte, bis der Zeiger wieder zurückläuft.".into(),
-            Method::Cook => "Schöpfe die fertige Suppe ab.".into(),
-            Method::Preserve if self.progress < 3 => {
-                let [a, b, c] = self.dish.seasoning().map(|index| Self::SEASONING[index]);
-                format!("Fülle das Glas in dieser Reihenfolge. {a} → {b} → {c}")
-            }
-            Method::Preserve => "Verschließe das Glas, sobald der Zeiger im grünen Bereich ist.".into(),
-            Method::Mill => format!(
-                "Kurble links und rechts im Wechsel. Als Nächstes {}.",
-                if self.progress % 2 == 0 { "links" } else { "rechts" }
-            ),
+    fn turns(&self) -> usize {
+        if self.dish == Dish::SunflowerMeal { 8 } else { 6 }
+    }
+
+    pub fn title(&self) -> String {
+        match self.phase() {
+            Phase::Chop => format!("Schneidebrett · {}/3", self.progress + 1),
+            Phase::Simmer => format!("Herd · {} % Gargrad · {}/2 gerührt",
+                (self.infusion * 100.).floor() as u32, self.stirs.min(2)),
+            Phase::Garnish => "Anrichten · Abschmecken".into(),
+            Phase::Fill => format!("Einmachen · Schicht {}/3", self.progress + 1),
+            Phase::Seal => "Einmachen · Glas entlüften".into(),
+            Phase::Grind => format!("Handmühle · {}/{} Umdrehungen", self.progress, self.turns()),
+            Phase::Done => "Fertig".into(),
+        }
+    }
+
+    pub fn instructions(&self) -> &'static str {
+        match self.phase() {
+            Phase::Chop => self.dish.cuts()[self.progress].1,
+            Phase::Simmer => "Halte die Glut im hellen Bereich und rühre mindestens zweimal.",
+            Phase::Garnish => self.dish.garnish().1,
+            Phase::Fill => match self.dish.seasoning()[self.progress] {
+                0 => "Gib den frischen Ansatz ins Glas.",
+                1 => "Fülle den süßen Sirup ein.",
+                _ => "Gib die würzige Schicht dazu.",
+            },
+            Phase::Seal => "Drücke die Luft heraus. Verschließe das Glas im hellen Bereich.",
+            Phase::Grind if self.progress.is_multiple_of(2) =>
+                "Drehe nach links. Gleichmäßiges Kurbeln hält das Mahlwerk in Schwung.",
+            Phase::Grind =>
+                "Drehe nach rechts. Gleichmäßiges Kurbeln hält das Mahlwerk in Schwung.",
+            Phase::Done => "",
         }
     }
 
     pub fn buttons(&self) -> &'static [&'static str] {
-        match self.dish.method() {
-            Method::Cook if self.progress == 0 => &["Schneiden und zugeben"],
-            Method::Cook if self.progress < 4 => &["Rühren"],
-            Method::Cook => &["Abschöpfen"],
-            Method::Preserve if self.progress < 3 => &Self::SEASONING,
-            Method::Preserve => &["Glas verschließen"],
-            Method::Mill => &["Links drehen", "Rechts drehen"],
+        match self.phase() {
+            Phase::Chop => &["Fein schneiden", "Grob teilen"],
+            Phase::Simmer => &["Anfachen", "Rühren"],
+            Phase::Garnish => &["Waldkräuter", "Hafenzeste", "Röstkerne"],
+            Phase::Fill => &["Frisch", "Süß", "Würzig"],
+            Phase::Seal => &["Glas schließen", "Entlüften"],
+            Phase::Grind => &["Links drehen", "Rechts drehen"],
+            Phase::Done => &[],
         }
     }
 
-    pub fn progress(&self) -> (usize, usize) {
-        let total = match self.dish.method() {
-            Method::Cook => 5,
-            Method::Preserve => 4,
-            Method::Mill => 6,
+    pub fn action_hint(&self, index: usize) -> &'static str {
+        match (self.phase(), index) {
+            (Phase::Simmer, 0) => "Glut erhöhen",
+            (Phase::Simmer, 1) => "Garen und abkühlen",
+            (Phase::Garnish, 0) => "Würzig",
+            (Phase::Garnish, 1) => "Frisch",
+            (Phase::Garnish, 2) => "Mild",
+            (Phase::Seal, 1) => "Luft herausdrücken",
+            (Phase::Grind, i) if i == self.progress % 2 => "Jetzt drehen",
+            _ => "",
+        }
+    }
+
+    pub fn gauge(&self) -> Option<(f32, std::ops::RangeInclusive<f32>)> {
+        let range = match self.phase() {
+            Phase::Simmer => match self.dish {
+                Dish::TomatoStew => 0.48..=0.82,
+                Dish::HarborBroth => 0.40..=0.70,
+                _ => 0.37..=0.72,
+            },
+            Phase::Seal => 0.0..=0.24,
+            Phase::Grind => 0.30..=0.83,
+            _ => return None,
         };
-        (self.progress, total)
+        Some((self.level, range))
     }
 
-    pub fn timing_range(&self) -> Option<std::ops::RangeInclusive<f32>> {
-        match self.dish.method() {
-            Method::Cook if (1..4).contains(&self.progress) => Some(Self::HEAT_RANGE),
-            Method::Preserve if self.progress == 3 => Some(Self::SEAL_RANGE),
-            _ => None,
+    pub fn advance(&mut self, delta: f32) {
+        match self.phase() {
+            Phase::Simmer => {
+                let (heat, range) = self.gauge().unwrap();
+                self.level = (heat - delta * 0.06).max(0.18);
+                if range.contains(&self.level) && self.stirs > 0 {
+                    self.infusion = (self.infusion + delta * 0.42).min(1.);
+                }
+            }
+            Phase::Grind => self.level = (self.level - delta * 0.21).max(0.),
+            _ => {}
         }
     }
 
-    pub fn illustration(&self) -> &'static str {
-        if self.dish == Dish::HarborBroth {
-            return match self.progress {
-                0 => "ui/broth_board.png",
-                1..=3 => "ui/broth_pot.png",
-                _ => "ui/broth_bowls.png",
-            };
+    pub fn illustration(&self) -> String {
+        match self.phase() {
+            Phase::Chop if self.dish == Dish::HarborBroth => "ui/broth_board.png".into(),
+            Phase::Simmer => "ui/broth_pot.png".into(),
+            Phase::Garnish if self.dish == Dish::HarborBroth => "ui/broth_bowls.png".into(),
+            Phase::Garnish => format!("ui/items/{}.png",
+                crate::inventory::product_icon(Product::Prepared(self.dish))),
+            _ => self.dish.method().art().into(),
         }
-        self.dish.method().art()
     }
 
     pub fn pulse(&self, now: f32) -> f32 {
-        self.last_step.map_or(0., |at| (1. - (now-at)/0.38).clamp(0., 1.).powi(2))
+        self.last_step.map_or(0., |at| (1. - (now - at) / 0.38).clamp(0., 1.).powi(2))
     }
 
     pub fn try_step(&mut self, input: usize, now: f32) -> bool {
-        if self.progress().0 >= self.progress().1 {
+        if input >= self.buttons().len() || self.last_step.is_some_and(|at| now - at < 0.16) {
             return false;
         }
-        if self.last_step.is_some_and(|at| now-at < 0.23) {
-            return false;
-        }
-        let success = match self.dish.method() {
-            Method::Cook if self.timing_range().is_some() => {
-                let cycle = ((now - self.start) / Self::PERIOD).floor() as i32;
-                if cycle == self.last_cycle {
-                    self.message = "Warte auf die nächste Runde.";
-                    return false;
+        self.last_step = Some(now);
+        self.message = "";
+        match self.phase() {
+            Phase::Chop if input == self.dish.cuts()[self.progress].0 => {
+                self.progress += 1;
+                if self.phase() == Phase::Simmer {
+                    self.level = 0.26;
                 }
-                let good = input == 0 && Self::HEAT_RANGE.contains(&self.heat(now));
-                if good {
-                    self.last_cycle = cycle;
-                }
-                good
             }
-            Method::Cook => input == 0,
-            Method::Preserve if self.progress < 3 => input == self.dish.seasoning()[self.progress],
-            Method::Preserve => input == 0 && Self::SEAL_RANGE.contains(&self.heat(now)),
-            Method::Mill => input == self.progress % 2,
-        };
-        if success {
-            self.last_step = Some(now);
-            self.progress += 1;
-            self.message = "";
-        } else {
-            self.mistakes = self.mistakes.saturating_add(1);
-            self.message = match self.dish.method() {
-                Method::Cook => "Versuche es im grünen Bereich.",
-                Method::Preserve if self.progress == 3 => "Warte auf den grünen Bereich.",
-                Method::Preserve => "Schau auf die Reihenfolge und wähle die nächste Zutat.",
-                Method::Mill => "Wechsle die Seite.",
-            };
+            Phase::Chop => return self.miss("Schau auf den Schnitt am Brett und versuch es noch einmal."),
+            Phase::Simmer if input == 0 => {
+                self.level = (self.level + 0.29).min(1.);
+                if self.level > self.gauge().unwrap().1.end() + 0.075 {
+                    self.mistakes = self.mistakes.saturating_add(1);
+                    self.message = "Zu heiß · Rühre, um den Topf abzukühlen.";
+                }
+            }
+            Phase::Simmer => {
+                let (heat, range) = self.gauge().unwrap();
+                if heat < *range.start() {
+                    self.message = "Die Glut ist zu schwach · Fache sie an.";
+                } else {
+                    self.level = (heat - 0.13).max(0.18);
+                    if range.contains(&heat) {
+                        self.stirs = self.stirs.saturating_add(1);
+                        self.infusion = (self.infusion + 0.22).min(1.);
+                        if self.stirs >= 2 && self.infusion >= 1. {
+                            self.progress += 1;
+                        }
+                    } else {
+                        self.message = "Der Topf kühlt ab · Rühre bei mittlerer Glut weiter.";
+                    }
+                }
+            }
+            Phase::Garnish => {
+                if input != self.dish.garnish().0 {
+                    self.mistakes = self.mistakes.saturating_add(1);
+                }
+                self.progress += 1;
+            }
+            Phase::Fill if input == self.dish.seasoning()[self.progress] => {
+                self.progress += 1;
+                if self.phase() == Phase::Seal {
+                    self.level = 0.84;
+                }
+            }
+            Phase::Fill => return self.miss("Die nächste Schicht steht über dem Glas."),
+            Phase::Seal if input == 1 => self.level = (self.level - 0.33).max(0.),
+            Phase::Seal if self.level <= 0.24 => self.progress += 1,
+            Phase::Seal => return self.miss("Im Glas ist noch Luft. Entlüfte es erst."),
+            Phase::Grind if input == self.progress % 2 => {
+                self.level = (self.level + 0.20).min(1.);
+                if self.gauge().unwrap().1.contains(&self.level) {
+                    self.steady_turns += 1;
+                }
+                self.progress += 1;
+            }
+            Phase::Grind => {
+                self.level *= 0.7;
+                return self.miss("Wechsle die Seite, damit das Mahlwerk weiterläuft.");
+            }
+            Phase::Done => return false,
         }
-        success
+        true
+    }
+
+    fn miss(&mut self, message: &'static str) -> bool {
+        self.mistakes = self.mistakes.saturating_add(1);
+        self.message = message;
+        false
     }
 
     pub fn finish(&mut self, garden: &mut Garden) -> Option<u32> {
-        let (progress, total) = self.progress();
-        if progress != total || !self.dish.ready(garden) {
+        let end = match self.dish.method() {
+            Method::Cook => 5,
+            Method::Preserve => 4,
+            Method::Mill => self.turns(),
+        };
+        if self.progress != end || !self.dish.ready(garden) {
             return None;
         }
         let fine = self.dish.ingredients().iter().any(|ingredient| {
@@ -295,7 +415,9 @@ impl Preparation {
                 if garden.stock(Product::Crop(crop, crate::garden::Quality::Normal)) < count)
         });
         let practiced = crate::logbook::Path::Kitchen.rank(garden) >= 2;
-        let servings = 1 + u32::from((fine || practiced) && self.mistakes == 0);
+        let method = self.dish.method();
+        let clean = self.mistakes == 0 || (fine || practiced) && self.mistakes <= 1;
+        let servings = 1 + u32::from(clean && (method != Method::Mill || self.steady_turns >= 3));
         for ingredient in self.dish.ingredients() {
             ingredient.consume(garden);
         }
@@ -303,13 +425,31 @@ impl Preparation {
         garden.logbook.meal(self.dish);
         if self.dish == Dish::HarborBroth {
             garden.fish_supper.finish_first_meal(garden.day, garden.clock.minute());
-        }
-        if self.dish != Dish::HarborBroth && let Some(prologue) = &mut garden.prologue {
+        } else if let Some(prologue) = &mut garden.prologue {
             prologue.cooked = true;
         }
-        // A completed action cannot consume ingredients again if another input arrives.
         self.progress += 1;
         Some(servings)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cook_to_plate_for_test(&mut self) -> f32 {
+        let mut now = 0.5;
+        for (action, _) in self.dish.cuts() {
+            assert!(self.try_step(action, now));
+            now += 0.5;
+        }
+        for _ in 0..30 {
+            let (heat, range) = self.gauge().unwrap();
+            let action = usize::from(heat >= *range.start());
+            assert!(self.try_step(action, now));
+            if self.phase() == Phase::Garnish {
+                return now + 0.5;
+            }
+            self.advance(0.5);
+            now += 0.5;
+        }
+        panic!("the stove must eventually finish");
     }
 }
 
@@ -319,41 +459,48 @@ mod tests {
     use crate::garden::Quality;
 
     #[test]
-    fn cooking_uses_three_distinct_rounds_and_preserves_stock_on_mistakes() {
+    fn cooking_rewards_three_different_tasks_and_uses_ingredients_once() {
         let mut garden = Garden::default();
-        garden.add_stock(Product::Crop(Crop::Carrot, Quality::Fine), 2);
+        garden.add_stock(Product::Crop(Crop::Carrot, Quality::Normal), 2);
         garden.add_stock(Product::Mushroom, 1);
-        let mut game = Preparation::new(Dish::CarrotSoup, 0.);
-        assert!(game.try_step(0, 0.10));
+        let mut game = Preparation::new(Dish::CarrotSoup);
         assert_eq!(game.finish(&mut garden), None);
-        assert!(!game.try_step(0, 0.37));
-        for _ in 0..3 {
-            game.try_step(0, 0.87);
-        }
-        assert_eq!(game.progress().0, 2);
-        game.try_step(0, Preparation::PERIOD + 0.87);
-        game.try_step(0, Preparation::PERIOD * 2. + 0.87);
-        game.try_step(0, Preparation::PERIOD * 2. + 1.25);
-        assert_eq!(game.finish(&mut garden), Some(1));
+        assert_eq!(garden.crop_total(Crop::Carrot), 2);
+        let now = game.cook_to_plate_for_test();
+        assert!(game.try_step(0, now));
+        assert_eq!(game.finish(&mut garden), Some(2));
         assert_eq!(game.finish(&mut garden), None);
-        assert_eq!(garden.stock(Product::Prepared(Dish::CarrotSoup)), 1);
+        assert_eq!(garden.stock(Product::Prepared(Dish::CarrotSoup)), 2);
         assert_eq!(garden.crop_total(Crop::Carrot), 0);
     }
 
     #[test]
-    fn preserving_and_milling_have_different_inputs() {
-        let mut preserve = Preparation::new(Dish::BerryJam, 0.);
-        let mut mill = Preparation::new(Dish::HazelFlour, 0.);
-        for (i, input) in [0, 1, 0, 1, 0, 1].into_iter().enumerate() {
-            preserve.try_step(input, i as f32);
-            mill.try_step(input, i as f32);
+    fn heat_requires_active_stirring_and_the_jar_requires_venting() {
+        let mut soup = Preparation::new(Dish::CarrotSoup);
+        for (step, time) in [(0, 0.), (1, 0.5), (0, 1.)] {
+            assert!(soup.try_step(step, time));
         }
-        assert_eq!(preserve.progress(), (1, 4));
-        assert_eq!(mill.progress(), (6, 6));
-        preserve.try_step(2, 6.);
-        preserve.try_step(1, 6.4);
-        assert_eq!(preserve.progress(), (3, 4));
-        preserve.try_step(0, 7.5);
-        assert_eq!(preserve.progress(), (4, 4));
+        assert!(soup.try_step(0, 1.5));
+        soup.advance(1.);
+        assert_eq!(soup.infusion, 0.);
+        assert_eq!(soup.phase(), Phase::Simmer);
+
+        let mut jar = Preparation::new(Dish::BerryJam);
+        for (step, time) in [(0, 0.), (2, 0.5), (1, 1.)] {
+            assert!(jar.try_step(step, time));
+        }
+        assert!(!jar.try_step(0, 1.5));
+        assert!(jar.try_step(1, 2.));
+        assert!(jar.try_step(1, 2.5));
+        assert!(jar.try_step(0, 3.));
+        assert_eq!(jar.phase(), Phase::Done);
+
+        let mut mill = Preparation::new(Dish::HazelFlour);
+        for i in 0..6 {
+            assert!(mill.try_step(i % 2, i as f32 * 0.45));
+            mill.advance(0.45);
+        }
+        assert_eq!(mill.phase(), Phase::Done);
+        assert!(mill.steady_turns >= 3);
     }
 }

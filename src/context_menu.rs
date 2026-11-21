@@ -318,7 +318,7 @@ pub fn update(
     time: Res<Time>,
     mut popup: Single<&mut Node, (With<Popup>, Without<OptionRow>)>,
     mut rows: Query<(&OptionRow, &mut Node), (Without<Popup>, Without<BiteBar>)>,
-    mut bite_bar: Single<&mut Node, (With<BiteBar>, Without<Popup>)>,
+    mut bite_bar: Single<(&mut Node, &mut BackgroundColor), (With<BiteBar>, Without<Popup>)>,
     mut labels: Query<
         (
             Option<&Title>,
@@ -398,11 +398,18 @@ pub fn update(
             Display::None
         };
     }
-    if let Some(remaining) = adventure.bite_remaining(time.elapsed_secs()) {
-        bite_bar.display = Display::Flex;
-        bite_bar.width = Val::Percent(100. * remaining);
+    let (bar, color) = &mut *bite_bar;
+    let now = time.elapsed_secs();
+    if let Some(remaining) = adventure.bite_remaining(now) {
+        bar.display = Display::Flex;
+        bar.width = Val::Percent(100. * remaining);
+        color.0 = match adventure.fishing_tension(now) {
+            Some(tension) if tension > 0.64 => Color::srgb_u8(234, 112, 82),
+            Some(_) => Color::srgb_u8(169, 222, 126),
+            None => Color::srgb_u8(255, 196, 82),
+        };
     } else {
-        bite_bar.display = Display::None;
+        bar.display = Display::None;
     }
     let name = icon_name(area.target, panel.action);
     if *previous_icon != Some(name) {

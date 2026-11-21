@@ -1620,6 +1620,18 @@ mod tests {
     }
 
     #[test]
+    fn the_market_gate_allows_crossing_in_both_directions() {
+        let adventure = Adventure::default();
+        let garden = Garden::default();
+        let market = Vec2::new(20.65, 7.23);
+        let steps = Vec2::new(22.29, 7.23);
+        let passable = |point| adventure.walkable_without_residents(point, &garden);
+        assert!(clear_walk(market, steps, &passable));
+        assert!(clear_walk(steps, market, &passable));
+        assert!(!passable(Vec2::new(22.44, 4.0)));
+    }
+
+    #[test]
     fn tap_can_route_around_the_cabin_and_fence() {
         let start = Vec2::new(-5.65, -2.65);
         let target = PLOTS[1];

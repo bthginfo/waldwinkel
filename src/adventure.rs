@@ -4,7 +4,7 @@ use crate::{
     farm_ui::{FarmMenu, FarmPage},
     forest,
     furniture::CATALOG,
-    garden::{Crop, Garden, SavePath, Stage},
+    garden::{Crop, Garden, RESOURCE_RENEWAL_DAYS, SavePath, Stage},
     harbor::{self, Fishing, Phase},
     harvest_fx::Break,
     homestead::{Animal, ORCHARD, Ore, Product, Village},
@@ -446,6 +446,8 @@ pub struct Adventure {
     pub map_focus: Option<Target>,
     pub zoom: f32,
     waiting: Option<(Target, f32, f32)>,
+    drill: Option<crate::fishing::Drill>,
+    work_hits: Option<(Target, u8, f32)>,
     queued: Option<Target>,
     strike: Option<(Tool, f32)>,
     pub layout: MineFloor,
@@ -618,6 +620,9 @@ fn dusk_cell(cell: u16) -> Vec2 {
 impl Adventure {
     pub(crate) fn bite_remaining(&self, now: f32) -> Option<f32> {
         let (spot, bite, end) = self.waiting?;
+        if let Some(drill) = self.drill {
+            return (self.focus == Some(spot)).then(|| drill.tension(now));
+        }
         (self.focus == Some(spot) && (bite..=end).contains(&now))
             .then(|| ((end - now) / (end - bite)).clamp(0., 1.))
     }
@@ -625,29 +630,43 @@ impl Adventure {
     fn select_for_pad(&mut self, selected: PadTarget) {
         self.queued = None;
         if self.waiting.is_some_and(|(spot, _, _)| selected != PadTarget::Place(spot)) {
-            self.waiting = None;
+            self.cancel_fishing();
         }
     }
 
     pub(crate) fn clear_approach(&mut self) {
         self.queued = None;
-        self.waiting = None;
+        self.cancel_fishing();
     }
 
-    fn tool_hint(&self, target: Target, garden: &Garden) -> Option<String> {
+    fn cancel_fishing(&mut self) {
+        self.waiting = None;
+        self.drill = None;
+    }
+
+    pub(crate) fn fishing_tension(&self, now: f32) -> Option<f32> {
+        self.drill.map(|drill| drill.tension(now))
+    }
+
+    fn harvest_tool(&self, target: Target) -> Option<(crate::workshop::ToolKind, u8)> {
         use crate::workshop::ToolKind;
-        let (tool, required) = match target {
-            Target::Tree(i) => (ToolKind::Axe, forest::node(i)?.tool_level()),
-            Target::Rock(i) => (ToolKind::Pickaxe, forest::node(i)?.tool_level()),
+        Some(match target {
+            Target::Tree(i) => (ToolKind::Axe, forest::node(i).map_or(0, forest::Node::tool_level)),
+            Target::Rock(i) => (ToolKind::Pickaxe, forest::node(i).map_or(0, forest::Node::tool_level)),
             Target::MineRock(i) if let Area::Mine(depth) = self.area =>
                 (ToolKind::Pickaxe, Ore::at(depth, i).tool_level()),
             _ => return None,
-        };
+        })
+    }
+
+    fn tool_hint(&self, target: Target, garden: &Garden) -> Option<String> {
+        let (tool, required) = self.harvest_tool(target)?;
         if tool.level(garden) >= required {
             return None;
         }
         let grade = if required == 2 { "Silber" } else { "Kupfer" };
-        Some(format!("{grade}-{} nötig · An der Hofwerkbank verbessern", tool.name()))
+        let station = if required == 2 { "Schmiedetisch" } else { "Hofwerkbank" };
+        Some(format!("{grade}-{} nötig · {station}", tool.name()))
     }
 
     pub(crate) fn nearby_resources(&self, garden: &Garden, player: Vec2) -> Vec<(Vec3, Color)> {
@@ -1146,7 +1165,12 @@ impl Adventure {
                     Village::Animal(kind).describe(garden, self.crop, None)
                 } else {
                     let (hint, available) = kind.housing_hint(garden);
-                    (hint, "Stall bauen", available)
+                    let action = if garden.farm.barn_work[kind as usize].is_some() {
+                        "Im Bau"
+                    } else {
+                        "Standort wählen"
+                    };
+                    (hint, action, available)
                 };
                 return (
                     target.name().into(),
@@ -1181,7 +1205,7 @@ impl Adventure {
                     if walking {
                         "Auf dem Weg zur Ader …".into()
                     } else {
-                        format!("Spitzhacke · +{amount} {} und 1 Stein", ore.name())
+                        format!("+{amount} {} · +1 Stein · Wieder da in {RESOURCE_RENEWAL_DAYS} Tagen", ore.name())
                     },
                     "Erz abbauen",
                     true,
@@ -1229,9 +1253,19 @@ impl Adventure {
                 ),
                 Target::HarborBoard => (garden.harbor.phase.label().into(), target.label()),
                 Target::HarborDriftwood => ("Bretter für Bos Fischersteg".into(), target.label()),
+                Target::Pier | Target::HarborFishing(_) if self.drill.is_some() => {
+                    let drill = self.drill.unwrap();
+                    let (done, needed) = drill.counts();
+                    let hint = if drill.tension(now) <= 0.64 {
+                        "Zieh die Leine ein."
+                    } else {
+                        "Leine straff · Warte, bis der Fisch nachgibt."
+                    };
+                    (format!("{done}/{needed} Züge · {hint}"), "Einholen")
+                }
                 Target::Pier | Target::HarborFishing(_) => match self.waiting {
                     Some((spot, bite, end)) if spot == target && now >= bite && now <= end => {
-                        ("Ein Fisch beißt an!".into(), "Einholen!")
+                        ("Ein Fisch beißt an!".into(), "Anhaken!")
                     }
                     Some((spot, _, end)) if spot == target && now <= end => {
                         ("Beobachte die Pose. Hole ein, sobald ein Fisch anbeißt.".into(), "Auf Biss warten")
@@ -1249,11 +1283,11 @@ impl Adventure {
                     "Truhe öffnen",
                 ),
                 Target::Tree(_) => (
-                    format!("Axt · +{} Holz", garden.wood_per_tree()),
+                    format!("+{} Holz · Wächst in {RESOURCE_RENEWAL_DAYS} Tagen nach", garden.wood_per_tree()),
                     "Baum fällen",
                 ),
                 Target::Rock(_) => (
-                    format!("Spitzhacke · +{} Stein", garden.stone_per_rock()),
+                    format!("+{} Stein · Wieder da in {RESOURCE_RENEWAL_DAYS} Tagen", garden.stone_per_rock()),
                     "Stein abbauen",
                 ),
                 Target::Travel(district) => {
@@ -1369,7 +1403,8 @@ impl Adventure {
         self.focus = None;
         self.queued = None;
         self.strike = None;
-        self.waiting = None;
+        self.work_hits = None;
+        self.cancel_fishing();
         self.map = false;
         self.map_focus = None;
         match area {
@@ -1796,7 +1831,7 @@ pub fn select(
         adventure.map_focus = None;
         adventure.focus = None;
         adventure.queued = None;
-        adventure.waiting = None;
+        adventure.cancel_fishing();
         focus.selected = None;
         focus.pending = None;
         player.stop();
@@ -1945,7 +1980,7 @@ pub fn select(
         return;
     }
     adventure.queued = None;
-    adventure.waiting = None;
+    adventure.cancel_fishing();
     focus.selected = None;
     focus.pending = None;
     adventure.sale = 0;
@@ -2078,7 +2113,7 @@ pub fn interact(
         if adventure.map {
             adventure.focus = None;
             adventure.queued = None;
-            adventure.waiting = None;
+            adventure.cancel_fishing();
             focus.selected = None;
             focus.pending = None;
             player.0.stop();
@@ -2121,7 +2156,7 @@ pub fn interact(
     }
     if controls.move_axis != Vec2::ZERO || focus.selected.is_some() {
         adventure.queued = None;
-        adventure.waiting = None;
+        adventure.cancel_fishing();
         return;
     }
     if let Some(target @ Target::Person(person)) = adventure.focus
@@ -2211,8 +2246,28 @@ pub fn interact(
         let direction = adventure.position(target, &garden) - position;
         transform.rotation = Quat::from_rotation_y(direction.x.atan2(direction.y));
         if tool != Tool::Rod {
+            if adventure.strike.is_some_and(|(_, at)| now - at < 0.43) {
+                return;
+            }
             adventure.strike = Some((tool, now));
         }
+    }
+    if let Some((_, tier)) = adventure.harvest_tool(target) {
+        let hits = 1 + tier * 2;
+        let done = adventure.work_hits
+            .filter(|(at, _, time)| *at == target && now - time < 18.)
+            .map_or(1, |(_, done, _)| done + 1);
+        if done < hits {
+            adventure.work_hits = Some((target, done, now));
+            breaks.write(Break { model: "", snow_cap: false, ..hit("", 0., tool == Tool::Axe) });
+            *notice = Notice {
+                message: format!("{} · {done}/{hits} Schläge", target.name()),
+                until: now + Notice::DURATION,
+                ..default()
+            };
+            return;
+        }
+        adventure.work_hits = None;
     }
     let mut persistent = true;
     let message = match target {
@@ -2329,7 +2384,14 @@ pub fn interact(
             let action = if garden.farm.housing[kind as usize] {
                 Village::Animal(kind).work(&mut garden, adventure.crop, None)
             } else {
-                kind.build_housing(&mut garden)
+                match decor.build_barn(&adventure, kind, &garden, player.position) {
+                    Ok(()) => {
+                        player.stop();
+                        adventure.focus = None;
+                        return;
+                    }
+                    Err(error) => Err(error),
+                }
             };
             match action {
                 Ok(message) => message,
@@ -2463,15 +2525,9 @@ pub fn interact(
             format!("+{} Holz", garden.wood_per_tree())
         }
         Target::Rock(i) => {
-            if garden.broken.contains(&i) {
+            let Some(quantity) = garden.quarry(i) else {
                 return;
-            }
-            garden.broken.push(i);
-            if let Some(prologue) = &mut garden.prologue {
-                prologue.quarried = true;
-            }
-            let quantity = garden.stone_per_rock();
-            garden.stone = garden.stone.saturating_add(quantity);
+            };
             adventure.focus = None;
             let impact = if let Some(node) = forest::node(i) {
                 Break {
@@ -2489,34 +2545,54 @@ pub fn interact(
             let Area::Mine(depth) = adventure.area else {
                 return;
             };
-            if !garden.mined.insert((depth, i)) {
+            let Some((ore, quantity)) = garden.mine_vein(depth, i) else {
                 return;
-            }
-            let ore = Ore::at(depth, i);
-            let quantity = ore.mine(&mut garden);
+            };
             adventure.focus = None;
             breaks.write(hit(ore.model(), 0., false));
             format!("+{quantity} {} · +1 Stein", ore.name())
         }
-        Target::Pier | Target::HarborFishing(_) => match adventure.waiting.take() {
-            Some((spot, bite, end)) if spot == target && (bite..=end).contains(&now) => {
-                match target {
-                    Target::HarborFishing(spot) => harbor::catch(&mut garden, spot).into(),
-                    _ => harbor::catch(&mut garden, Fishing::Landing).into(),
+        Target::Pier | Target::HarborFishing(_) => {
+            use crate::fishing::Pull;
+            let spot = match target {
+                Target::HarborFishing(spot) => spot,
+                _ => Fishing::Landing,
+            };
+            persistent = false;
+            if let Some(drill) = &mut adventure.drill {
+                match drill.pull(now) {
+                    Pull::Landed => {
+                        adventure.cancel_fishing();
+                        persistent = true;
+                        harbor::catch(&mut garden, spot).into()
+                    }
+                    Pull::Lost => {
+                        adventure.cancel_fishing();
+                        "Die Leine ist gerissen · Wirf erneut aus.".into()
+                    }
+                    Pull::Strained => "Die Leine knarrt · Warte auf weniger Spannung.".into(),
+                    Pull::Gained => "Ein Stück näher · Behalte die Spannung im Blick.".into(),
+                    Pull::Wait => return,
+                }
+            } else {
+                match adventure.waiting.take() {
+                    Some((at, bite, end)) if at == target && (bite..=end).contains(&now) => {
+                        adventure.drill = Some(crate::fishing::Drill::new(now, spot == Fishing::Seaward));
+                        adventure.waiting = Some((target, now, f32::INFINITY));
+                        "Fisch am Haken · Zieh bei lockerer Leine.".into()
+                    }
+                    Some(cast @ (at, bite, _)) if at == target && now < bite => {
+                        adventure.waiting = Some(cast);
+                        "Die Pose liegt noch ruhig.".into()
+                    }
+                    _ => {
+                        let bite = now + 2.1 + (garden.fish % 3) as f32 * 0.5;
+                        adventure.waiting = Some((target, bite, bite + 2.4));
+                        "Angel ausgeworfen.".into()
+                    }
                 }
             }
-            Some(cast @ (spot, bite, _)) if spot == target && now < bite => {
-                adventure.waiting = Some(cast);
-                persistent = false;
-                "Die Pose liegt noch ruhig.".into()
-            }
-            _ => {
-                let bite = now + 2.3 + (garden.fish % 3) as f32 * 0.5;
-                adventure.waiting = Some((target, bite, bite + 2.));
-                persistent = false;
-                "Angel ausgeworfen.".into()
-            }
-        },
+        }
         Target::Slot(i) => {
             if let Some(design) = garden.furniture[i].checked_sub(1) {
                 decor.move_legacy(i, design as usize);
@@ -2572,8 +2648,10 @@ enum Stamp {
         felled: Vec<usize>,
         broken: Vec<usize>,
         fruit: [bool; 7],
-        animals: [bool; 2],
+        animals: [u8; 2],
         housing: [bool; 2],
+        barn_extended: [bool; 2],
+        produce_at_barn: [bool; 2],
         gates: [bool; 3],
         bells: [bool; 7],
         finds: [bool; FINDS.len()],
@@ -2636,8 +2714,10 @@ pub fn draw(
                 .filter(|&i| i < ROCKS.len())
                 .collect(),
             fruit: std::array::from_fn(|i| garden.farm.fruit_ready(i, garden.day)),
-            animals: garden.farm.animals.map(|animal| animal.owned),
+            animals: garden.farm.animals.map(crate::homestead::AnimalState::count),
             housing: garden.farm.housing,
+            barn_extended: garden.farm.barn_extended,
+            produce_at_barn: garden.farm.animals.map(crate::homestead::AnimalState::has_products),
             gates: Frontier::ALL.map(|gate| gate.unlocked(&garden)),
             bells: Bell::ALL.map(|bell| bell.ready(&garden)),
             finds: std::array::from_fn(|i| FINDS[i].available(&garden, i)),
@@ -2713,6 +2793,8 @@ pub fn draw(
                 fruit,
                 animals,
                 housing,
+                barn_extended,
+                produce_at_barn,
                 gates,
                 bells,
                 finds,
@@ -2832,6 +2914,14 @@ pub fn draw(
                         building.angle(&garden),
                     );
                     editable.push((model, Original::Building(building)));
+                    let crate_spot = site + building.offset(&garden, Vec2::new(1.02, 0.83));
+                    if barn_extended[kind as usize] {
+                        let at = site + building.offset(&garden, Vec2::new(-1.07, 0.74));
+                        spawn("sale_crate", at, world::exterior_ground(at), building.angle(&garden));
+                    }
+                    if produce_at_barn[kind as usize] {
+                        spawn("sale_crate", crate_spot, world::exterior_ground(crate_spot), building.angle(&garden));
+                    }
                 }
                 for gate in Frontier::ALL {
                     let p = gate.position();
@@ -2955,25 +3045,19 @@ pub fn draw(
                         );
                     }
                 }
-                let critters = Animal::ALL
-                    .into_iter()
-                    .filter(|kind| animals[*kind as usize])
-                    .map(|kind| {
-                        let building = Building::animal(kind);
-                        let base = building.point(&garden) + building.offset(&garden, Vec2::new(-0.17, 0.66));
+                let mut critters = Vec::new();
+                for kind in Animal::ALL {
+                    let building = Building::animal(kind);
+                    for i in 0..animals[kind as usize] {
+                        let offset = Vec2::new(-0.61 + 0.59 * f32::from(i), 0.79);
+                        let base = building.point(&garden) + building.offset(&garden, offset);
                         let entity = spawn(
-                            if kind == Animal::Hen {
-                                "farm_hen"
-                            } else {
-                                "farm_sheep"
-                            },
-                            base,
-                            0.,
-                            0.,
+                            if kind == Animal::Hen { "farm_hen" } else { "farm_sheep" },
+                            base, world::exterior_ground(base), 0.,
                         );
-                        (entity, Critter { origin: base, kind })
-                    })
-                    .collect::<Vec<_>>();
+                        critters.push((entity, Critter { origin: base, kind }));
+                    }
+                }
                 // Release the spawn closure before attaching an animated component.
                 for (entity, critter) in critters {
                     commands.entity(entity).insert(critter);
@@ -3377,7 +3461,7 @@ mod tests {
             assert!(adventure.can_reach(target, center + Vec2::Y, &garden));
         }
         garden.felled.push(10);
-        garden.broken.push(7);
+        assert!(garden.quarry(7).is_some());
         assert!(!adventure.walkable(adventure.position(tree, &garden), &garden));
         assert!(adventure.walkable(adventure.position(rock, &garden), &garden));
 
@@ -3386,8 +3470,14 @@ mod tests {
         let cell = adventure.layout.ores[0];
         let point = adventure.position(Target::MineRock(cell), &garden);
         assert!(!adventure.walkable(point, &garden));
-        garden.mined.insert((1, cell));
+        assert!(garden.mine_vein(1, cell).is_some());
         assert!(adventure.walkable(point, &garden));
+        for _ in 0..RESOURCE_RENEWAL_DAYS {
+            garden.sleep();
+        }
+        assert!(!adventure.walkable(point, &garden));
+        adventure.area = Area::Island;
+        assert!(!adventure.walkable(adventure.position(rock, &garden), &garden));
     }
 
     #[test]

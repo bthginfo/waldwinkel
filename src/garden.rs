@@ -2,7 +2,7 @@ use crate::{
     day::FarmClock,
     duel,
     furniture::{self, CATALOG},
-    homestead::{Homestead, Product},
+    homestead::{Homestead, Ore, Product},
     onboarding::Onboarding,
     regions::RegionProgress,
     session::Checkpoint,
@@ -21,8 +21,9 @@ use std::{
 
 pub const PLOT_COUNT: usize = 18;
 pub const FERTILIZER_PRICE: u32 = 4;
+pub const RESOURCE_RENEWAL_DAYS: u32 = 3;
 const FERTILIZER_PACK: u32 = 2;
-const SAVE_VERSION: u8 = 18;
+const SAVE_VERSION: u8 = 19;
 pub const MAX_SAVE_SIZE: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -233,7 +234,9 @@ pub struct Garden {
     pub felled: Vec<usize>,
     tree_regrowth: Vec<(usize, u32)>,
     pub broken: Vec<usize>,
+    rock_regrowth: Vec<(usize, u32)>,
     pub mined: std::collections::BTreeSet<(u32, u16)>,
+    ore_regrowth: Vec<((u32, u16), u32)>,
     pub deepest: u32,
     pub furniture: Vec<u8>,
     pub decorations: Vec<crate::decorate::Furniture>,
@@ -289,7 +292,9 @@ impl Default for Garden {
             felled: Vec::new(),
             tree_regrowth: Vec::new(),
             broken: Vec::new(),
+            rock_regrowth: Vec::new(),
             mined: Default::default(),
+            ore_regrowth: Vec::new(),
             deepest: 0,
             furniture: vec![0; FURNITURE_COUNT],
             decorations: Vec::new(),
@@ -609,12 +614,38 @@ impl Garden {
         }
         self.felled.push(index);
         self.ledger.record(crate::commissions::Activity::Fell, 1);
-        self.tree_regrowth.push((index, self.day.saturating_add(3)));
+        self.tree_regrowth
+            .push((index, self.day.saturating_add(RESOURCE_RENEWAL_DAYS)));
         self.wood = self.wood.saturating_add(self.wood_per_tree());
         if let Some(prologue) = &mut self.prologue {
             prologue.chopped = true;
         }
         true
+    }
+
+    pub fn quarry(&mut self, index: usize) -> Option<u32> {
+        if self.broken.contains(&index) {
+            return None;
+        }
+        self.broken.push(index);
+        self.rock_regrowth
+            .push((index, self.day.saturating_add(RESOURCE_RENEWAL_DAYS)));
+        if let Some(prologue) = &mut self.prologue {
+            prologue.quarried = true;
+        }
+        let quantity = self.stone_per_rock();
+        self.stone = self.stone.saturating_add(quantity);
+        Some(quantity)
+    }
+
+    pub fn mine_vein(&mut self, depth: u32, cell: u16) -> Option<(Ore, u32)> {
+        if !self.mined.insert((depth, cell)) {
+            return None;
+        }
+        self.ore_regrowth
+            .push(((depth, cell), self.day.saturating_add(RESOURCE_RENEWAL_DAYS)));
+        let ore = Ore::at(depth, cell);
+        Some((ore, ore.mine(self)))
     }
 
     pub fn sleep(&mut self) {
@@ -625,11 +656,14 @@ impl Garden {
         self.farm.end_day(self.day);
         self.day = self.day.saturating_add(1);
         let day = self.day;
-        self.tree_regrowth.retain(|&(tree, ready)| {
-            if ready <= day {
-                self.felled.retain(|&index| index != tree);
-            }
-            ready > day
+        renew_resources(&mut self.tree_regrowth, day, |tree| {
+            self.felled.retain(|&index| index != tree);
+        });
+        renew_resources(&mut self.rock_regrowth, day, |rock| {
+            self.broken.retain(|&index| index != rock);
+        });
+        renew_resources(&mut self.ore_regrowth, day, |vein| {
+            self.mined.remove(&vein);
         });
         let wet_next = Sky::at(self.day) == Sky::Rain;
         let shade: [bool; PLOT_COUNT] = std::array::from_fn(|i| self.companion(i).shade);
@@ -730,10 +764,11 @@ impl Garden {
         }
         if garden.version < 7 {
             garden.farm.housing = garden.farm.animals.map(|animal| animal.owned);
+            let ready = garden.day.saturating_add(RESOURCE_RENEWAL_DAYS);
             garden.tree_regrowth = garden
                 .felled
                 .iter()
-                .map(|&index| (index, garden.day.saturating_add(3)))
+                .map(|&index| (index, ready))
                 .collect();
             for plan in garden.town.earned_blueprints() {
                 garden.blueprints[plan] = true;
@@ -780,6 +815,11 @@ impl Garden {
         if header.version < 17 && (garden.fish > 0 || garden.stock(Product::Herring) > 0) {
             garden.fish_supper.record_catch();
         }
+        if header.version < 19 {
+            let ready = garden.day.saturating_add(RESOURCE_RENEWAL_DAYS);
+            garden.rock_regrowth = garden.broken.iter().map(|&rock| (rock, ready)).collect();
+            garden.ore_regrowth = garden.mined.iter().map(|&vein| (vein, ready)).collect();
+        }
         garden.rpg.normalize();
         garden.version = SAVE_VERSION;
         Ok(garden)
@@ -804,6 +844,19 @@ impl Garden {
     pub(crate) fn backup_path(path: &Path) -> PathBuf {
         path.with_extension("backup.json")
     }
+
+    pub(crate) fn temporary_path(path: &Path) -> PathBuf {
+        path.with_extension("json.tmp")
+    }
+}
+
+fn renew_resources<T: Copy>(schedule: &mut Vec<(T, u32)>, day: u32, mut restore: impl FnMut(T)) {
+    schedule.retain(|&(resource, ready)| {
+        if ready <= day {
+            restore(resource);
+        }
+        ready > day
+    });
 }
 
 fn read_save(path: &Path) -> io::Result<Vec<u8>> {
@@ -815,7 +868,7 @@ fn read_save(path: &Path) -> io::Result<Vec<u8>> {
 }
 
 fn write_save(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let tmp = path.with_extension("json.tmp");
+    let tmp = Garden::temporary_path(path);
     let mut file = fs::File::create(&tmp)?;
     file.write_all(bytes)?;
     file.sync_all()?;
@@ -860,6 +913,50 @@ pub fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mineral_sites_renew_individually_three_mornings_after_mining() {
+        let mut garden = Garden::default();
+        assert_eq!(garden.quarry(7), Some(2));
+        assert!(garden.mine_vein(1, 20).is_some());
+        assert!(garden.quarry(7).is_none());
+        assert!(garden.mine_vein(1, 20).is_none());
+        assert_eq!((garden.stone, garden.copper), (3, 1));
+        garden.sleep();
+        assert!(garden.quarry(8).is_some());
+        assert!(garden.mine_vein(2, 20).is_some());
+        let mut garden = Garden::decode(&serde_json::to_vec(&garden).unwrap()).unwrap();
+        garden.sleep();
+        assert!(garden.broken.contains(&7));
+        assert!(garden.mined.contains(&(1, 20)));
+        garden.sleep();
+        assert!(garden.broken.contains(&8));
+        assert!(garden.mined.contains(&(2, 20)));
+        assert_eq!(garden.quarry(7), Some(2));
+        assert!(garden.mine_vein(1, 20).is_some());
+        garden.sleep();
+        assert!(!garden.broken.contains(&8));
+        assert!(!garden.mined.contains(&(2, 20)));
+        assert!(garden.broken.contains(&7));
+        assert!(garden.mined.contains(&(1, 20)));
+    }
+
+    #[test]
+    fn old_exhausted_deposits_gain_a_cooldown_without_losing_mine_depth() {
+        let mut garden = Garden::decode(
+            br#"{"version":18,"day":22,"deepest":5,"wood":13,"broken":[7],"mined":[[5,12]]}"#,
+        )
+        .unwrap();
+        for _ in 0..2 {
+            garden.sleep();
+            assert!(garden.broken.contains(&7));
+            assert!(garden.mined.contains(&(5, 12)));
+        }
+        garden.sleep();
+        assert!(garden.broken.is_empty());
+        assert!(garden.mined.is_empty());
+        assert_eq!((garden.day, garden.deepest, garden.wood), (25, 5, 13));
+    }
 
     #[test]
     fn prior_blueprints_and_goods_survive_the_seasonal_update() {

@@ -1,4 +1,4 @@
-# Waldwinkel 1.13.0
+# Waldwinkel 1.14.0
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
@@ -6,12 +6,25 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 
 ## Installieren
 
-- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK 1.13.0](https://raw.githubusercontent.com/bthginfo/waldwinkel/4fee293ed65e61505d3bb4b059c8fd3ef99d97af/Waldwinkel-1.13.0.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
+- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK 1.14.0](https://raw.githubusercontent.com/bthginfo/waldwinkel/4e3f2adac5c1d0a11f53548a33c6e9fe266092e4/Waldwinkel-1.14.0.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
 
 ## Zurück ins Hauptmenü
 
 Drücke im Spiel die Xbox-Menü-Taste **☰** oder tippe oben rechts auf **Menü**. Wähle **Speichern & Hauptmenü** und bestätige am Controller mit **A**. In der Spielstandsauswahl kannst du deinen Hof mit **Fortsetzen** wieder öffnen. [Pausenmenü auf dem Tablet](docs/113-hauptmenue.jpg)
+
+## Neu in 1.14.0
+
+- **Spielstand löschen.** Wähle **Löschen** neben dem gewünschten Spielstand. Die Bestätigung zeigt Platz, Spieltag und Aufenthaltsort. Am Xbox-Controller ist **Abbrechen** vorausgewählt. Wechsle mit **→** zu **Endgültig löschen** und bestätige mit **A**. **B** bricht ab. Danach kannst du auf dem freien Platz neu beginnen oder eine exportierte Sicherung importieren.
+- **Materialnachschub.** Fällbare Bäume, abbaubare Steine und Erzadern sind drei Spieltage nach dem Abbau wieder verfügbar. Schlafen lässt den nächsten Tag beginnen. Wildgras und wiederkehrende Sammelfunde kommen nach zwei Spieltagen zurück. Obst trägt nach zwei Spieltagen erneut und ruht im Winter. Für schweres Holz, Findlinge und kostbare Adern brauchst du Kupfer- oder Silberwerkzeuge und mehrere Schläge.
+- **Hofküche.** Schneide die Zutaten je nach Gericht, halte die Glut beim Rühren im Zielbereich und schmecke das Gericht ab. Einmachgläser werden geschichtet und entlüftet. An der Handmühle hält regelmäßiges Kurbeln das Mahlwerk in Schwung. Saubere Arbeit kann eine zweite Portion bringen. Bei Controller-Nutzung stehen **X**, **A** und **Y** direkt an den Handgriffen.
+- **Angeln.** Hake beim Biss an. Danach holst du in mehreren Zügen ein, wenn die Leine nachgibt. An der Seeseite brauchst du einen Zug mehr. Die farbige Anzeige zeigt, wann der Fisch die Leine straff zieht.
+- **Ställe und Stationen aufstellen.** Öffne **Werkbank → Hof einrichten**, um einen gelernten Stallbauplan im Hofraster zu platzieren. Auch neue Schmiede- und Webstationen beginnen mit der Standortwahl. Bestätige mit **A** oder **Platzieren**. **X** oder **Drehen** dreht das Gebäude. Hühnerstall und Schafscheune werden nach einem bzw. zwei Spieltagen fertig. Beim Ausbau steigt die Kapazität von einem auf drei Tiere. Füttere sie täglich und sammle die Produkte am Stall ein. Hühner legen nach einem gefütterten Tag Eier, Schafe liefern nach zwei solchen Tagen Wolle und Milch.
+- **Aufträge.** Der Tracker neben der Tablet-Minikarte zeigt die nächsten Ziele, Materialzahlen und abgabebereite Aufträge. Sobald die Zutaten für eine angenommene Lieferung vollständig sind, erscheint eine Meldung. In den Questdetails liest du die Geschichte hinter der Aufgabe. Mara, Fiete und Bo geben später Folgeaufträge für Küche, Schmiede und Tierhaltung.
+- **Duelle.** Die Gegner in den Dämmergängen ziehen aus eigenen Decks. Sie wägen unter anderem Angriff, Deckung, Heilung und Aufladen gegeneinander ab. Du siehst die angekündigte Aktion, das Ausspielen der gegnerischen Karte und ihre Wirkung.
+- **Marktweg.** Zwischen den Läden am Hof und den Holzstufen führt ein freier Durchgang durch den Zaun.
+
+[Aufträge neben der Minikarte](docs/114-questtracker.jpg) · [Questdetails](docs/114-questdetails.jpg) · [Hofküche auf dem Tablet](docs/114-hofkueche.jpg) · [Spielstand löschen](docs/114-spielstand-loeschen.jpg) · [Gegnerdeck](docs/114-gegnerdeck.jpg)
 
 ## Neu in 1.13.0
 
@@ -226,6 +239,8 @@ Auf einem älteren Hof mit Fisch oder Hafenhering im Vorrat reicht einmal Schlaf
 Im Startmenü kannst du auf bis zu drei getrennten Plätzen ein **Neues Spiel** beginnen oder mit **Fortsetzen** in einen vorhandenen Hof zurückkehren. Speicherdaten liegen lokal auf dem Gerät. Anbau, Sammelfunde, Handel und Aufträge werden bei der Aktion gespeichert. Der Aufenthaltsort wird beim Wechsel zwischen Innen- und Außenbereichen, beim Erreichen eines neuen Landschaftsbereichs und nach Bewegung automatisch gespeichert.
 
 Über **Menü → Jetzt speichern** kannst du den aktuellen Aufenthaltsort und Fortschritt sofort speichern. **Speichern & Hauptmenü** führt zurück zur Spielstandauswahl.
+
+Über **Löschen → Endgültig löschen** entfernst du den gewählten Spielstand samt seiner lokalen Sicherung. Exportierte Dateien kannst du über **Spielstand importieren** in einen freien Platz laden.
 
 ## Spielabläufe
 

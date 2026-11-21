@@ -183,9 +183,9 @@ impl Village {
                 } else if state.pending > 0 {
                     (
                         format!(
-                            "{} liegt bereit · {} Futter",
-                            kind.product().name(),
-                            farm.feed
+                            "{} × {} liegt am Stall bereit",
+                            state.pending,
+                            kind.product().name()
                         ),
                         "Einsammeln",
                         true,
@@ -204,9 +204,10 @@ impl Village {
                     )
                 } else {
                     (
-                        format!("Einmal täglich füttern · {} Gras · {} Futter", farm.grass, farm.feed),
+                        format!("{} Tiere · {} Portionen täglich · {} Gras + {} Futter",
+                            state.count(), state.count(), farm.grass, farm.feed),
                         "Füttern",
-                        farm.grass > 0 || farm.feed > 0,
+                        farm.grass.saturating_add(farm.feed) >= u32::from(state.count()),
                     )
                 }
             }
@@ -280,9 +281,7 @@ impl Village {
             Self::Animal(kind) => {
                 let state = &mut g.farm.animals[kind as usize];
                 if !state.owned {
-                    g.farm.coins -= kind.price();
-                    state.owned = true;
-                    return Ok(format!("{} ist eingezogen.", kind.name()));
+                    return kind.adopt(g);
                 }
                 if state.pending > 0 {
                     let quantity = std::mem::take(&mut state.pending);
@@ -304,14 +303,13 @@ impl Village {
                     ));
                 }
                 state.fed_day = Some(g.day);
-                let food = if g.farm.grass > 0 {
-                    g.farm.grass -= 1;
-                    "Gras"
-                } else {
-                    g.farm.feed -= 1;
-                    "Futter"
-                };
-                Ok(format!("{} hat {} gefressen. Schau morgen wieder nach.", kind.name(), food))
+                state.fed_count = state.count();
+                let portions = u32::from(state.fed_count);
+                let grass = g.farm.grass.min(portions);
+                g.farm.grass -= grass;
+                g.farm.feed -= portions - grass;
+                Ok(format!("{} Tiere gefüttert · Produkte nach {} gefütterten Tagen.",
+                    state.count(), kind.cycle()))
             }
             Self::Orchard(i) => {
                 g.farm.fruit_days[i] = Some(g.day);
@@ -376,28 +374,27 @@ impl Animal {
         }
     }
 
-    fn housing_cost(self) -> (u32, u32) {
+    fn housing_cost(self) -> &'static [crate::craft::Need] {
+        use crate::craft::{Need::*, Recipe};
         match self {
-            Self::Hen => (5, 3),
-            Self::Sheep => (9, 6),
+            Self::Hen => &[Wood(18), Stone(8), Stock(Product::Crafted(Recipe::Boards), 3)],
+            Self::Sheep => &[Wood(27), Stone(14), Copper(4), Stock(Product::Crafted(Recipe::Boards), 5)],
         }
     }
 
     pub fn housing_hint(self, garden: &Garden) -> (String, bool) {
-        if !garden.workshop.barns[self as usize] {
+        let i = self as usize;
+        if let Some(build) = garden.farm.barn_work[i] {
+            return (format!("Baustelle · Fertig an Tag {}", build.ready), false);
+        }
+        if !garden.workshop.barns[i] {
             return ("Kaufe den Bauplan am Bauplanstand.".into(), false);
         }
-        let (wood, stone) = self.housing_cost();
-        (
-            format!(
-                "{}/{} Holz · {}/{} Stein",
-                garden.wood.min(wood),
-                wood,
-                garden.stone.min(stone),
-                stone
-            ),
-            garden.wood >= wood && garden.stone >= stone,
-        )
+        if !garden.workshop.restored {
+            return ("Setze zuerst deine Hofwerkbank instand.".into(), false);
+        }
+        let cost = self.housing_cost();
+        (crate::craft::detail(cost, garden, 1), crate::craft::ready(cost, garden, 1))
     }
 
     pub fn build_housing(self, garden: &mut Garden) -> Result<String, String> {
@@ -408,15 +405,64 @@ impl Animal {
         if !enough {
             return Err(hint);
         }
-        let (wood, stone) = self.housing_cost();
-        garden.wood -= wood;
-        garden.stone -= stone;
-        garden.farm.housing[self as usize] = true;
-        Ok(format!(
-            "{} steht. Ein {} kann einziehen.",
-            self.housing_name(),
-            self.name()
-        ))
+        crate::craft::take(self.housing_cost(), garden, 1);
+        let days = if self == Self::Hen { 1 } else { 2 };
+        let ready = garden.day.saturating_add(days);
+        garden.farm.barn_work[self as usize] = Some(BarnWork { ready, expansion: false });
+        Ok(format!("{} im Bau · Fertig an Tag {ready}", self.housing_name()))
+    }
+
+    pub fn capacity(self, garden: &Garden) -> u8 {
+        1 + 2 * u8::from(garden.farm.barn_extended[self as usize])
+    }
+
+    pub fn adopt(self, garden: &mut Garden) -> Result<String, String> {
+        let i = self as usize;
+        let count = garden.farm.animals[i].count();
+        if !garden.farm.housing[i] {
+            return Err("Warte, bis der Stall fertig ist.".into());
+        }
+        if count >= self.capacity(garden) {
+            return Err("Der Stall ist voll. Baue ihn auf deinem Hof aus.".into());
+        }
+        if garden.farm.coins < self.price() {
+            return Err(format!("Du brauchst {} Münzen für ein weiteres Tier.", self.price()));
+        }
+        garden.farm.coins -= self.price();
+        let state = &mut garden.farm.animals[i];
+        state.owned = true;
+        state.headcount = count + 1;
+        Ok(format!("{} ist eingezogen · {} von {} Plätzen belegt",
+            self.name(), state.count(), self.capacity(garden)))
+    }
+
+    fn expansion_cost(self) -> &'static [crate::craft::Need] {
+        use crate::craft::{Need::*, Recipe};
+        match self {
+            Self::Hen => &[Wood(24), Stone(12), Copper(6), Stock(Product::Crafted(Recipe::Boards), 5)],
+            Self::Sheep => &[Wood(36), Stone(20), Copper(8), Stock(Product::Crafted(Recipe::Boards), 8)],
+        }
+    }
+
+    pub fn expansion_hint(self, garden: &Garden) -> String {
+        if let Some(build) = garden.farm.barn_work[self as usize] {
+            return format!("Ausbau fertig an Tag {}", build.ready);
+        }
+        format!("Platz für 3 Tiere · {}", crate::craft::detail(self.expansion_cost(), garden, 1))
+    }
+
+    pub fn expand(self, garden: &mut Garden) -> Result<String, String> {
+        let i = self as usize;
+        if !garden.farm.housing[i] || garden.farm.barn_extended[i] {
+            return Err("Für diesen Stall steht kein Ausbau bereit.".into());
+        }
+        if garden.farm.barn_work[i].is_some() || !crate::craft::ready(self.expansion_cost(), garden, 1) {
+            return Err(self.expansion_hint(garden));
+        }
+        crate::craft::take(self.expansion_cost(), garden, 1);
+        let ready = garden.day.saturating_add(if self == Self::Hen { 2 } else { 3 });
+        garden.farm.barn_work[i] = Some(BarnWork { ready, expansion: true });
+        Ok(format!("{} wird ausgebaut · Fertig an Tag {ready}", self.housing_name()))
     }
 
     fn cycle(self) -> u8 {
@@ -431,11 +477,29 @@ impl Animal {
 #[serde(default)]
 pub struct AnimalState {
     pub owned: bool,
+    headcount: u8,
     fed_day: Option<u32>,
+    fed_count: u8,
     petted_day: Option<u32>,
     affection: u8,
     care: u8,
     pending: u32,
+}
+
+impl AnimalState {
+    pub fn count(self) -> u8 {
+        if self.owned { self.headcount.clamp(1, 3) } else { 0 }
+    }
+
+    pub fn has_products(self) -> bool {
+        self.pending != 0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct BarnWork {
+    pub ready: u32,
+    expansion: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -562,6 +626,8 @@ pub struct Homestead {
     pub milk: u32,
     pub animals: [AnimalState; 2],
     pub housing: [bool; 2],
+    pub barn_work: [Option<BarnWork>; 2],
+    pub barn_extended: [bool; 2],
     pub fruit_days: [Option<u32>; 7],
     pub goods: [u32; 6],
     pub seeds: [u32; 3],
@@ -582,6 +648,8 @@ impl Default for Homestead {
             milk: 0,
             animals: [AnimalState::default(); 2],
             housing: [false; 2],
+            barn_work: [None; 2],
+            barn_extended: [false; 2],
             fruit_days: [None; 7],
             goods: [0; 6],
             seeds: [3; 3],
@@ -603,14 +671,21 @@ impl Homestead {
 
     pub fn end_day(&mut self, day: u32) {
         for animal in Animal::ALL {
-            let state = &mut self.animals[animal as usize];
+            let i = animal as usize;
+            if let Some(work) = self.barn_work[i].filter(|work| work.ready <= day.saturating_add(1)) {
+                self.barn_work[i] = None;
+                self.housing[i] = true;
+                self.barn_extended[i] |= work.expansion;
+            }
+            let state = &mut self.animals[i];
             if state.owned && state.fed_day == Some(day) {
                 state.care = state.care.saturating_add(1);
                 if state.care >= animal.cycle() {
                     state.care = 0;
                     state.pending = state
                         .pending
-                        .saturating_add(1 + u32::from(state.affection == 3));
+                        .saturating_add(u32::from(state.fed_count.max(1).min(state.count()))
+                            + u32::from(state.affection == 3));
                 }
             }
         }
@@ -748,7 +823,7 @@ mod tests {
         let hen = Village::Animal(Animal::Hen);
         hen.work(&mut g, Crop::Carrot, None).unwrap();
         g.sleep();
-        assert!(hen.describe(&g, Crop::Carrot, None).0.contains("füttern"));
+        assert_eq!(hen.describe(&g, Crop::Carrot, None).1, "Füttern");
         hen.work(&mut g, Crop::Carrot, None).unwrap();
         assert!(
             hen.work(&mut g, Crop::Carrot, None)
@@ -770,16 +845,59 @@ mod tests {
         g.stone = 6;
         assert!(Animal::Sheep.build_housing(&mut g).is_err());
         assert_eq!((g.wood, g.stone), (9, 6));
-        g.farm.coins = 45;
+        g.farm.coins = 130;
+        g.workshop.restored = true;
+        assert!(crate::workshop::BuildingPlan::Barn(Animal::Sheep).buy(&mut g).is_err());
+        g.farm.housing[Animal::Hen as usize] = true;
         crate::workshop::BuildingPlan::Barn(Animal::Sheep)
             .buy(&mut g)
             .unwrap();
-        assert_eq!(g.farm.coins, 18);
+        assert_eq!(g.farm.coins, 78);
+        g.wood = 27;
+        g.stone = 14;
+        g.copper = 4;
+        g.add_stock(Product::Crafted(crate::craft::Recipe::Boards), 5);
         assert!(Animal::Sheep.build_housing(&mut g).is_ok());
-        assert_eq!((g.wood, g.stone), (0, 0));
+        assert_eq!((g.wood, g.stone, g.copper), (0, 0, 0));
+        assert!(sheep.work(&mut g, Crop::Carrot, None).is_err());
+        g.sleep();
+        assert!(sheep.work(&mut g, Crop::Carrot, None).is_err());
+        g.sleep();
         assert!(sheep.work(&mut g, Crop::Carrot, None).is_ok());
         assert!(g.farm.animals[Animal::Sheep as usize].owned);
-        assert!(!g.farm.housing[Animal::Hen as usize]);
+        assert!(g.farm.housing[Animal::Hen as usize]);
+    }
+
+    #[test]
+    fn expanded_barns_hold_three_animals_and_feed_each_before_producing() {
+        let mut garden = Garden::default();
+        let kind = Animal::Hen;
+        garden.farm.housing[kind as usize] = true;
+        garden.farm.coins = 100;
+        kind.adopt(&mut garden).unwrap();
+        assert!(kind.adopt(&mut garden).is_err());
+        garden.wood = 24;
+        garden.stone = 12;
+        garden.copper = 6;
+        garden.add_stock(Product::Crafted(crate::craft::Recipe::Boards), 5);
+        kind.expand(&mut garden).unwrap();
+        garden.sleep();
+        assert_eq!(kind.capacity(&garden), 1);
+        let mut garden = Garden::decode(&serde_json::to_vec(&garden).unwrap()).unwrap();
+        garden.sleep();
+        assert_eq!(kind.capacity(&garden), 3);
+        kind.adopt(&mut garden).unwrap();
+        kind.adopt(&mut garden).unwrap();
+        assert!(kind.adopt(&mut garden).is_err());
+        let stall = Village::Animal(kind);
+        garden.farm.feed = 1;
+        garden.add_stock(Product::Grass, 2);
+        stall.work(&mut garden, Crop::Carrot, None).unwrap();
+        assert_eq!((garden.farm.feed, garden.farm.grass), (0, 0));
+        garden.sleep();
+        assert!(garden.farm.animals[kind as usize].has_products());
+        stall.work(&mut garden, Crop::Carrot, None).unwrap();
+        assert_eq!(garden.stock(Product::Egg), 3);
     }
 
     #[test]

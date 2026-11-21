@@ -1286,7 +1286,9 @@ def homestead_models():
             z=3.47+j*.34
             if x>22 and z>6:continue
             street.box(x,z,.039,.459,.326,.071,["cbb99e","d5c4a9","c3b69b","e2cea9"][(i+j*2)%4],.033,RNG.uniform(-.09,.09))
-    fence(market,[(22.15,2.70),(22.52,3.82),(22.35,4.90),(22.03,6.0),(21.46,7.02),(20.79,8.0)])
+    # Open the entrance between the market path and the wooden steps.
+    fence(market,[(22.15,2.70),(22.52,3.82),(22.35,4.90),(22.03,6.0)])
+    fence(market,[(20.79,8.0)])
     for x,z in [(15.01,2.96),(20.8,5.91),(14.95,6.0)]:
         barrel(market,x,z,0,.80)
         if z>4:

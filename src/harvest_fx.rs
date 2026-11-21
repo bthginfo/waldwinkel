@@ -77,24 +77,30 @@ pub fn animate(
             }
         });
         let face = hit.away.try_normalize().unwrap_or(Vec2::X);
+        let details = HarvestEffect {
+            area: hit.area,
+            started: now,
+            floor,
+            point: hit.point,
+            axis: Vec3::Y.cross(Vec3::new(face.x, 0., face.y)),
+            heading: hit.heading,
+            tree: hit.tree,
+            contact: false,
+            splintered: false,
+            landed: false,
+            scale: hit.scale,
+        };
+        if hit.model.is_empty() {
+            throw_chips(&mut commands, &assets, &details, now);
+            cues.write(if hit.tree { Cue::Axe } else { Cue::Stone });
+            continue;
+        }
         let mut effect = commands.spawn((
             scene(&assets, hit.model),
             Transform::from_xyz(hit.point.x, floor, hit.point.y)
                 .with_rotation(Quat::from_rotation_y(hit.heading))
                 .with_scale(Vec3::splat(hit.scale)),
-            HarvestEffect {
-                area: hit.area,
-                started: now,
-                floor,
-                point: hit.point,
-                axis: Vec3::Y.cross(Vec3::new(face.x, 0., face.y)),
-                heading: hit.heading,
-                tree: hit.tree,
-                contact: false,
-                splintered: false,
-                landed: false,
-                scale: hit.scale,
-            },
+            details,
         ));
         if hit.snow_cap && Season::at(garden.day) == Season::Winter {
             effect.with_child(scene(&assets, "wood_snow"));

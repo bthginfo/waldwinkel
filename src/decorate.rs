@@ -19,7 +19,7 @@ use crate::{
     homestead::Animal,
     session::Session,
     ui::{self, UiFonts},
-    workshop,
+    workshop::{self, Project},
     world::{Gardener, IslandCamera, PLOTS},
 };
 
@@ -243,6 +243,8 @@ enum Source {
     Legacy(usize),
     Placed(usize),
     Building,
+    BuildBarn(Animal),
+    BuildStation(Project),
 }
 
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
@@ -263,11 +265,23 @@ struct Proposal {
 #[derive(Resource, Default)]
 pub struct Layout {
     proposal: Option<Proposal>,
+    assembly: Option<Assembly>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) struct Assembly {
+    area: Area,
+    point: Vec2,
+    started: f32,
 }
 
 impl Layout {
     pub fn open(&self) -> bool {
         self.proposal.is_some()
+    }
+
+    pub fn show_assembly(&mut self, area: Area, point: Vec2, now: f32) {
+        self.assembly = Some(Assembly { area, point, started: now });
     }
 
     pub fn place(&mut self, area: Area, design: usize, start: Vec2, garden: &Garden) -> bool {
@@ -331,6 +345,68 @@ impl Layout {
                 .unwrap_or_else(|| Pose::at(building.default_point(), 0)),
         });
     }
+
+    pub fn build_barn(
+        &mut self,
+        adventure: &Adventure,
+        kind: Animal,
+        garden: &Garden,
+        player: Vec2,
+    ) -> Result<(), String> {
+        let (hint, ready) = kind.housing_hint(garden);
+        if !adventure.area.outdoors() {
+            return Err("Wähle draußen auf deinem Hof einen Platz.".into());
+        }
+        if Building::animal(kind).built(garden) {
+            return Err("Das Gebäude steht bereits.".into());
+        }
+        if !ready {
+            return Err(hint);
+        }
+        self.preview_build(adventure, Building::animal(kind), Source::BuildBarn(kind), garden, player);
+        Ok(())
+    }
+
+    pub fn build_station(
+        &mut self,
+        adventure: &Adventure,
+        project: Project,
+        garden: &Garden,
+        player: Vec2,
+    ) -> Option<Result<(), String>> {
+        let building = match project {
+            Project::Forge => Building::Forge,
+            Project::Loom => Building::Loom,
+            _ => return None,
+        };
+        if !adventure.area.outdoors() || !project.can_build(garden) {
+            return Some(Err(project.detail(garden)));
+        }
+        self.preview_build(adventure, building, Source::BuildStation(project), garden, player);
+        Some(Ok(()))
+    }
+
+    fn preview_build(&mut self, adventure: &Adventure, building: Building, source: Source, garden: &Garden, player: Vec2) {
+        let start = (player + Vec2::Y * 2.5).clamp(YARD_MIN + Vec2::ONE, YARD_MAX - Vec2::ONE);
+        let mut proposal = Proposal {
+            area: adventure.area,
+            item: Item::Building(building),
+            source,
+            pose: Pose::at(start, 0),
+        };
+        // Start on the nearest legal square when possible. The player confirms the final pose.
+        let mut distance = f32::INFINITY;
+        for x in (YARD_MIN.x / CELL) as i16..=(YARD_MAX.x / CELL) as i16 {
+            for z in (YARD_MIN.y / CELL) as i16..=(YARD_MAX.y / CELL) as i16 {
+                let candidate = Proposal { pose: Pose { cell: [x, z], quarter: 0 }, ..proposal };
+                let away = start.distance_squared(candidate.pose.point());
+                if away < distance && candidate.reason(adventure, garden, player).is_none() {
+                    (proposal, distance) = (candidate, away);
+                }
+            }
+        }
+        self.proposal = Some(proposal);
+    }
 }
 
 impl Proposal {
@@ -338,7 +414,8 @@ impl Proposal {
         match (self.source, self.item) {
             (Source::Legacy(index), _) => Some(Original::Legacy(index)),
             (Source::Placed(index), _) => Some(Original::Placed(index)),
-            (Source::Building, Item::Building(building)) => Some(Original::Building(building)),
+            (Source::Building | Source::BuildBarn(_), Item::Building(building)) =>
+                Some(Original::Building(building)),
             _ => None,
         }
     }
@@ -346,12 +423,8 @@ impl Proposal {
     fn reason(self, adventure: &Adventure, garden: &Garden, player: Vec2) -> Option<&'static str> {
         let point = self.pose.point();
         let half = self.pose.half(self.item.half()) + Vec2::splat(0.10);
-        let mut samples = Vec::new();
-        for x in [-1., -0.5, 0., 0.5, 1.] {
-            for y in [-1., -0.5, 0., 0.5, 1.] {
-                samples.push(point + half * Vec2::new(x, y));
-            }
-        }
+        let samples = [-1., -0.5, 0., 0.5, 1.].into_iter().flat_map(|x|
+            [-1., -0.5, 0., 0.5, 1.].into_iter().map(move |y| point + half * Vec2::new(x, y)));
         if self.area.outdoors() {
             if !(point - half).cmpge(YARD_MIN).all() || !(point + half).cmple(YARD_MAX).all() {
                 return Some("Bleib mit dem ganzen Stück innerhalb des Hofes.");
@@ -372,9 +445,7 @@ impl Proposal {
         if overlaps(player, point, half + Vec2::splat(0.35)) {
             return Some("Hier steht der Tanuki. Wähle ein benachbartes Feld.");
         }
-        if samples
-            .iter()
-            .any(|&at| !adventure.static_walkable(at, garden))
+        if samples.into_iter().any(|at| !adventure.static_walkable(at, garden))
         {
             return Some("Hier stehen ein Hindernis oder eine Wand.");
         }
@@ -422,6 +493,19 @@ impl Proposal {
         }
         None
     }
+
+    fn construct(self, garden: &mut Garden) -> Result<String, String> {
+        let Item::Building(building) = self.item else {
+            unreachable!("only buildings use the construction preview");
+        };
+        let message = match self.source {
+            Source::BuildBarn(kind) => kind.build_housing(garden)?,
+            Source::BuildStation(project) => project.build(garden)?,
+            _ => format!("{} versetzt.", building.name()),
+        };
+        garden.building_layout[building as usize] = Some(self.pose);
+        Ok(message)
+    }
 }
 
 #[derive(Component)]
@@ -430,6 +514,16 @@ pub struct Grid(bool);
 pub struct Panel;
 #[derive(Component)]
 pub struct Detail;
+
+#[derive(Resource)]
+pub struct AssemblyArt(Handle<Mesh>, Handle<StandardMaterial>);
+
+#[derive(Component)]
+pub struct FlyingBoard {
+    action: Assembly,
+    offset: Vec2,
+    delay: f32,
+}
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 pub enum ButtonAction {
     Place,
@@ -469,6 +563,14 @@ pub fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    commands.insert_resource(AssemblyArt(
+        meshes.add(Cuboid::new(0.51, 0.072, 0.14)),
+        materials.add(StandardMaterial {
+            base_color: Color::srgb_u8(188, 131, 79),
+            perceptual_roughness: 0.85,
+            ..default()
+        }),
+    ));
     let ink = materials.add(StandardMaterial {
         base_color: Color::srgba(0.77, 0.91, 0.79, 0.29),
         unlit: true,
@@ -573,6 +675,7 @@ pub fn input(
         pointer.already_editing = true;
         touch.clear();
         mouse.clear();
+        return;
     }
     let mut finger = None;
     for event in touch.read() {
@@ -643,7 +746,8 @@ pub fn input(
     let place = controller.accept
         || pressed == Some(ButtonAction::Place)
         || keys.just_pressed(KeyCode::Enter);
-    if pressed == Some(ButtonAction::Store) || controller.store {
+    let storing = pressed == Some(ButtonAction::Store) || controller.store;
+    let message = if storing {
         match proposal.source {
             Source::Legacy(i) => garden.furniture[i] = 0,
             Source::Placed(i) => {
@@ -651,13 +755,20 @@ pub fn input(
             }
             _ => return,
         }
+        format!("{} eingelagert.", proposal.item.label())
     } else if place
         && proposal
             .reason(&adventure, &garden, player.position)
             .is_none()
     {
-        if let Item::Building(building) = proposal.item {
-            garden.building_layout[building as usize] = Some(proposal.pose);
+        if matches!(proposal.item, Item::Building(_)) {
+            match proposal.construct(&mut garden) {
+                Ok(message) => message,
+                Err(message) => {
+                    *notice = crate::feedback::make(crate::feedback::Tone::Problem, message, clock.elapsed_secs());
+                    return;
+                }
+            }
         } else if let Item::Furniture(design) = proposal.item {
             let item = Furniture {
                 design,
@@ -672,11 +783,17 @@ pub fn input(
                 }
                 _ => garden.decorations.push(item),
             }
+            format!("{} platziert.", proposal.item.label())
+        } else {
+            return;
         }
     } else {
         return;
-    }
+    };
     layout.proposal = None;
+    if !storing {
+        layout.show_assembly(proposal.area, proposal.pose.point(), clock.elapsed_secs());
+    }
     adventure.focus = None;
     focus.selected = None;
     focus.pad_lock = false;
@@ -685,7 +802,7 @@ pub fn input(
         &path,
         &mut notice,
         clock.elapsed_secs(),
-        format!("{} · Einrichtung gespeichert", proposal.item.label()),
+        message,
         None,
         None,
     );
@@ -829,6 +946,64 @@ pub fn originals(layout: Res<Layout>, mut scenes: Query<(&Original, &mut Visibil
         } else {
             Visibility::Inherited
         });
+    }
+}
+
+pub fn animate_assembly(
+    mut commands: Commands,
+    art: Res<AssemblyArt>,
+    layout: Res<Layout>,
+    session: Res<Session>,
+    adventure: Res<Adventure>,
+    time: Res<Time>,
+    mut latest: Local<(Option<Assembly>, bool)>,
+    mut sounds: EventWriter<crate::sound::Cue>,
+    mut models: Query<&mut Transform, (With<Original>, Without<FlyingBoard>)>,
+    mut boards: Query<(Entity, &FlyingBoard, &mut Transform), Without<Original>>,
+) {
+    let now = time.elapsed_secs();
+    let ground = |area: Area, point: Vec2| {
+        if area.outdoors() { crate::world::exterior_ground(point) } else { 0.08 }
+    };
+    let (previous, settled) = &mut *latest;
+    if let Some(action) = layout.assembly
+        && adventure.area == action.area
+        && (*previous != Some(action) || !*settled)
+    {
+        let age = ((now - action.started) / 0.68).clamp(0., 1.);
+        if *previous != Some(action) {
+            *previous = Some(action);
+            if session.playing() && age < 1. {
+                sounds.write(crate::sound::Cue::Craft);
+            }
+            for i in 0..if session.playing() && age < 1. { 8 } else { 0 } {
+                let offset = Vec2::from_angle(i as f32 * std::f32::consts::TAU / 8.) * 1.12;
+                commands.spawn((
+                    Mesh3d(art.0.clone()), MeshMaterial3d(art.1.clone()),
+                    Transform::from_xyz(action.point.x + offset.x, ground(action.area, action.point), action.point.y + offset.y),
+                    FlyingBoard { action, offset, delay: i as f32 * 0.028 },
+                ));
+            }
+        }
+        *settled = age >= 1.;
+        let rise = 1. - (1. - age).powi(3);
+        for mut pose in &mut models {
+            if Vec2::new(pose.translation.x, pose.translation.z).distance_squared(action.point) < 0.018 {
+                pose.scale.y = 0.25 + 0.75 * rise + (age * std::f32::consts::PI).sin() * 0.16;
+            }
+        }
+    }
+    for (entity, board, mut pose) in &mut boards {
+        let age = (now - board.action.started - board.delay) / 0.60;
+        if age > 1. || adventure.area != board.action.area || !session.playing() {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let t = age.max(0.);
+        let at = board.action.point + board.offset * (1. - t * 0.68);
+        pose.translation = Vec3::new(at.x, ground(board.action.area, at) + 0.15 + 0.82 * (t * std::f32::consts::PI).sin(), at.y);
+        pose.scale = Vec3::splat((1. - t).sqrt());
+        pose.rotation = Quat::from_rotation_y(board.offset.x.atan2(board.offset.y) + t * 3.);
     }
 }
 

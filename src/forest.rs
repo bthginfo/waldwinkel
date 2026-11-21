@@ -52,6 +52,7 @@ impl Node {
         match self.variant {
             6 => 1,
             7 => 2,
+            8 if self.scale > 1.48 => 2,
             8 if self.scale > 1.27 => 1,
             _ => 0,
         }
@@ -62,7 +63,9 @@ impl Node {
             0..=5 => "Kiefer",
             6 => "Laubbaum",
             7 => "Moorbaum",
-            _ => "Findling",
+            8 if self.scale > 1.48 => "Granitfindling",
+            8 if self.scale > 1.27 => "Schwerer Findling",
+            _ => "Stein",
         }
     }
 

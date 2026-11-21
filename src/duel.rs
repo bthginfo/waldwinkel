@@ -573,6 +573,30 @@ pub enum Intent {
     Stagger,
 }
 
+impl Intent {
+    pub fn card_name(self) -> &'static str {
+        match self {
+            Self::Attack(_) => "Biss aus dem Dickicht",
+            Self::Flurry(_) => "Wirbelkralle",
+            Self::Brace(_) => "Steinhaut",
+            Self::Mend(_) => "Wurzeltrunk",
+            Self::Charge { .. } => "Dämmerblitz",
+            Self::Stagger => "Gebrochener Zauber",
+        }
+    }
+
+    pub fn illustration(self) -> Card {
+        match self {
+            Self::Attack(_) => Card::TwigStrike,
+            Self::Flurry(_) => Card::TrailRush,
+            Self::Brace(_) => Card::BarkShield,
+            Self::Mend(_) => Card::MossBloom,
+            Self::Charge { .. } => Card::CopperArc,
+            Self::Stagger => Card::StoneEcho,
+        }
+    }
+}
+
 impl Enemy {
     pub fn at(level: u32) -> Self {
         if level % CAMP_INTERVAL == 0 {
@@ -640,7 +664,7 @@ impl Enemy {
     }
 
     fn hp(self, level: u32) -> u16 {
-        let base = 14 + level as u16 * 2;
+        let base = 25 + level as u16 * 3;
         base + match self {
             Self::KilnGuard => 4,
             Self::Mosskin | Self::MistOwl => 0,
@@ -650,7 +674,7 @@ impl Enemy {
 
     fn intent(self, level: u32, round: u16) -> Intent {
         let level = level as u16;
-        let hit = 4 + level / 2;
+        let hit = 6 + level * 2 / 3;
         let guard = 4 + level / 3;
         let heal = 5 + level / 4;
         let charge = |armor, power| Intent::Charge {
@@ -776,6 +800,66 @@ pub(crate) struct CardImpact {
     pub shield: u16,
 }
 
+struct OpponentDeck {
+    drawing: Vec<Intent>,
+    used: Vec<Intent>,
+    hand: Vec<Intent>,
+    planned: usize,
+    rng: u64,
+}
+
+impl OpponentDeck {
+    fn new(enemy: Enemy, level: u32) -> Self {
+        let mut rng = u64::from(level) * 0x27d4eb2f + 0x165667b1;
+        let mut drawing: Vec<_> = (2..=10).map(|turn| enemy.intent(level, turn)).collect();
+        shuffle(&mut drawing, &mut rng);
+        drawing.push(enemy.intent(level, 1));
+        let mut deck = Self { drawing, used: Vec::new(), hand: Vec::new(), planned: 0, rng };
+        deck.draw(if level >= 7 { 4 } else { 3 });
+        deck
+    }
+
+    fn draw(&mut self, count: usize) {
+        while self.hand.len() < count {
+            if self.drawing.is_empty() {
+                std::mem::swap(&mut self.drawing, &mut self.used);
+                shuffle(&mut self.drawing, &mut self.rng);
+            }
+            let Some(card) = self.drawing.pop() else { break };
+            self.hand.push(card);
+        }
+    }
+
+    fn discard_played(&mut self) {
+        let card = self.hand.remove(self.planned);
+        self.used.push(card);
+        self.planned = 0;
+    }
+
+    fn choose(&mut self, hp: u16, max_hp: u16, shield: u16, hero_hp: u16, hero_guard: u16, resistance: u8) {
+        let damage_score = |raw: u16, hits: u16| {
+            let through = (hits * raw.saturating_sub(u16::from(resistance))).saturating_sub(hero_guard);
+            i32::from(through) + if hero_hp != 0 && through >= hero_hp { 60 } else { 0 }
+        };
+        self.planned = self.hand.iter().enumerate().max_by_key(|&(_, &card)| match card {
+            Intent::Attack(damage) => damage_score(damage, 1) + 4,
+            Intent::Flurry(damage) => damage_score(damage, 2) + 3,
+            Intent::Mend(amount) => {
+                let lost = (max_hp - hp).min(amount);
+                i32::from(lost) * if hp * 2 <= max_hp { 3 } else { 1 } - 4
+            }
+            Intent::Brace(amount) => {
+                i32::from(amount.saturating_sub(shield))
+                    + if hp * 3 <= max_hp * 2 { 8 } else { 0 }
+            }
+            Intent::Charge { guard, damage } => {
+                i32::from(guard.saturating_sub(shield)) + damage_score(damage, 1) / 2 + 4
+            }
+            Intent::Stagger => -10,
+        }).map_or(0, |(i, _)| i);
+    }
+}
+
 pub struct Battle {
     pub level: u32,
     pub enemy: Enemy,
@@ -788,6 +872,8 @@ pub struct Battle {
     pub energy: u8,
     pub round: u16,
     pub hand: Vec<Card>,
+    rival: OpponentDeck,
+    pub last_rival_card: Option<Intent>,
     pub outcome: Outcome,
     pub message: String,
     pub retreat_pending: bool,
@@ -856,6 +942,8 @@ impl Battle {
             energy: 3 + u8::from(focus >= 2),
             round: 1,
             hand: Vec::new(),
+            rival: OpponentDeck::new(foe, level),
+            last_rival_card: None,
             outcome: Outcome::Running,
             message: String::new(),
             retreat_pending: false,
@@ -930,7 +1018,13 @@ impl Battle {
         if let Some(trial) = self.trial.filter(|trial| trial.rank == 0) {
             return trial.story_intent(self.round);
         }
-        self.enemy.intent(self.level, self.round)
+        self.rival.hand.get(self.rival.planned).copied()
+            .unwrap_or_else(|| self.enemy.intent(self.level, self.round))
+    }
+
+    pub fn rival_piles(&self) -> Option<(usize, usize)> {
+        (!self.training && !self.trial.is_some_and(|trial| trial.rank == 0))
+            .then_some((self.rival.hand.len(), self.rival.drawing.len()))
     }
 
     pub fn incoming(&self, intent: Intent) -> u16 {
@@ -1111,6 +1205,7 @@ impl Battle {
     }
 
     pub fn end_turn(&mut self) {
+        self.last_rival_card = None;
         if self.outcome != Outcome::Running {
             return;
         }
@@ -1121,6 +1216,11 @@ impl Battle {
             return;
         }
         let intent = self.intent();
+        let rival_plays = self.rival_piles().is_some() && self.charged.is_none() && !self.rival.hand.is_empty();
+        if rival_plays {
+            self.rival.discard_played();
+        }
+        self.last_rival_card = (intent != Intent::Stagger).then_some(intent);
         self.charged = None;
         self.message = match intent {
             Intent::Attack(_) | Intent::Flurry(_) => {
@@ -1152,6 +1252,9 @@ impl Battle {
             }
             Intent::Stagger => "Die gebrochene Rüstung unterbricht den Schlag.".into(),
         };
+        if rival_plays {
+            self.message = format!("{} spielt {} · {}", self.enemy.name(), intent.card_name(), self.message);
+        }
         if self.style == Style::Warden
             && self.guard > 0
             && matches!(intent, Intent::Attack(_) | Intent::Flurry(_))
@@ -1178,7 +1281,7 @@ impl Battle {
         self.round = self.round.saturating_add(1);
         self.played_this_turn = 0;
         self.warden_ready = true;
-        self.guard = 0;
+        let shown_guard = std::mem::take(&mut self.guard);
         self.energy = self.energy_limit;
         if watch == Some(Watch::Kiln) && self.round % 2 == 1 && self.charged.is_none() {
             self.enemy_guard = self.enemy_guard.saturating_add(3);
@@ -1189,6 +1292,11 @@ impl Battle {
             self.message.push_str(" · Nebel −1 Kraft");
         }
         self.draw(self.hand_size);
+        if rival_plays || self.rival_piles().is_some() {
+            self.rival.draw(if self.level >= 7 { 4 } else { 3 });
+            self.rival.choose(self.enemy_hp, self.enemy_max, self.enemy_guard,
+                self.hp, shown_guard, self.resistance);
+        }
     }
 }
 
@@ -1243,7 +1351,7 @@ fn matching_provisions_help_against_their_intended_opponents() {
     assert_eq!((mist.guard, moss.guard), (12, 6));
 }
 
-fn shuffle(items: &mut [Card], rng: &mut u64) {
+fn shuffle<T>(items: &mut [T], rng: &mut u64) {
     for index in (1..items.len()).rev() {
         *rng = rng
             .wrapping_mul(6364136223846793005)
@@ -1256,6 +1364,21 @@ fn shuffle(items: &mut [Card], rng: &mut u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_rival_heals_when_hurt_and_spends_a_card_from_its_own_deck() {
+        let mut battle = Battle::new(3, &Progress::default());
+        battle.enemy_hp = 9;
+        battle.rival.hand = vec![Intent::Attack(7), Intent::Brace(4), Intent::Mend(10)];
+        battle.rival.choose(battle.enemy_hp, battle.enemy_max, 0, battle.hp, 0, 0);
+        assert_eq!(battle.intent(), Intent::Mend(10));
+        let before = battle.rival.drawing.len();
+        battle.end_turn();
+        assert_eq!(battle.enemy_hp, 19);
+        assert_eq!(battle.last_rival_card, Some(Intent::Mend(10)));
+        assert_eq!(battle.rival.used, [Intent::Mend(10)]);
+        assert_eq!(battle.rival_piles(), Some((3, before - 1)));
+    }
 
     #[test]
     fn a_tracked_enemy_and_sown_spores_reward_play_order() {
