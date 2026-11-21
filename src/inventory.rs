@@ -95,10 +95,10 @@ pub fn product_icon(product: Product) -> &'static str {
     match product {
         Product::Crop(crop, _) => crop_icon(crop),
         Product::Prepared(dish) => {
-            ["soup", "stew", "jam", "compote", "flour", "meal", "harbor_broth"][dish as usize]
+            ["soup", "stew", "jam", "compote", "flour", "meal", "harbor_broth", "sage_cheese", "tide_omelette"][dish as usize]
         }
         Product::Crafted(recipe) => recipe.icon(),
-        Product::Regional(material) => ["quartz", "flax", "mint"][material as usize],
+        Product::Regional(material) => material.icon(),
         Product::Spoils(loot) => ["moss", "seal", "dust"][loot as usize],
         Product::Seasonal(season) => ["blossom", "sun_shell", "amber", "frost"][season as usize],
         Product::Fish => "fish",

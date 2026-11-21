@@ -1,6 +1,7 @@
 use crate::{
     Controls, GardenFocus, Notice,
     duel::{Battle, CAMP_INTERVAL, Chapter, Enemy, LAST_LEVEL},
+    expansion::Region,
     farm_ui::{FarmMenu, FarmPage},
     forest,
     furniture::CATALOG,
@@ -136,6 +137,7 @@ pub enum Target {
     PatternStall,
     FarmAnimal(Animal),
     Gate(Frontier),
+    ExpansionGate(Region),
     Bell(Bell),
     Tree(usize),
     Rock(usize),
@@ -227,6 +229,7 @@ impl Target {
             Self::PatternStall => "Bauplanstand",
             Self::FarmAnimal(kind) => kind.housing_name(),
             Self::Gate(gate) => gate.district().name(),
+            Self::ExpansionGate(region) => region.district().name(),
             Self::Bell(bell) => bell.name(),
             Self::Tree(i) => forest::node(i).map_or("Kiefer", forest::Node::name),
             Self::Rock(i) => forest::node(i).map_or("Steinblock", forest::Node::name),
@@ -268,7 +271,7 @@ impl Target {
             Self::Kitchen => "Küche öffnen",
             Self::PatternStall => "Baupläne ansehen",
             Self::FarmAnimal(_) => "Versorgen",
-            Self::Gate(_) => "Weg öffnen",
+            Self::Gate(_) | Self::ExpansionGate(_) => "Weg öffnen",
             Self::Bell(_) => "Wegglocke",
             Self::Tree(_) => "Baum fällen",
             Self::Rock(_) => "Stein abbauen",
@@ -309,7 +312,7 @@ impl Target {
             Self::HarborFishing(_) => 0.34,
             Self::Kitchen | Self::PatternStall => 0.88,
             Self::FarmAnimal(_) => 0.51,
-            Self::Gate(_) | Self::Bell(_) => 0.93,
+            Self::Gate(_) | Self::ExpansionGate(_) | Self::Bell(_) => 0.93,
             Self::Watch(_) => 1.5,
             Self::WatchTrace(_) => 0.42,
             Self::Tree(i) => forest::node(i).map_or(1.50, |node| node.top() * 0.4),
@@ -342,7 +345,7 @@ impl Target {
     }
 }
 
-pub const LANDMARKS: [(&str, Target); 9] = [
+pub const LANDMARKS: [(&str, Target); 12] = [
     ("Minenstollen", Target::Portal),
     ("Hof", Target::Door),
     ("Farnwald", Target::Travel(District::Forest)),
@@ -352,10 +355,16 @@ pub const LANDMARKS: [(&str, Target); 9] = [
     ("Windweiden", Target::Travel(District::Wind)),
     ("Nebelmoor", Target::Travel(District::Moor)),
     ("Dämmergänge", Target::DuskGate),
+    ("Bernsteinhain", Target::Travel(District::Amber)),
+    ("Himmelstufen", Target::Travel(District::Heights)),
+    ("Morgenriff", Target::Travel(District::Reef)),
 ];
 
 pub fn map_destination(target: Target, garden: &Garden) -> Target {
     if let Target::Travel(district) = target {
+        if let Some(region) = district.expansion().filter(|region| !region.open(garden)) {
+            return region.target(garden).unwrap_or(Target::ExpansionGate(region));
+        }
         return Frontier::for_district(district)
             .filter(|gate| !gate.unlocked(garden))
             .map_or(target, Target::Gate);
@@ -664,8 +673,8 @@ impl Adventure {
         if tool.level(garden) >= required {
             return None;
         }
-        let grade = if required == 2 { "Silber" } else { "Kupfer" };
-        let station = if required == 2 { "Schmiedetisch" } else { "Hofwerkbank" };
+        let grade = crate::workshop::ToolKind::grade(required);
+        let station = if required >= 2 { "Schmiedetisch" } else { "Hofwerkbank" };
         Some(format!("{grade}-{} nötig · {station}", tool.name()))
     }
 
@@ -739,6 +748,7 @@ impl Adventure {
             Area::Island | Area::District(_) => {
                 (world::walkable(point) || garden.harbor.phase.deck_height(point).is_some())
                     && garden.regions.passage(point)
+                    && Region::passage(point, garden)
                     && !Frontier::ALL.into_iter().any(|gate| {
                         if gate.unlocked(garden) {
                             return false;
@@ -846,6 +856,7 @@ impl Adventure {
             Target::PatternStall => 0.94,
             Target::Gate(_) => 0.67,
             Target::Bell(_) => 0.66,
+            Target::ExpansionGate(_) => 0.60,
             Target::Resonator(_) => 0.69,
             Target::TownGarden | Target::SeasonMeeting | Target::EveningMarket => 0.95,
             Target::Person(_) => NPC_RADIUS + 0.07,
@@ -913,6 +924,7 @@ impl Adventure {
             Target::Kitchen => KITCHEN,
             Target::PatternStall => PATTERN_STALL,
             Target::Gate(gate) => gate.position(),
+            Target::ExpansionGate(region) => region.gate(),
             Target::Bell(bell) => bell.position(),
             Target::FarmAnimal(kind) => {
                 let building = crate::decorate::Building::animal(kind);
@@ -997,7 +1009,9 @@ impl Adventure {
                     .filter(|site| site.stage(garden) == WatchStage::Surveying)
                     .map(Target::WatchTrace),
             )
-            .chain(Animal::ALL.into_iter().map(Target::FarmAnimal))
+            .chain(Animal::ALL.into_iter()
+                .filter(|kind| kind.region().is_none() || garden.workshop.barns[*kind as usize])
+                .map(Target::FarmAnimal))
             .chain(decor())
             .chain(Frontier::Moor.unlocked(garden).then_some(Target::DuskGate))
             .chain(
@@ -1006,7 +1020,8 @@ impl Adventure {
                     .filter(|&gate| !gate.unlocked(garden))
                     .map(Target::Gate),
             )
-            .chain(Bell::ALL.into_iter().map(Target::Bell))
+            .chain(Region::ALL.into_iter().filter(|area| !area.open(garden)).map(Target::ExpansionGate))
+            .chain(Bell::ALL.into_iter().filter(|bell| bell.accessible(garden)).map(Target::Bell))
             .chain(
                 Resonator::ALL
                     .into_iter()
@@ -1017,7 +1032,7 @@ impl Adventure {
                 District::ALL
                     .into_iter()
                     .filter(|&district| {
-                        Frontier::for_district(district)
+                        district.accessible(garden) && Frontier::for_district(district)
                             .is_none_or(|frontier| frontier.unlocked(garden))
                     })
                     .map(Target::Travel),
@@ -1132,6 +1147,7 @@ impl Adventure {
             let regional_action = match target {
                 Target::Gate(gate) => Some(gate.describe(garden)),
                 Target::Bell(bell) => Some(bell.describe(garden)),
+                Target::ExpansionGate(region) => Some(region.gate_status(garden)),
                 Target::Resonator(site) => Some(site.describe(garden)),
                 Target::DuskDown => match self.area {
                     Area::Expedition(level) if garden.rpg.cleared < level => Some((
@@ -1282,12 +1298,18 @@ impl Adventure {
                     "Waren auswählen und sofort verkaufen.".into(),
                     "Truhe öffnen",
                 ),
-                Target::Tree(_) => (
-                    format!("+{} Holz · Wächst in {RESOURCE_RENEWAL_DAYS} Tagen nach", garden.wood_per_tree()),
+                Target::Tree(i) => (
+                    forest::node(i).and_then(forest::Node::material).map_or_else(
+                        || format!("+{} Holz · Wächst in {RESOURCE_RENEWAL_DAYS} Tagen nach", garden.wood_per_tree()),
+                        |material| format!("+{} {} und Holz · Wächst nach", forest::Node::yield_count(garden, Tool::Axe), material.name()),
+                    ),
                     "Baum fällen",
                 ),
-                Target::Rock(_) => (
-                    format!("+{} Stein · Wieder da in {RESOURCE_RENEWAL_DAYS} Tagen", garden.stone_per_rock()),
+                Target::Rock(i) => (
+                    forest::node(i).and_then(forest::Node::material).map_or_else(
+                        || format!("+{} Stein · Wieder da in {RESOURCE_RENEWAL_DAYS} Tagen", garden.stone_per_rock()),
+                        |material| format!("+{} {} und Stein · Erneuert sich", forest::Node::yield_count(garden, Tool::Pickaxe), material.name()),
+                    ),
                     "Stein abbauen",
                 ),
                 Target::Travel(district) => {
@@ -1635,6 +1657,11 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
             0.,
             1.8,
         ),
+        Target::ExpansionGate(region) => {
+            let direction = region.direction().abs();
+            let across = Vec2::ONE - direction;
+            hit(direction * 0.45 + across * 1.75, 0., 1.8)
+        }
         Target::Bell(_) => hit(Vec2::splat(0.67), 0., 1.95),
         Target::Resonator(_) => hit(Vec2::splat(0.53), 0., 1.62),
         Target::TownGarden => hit(crate::town_garden::HALF, 0., if garden.town_garden.stage == crate::town_garden::Stage::Bloom { 1.96 } else { 0.88 }),
@@ -2078,6 +2105,12 @@ pub fn select(
                     let target = Target::Gate(gate);
                     adventure.focus = Some(target);
                     player.navigate_over_time(adventure.reach(target, &garden), &adventure, &garden);
+                } else if let Some(region) = Region::ALL.into_iter().find(|region| {
+                    !region.open(&garden) && region.boundary(point) && player.position.distance(region.gate()) < 19.
+                }) {
+                    let target = Target::ExpansionGate(region);
+                    adventure.focus = Some(target);
+                    player.navigate_over_time(adventure.reach(target, &garden), &adventure, &garden);
                 } else {
                     player.navigate_over_time(Reach::walk(point), &adventure, &garden);
                 }
@@ -2253,7 +2286,8 @@ pub fn interact(
         }
     }
     if let Some((_, tier)) = adventure.harvest_tool(target) {
-        let hits = 1 + tier * 2;
+        let hits = (1 + tier * 2).saturating_sub(crate::workshop::ToolKind::for_action(tool)
+            .map_or(0, |kind| kind.level(&garden).saturating_sub(tier))).max(1);
         let done = adventure.work_hits
             .filter(|(at, _, time)| *at == target && now - time < 18.)
             .map_or(1, |(_, done, _)| done + 1);
@@ -2298,6 +2332,20 @@ pub fn interact(
                 }
             }
         }
+        Target::ExpansionGate(region) => match region.work_gate(&mut garden) {
+            Ok(message) => {
+                if region.open(&garden) {
+                    let entrance = region.gate() + region.direction() * 2.0;
+                    player.navigate_over_time(Reach::walk(entrance), &adventure, &garden);
+                    adventure.focus = None;
+                }
+                message
+            }
+            Err(message) => {
+                persistent = false;
+                message
+            }
+        },
         Target::Resonator(site) => match site.work(&mut garden) {
             Ok(message) => {
                 if site == Resonator::Harbor {
@@ -2522,7 +2570,11 @@ pub fn interact(
                 hit("wood_tree", i as f32 * 0.62, true)
             };
             breaks.write(impact);
-            format!("+{} Holz", garden.wood_per_tree())
+            let wood = garden.wood_per_tree();
+            forest::node(i).and_then(forest::Node::material).map_or_else(
+                || format!("+{wood} Holz"),
+                |material| format!("+{wood} Holz · +{} {}", forest::Node::yield_count(&garden, Tool::Axe), material.name()),
+            )
         }
         Target::Rock(i) => {
             let Some(quantity) = garden.quarry(i) else {
@@ -2539,7 +2591,10 @@ pub fn interact(
                 hit("resource_rock", i as f32 * 0.67, false)
             };
             breaks.write(impact);
-            format!("+{quantity} Stein")
+            forest::node(i).and_then(forest::Node::material).map_or_else(
+                || format!("+{quantity} Stein"),
+                |material| format!("+{quantity} Stein · +{} {}", forest::Node::yield_count(&garden, Tool::Pickaxe), material.name()),
+            )
         }
         Target::MineRock(i) => {
             let Area::Mine(depth) = adventure.area else {
@@ -2648,12 +2703,14 @@ enum Stamp {
         felled: Vec<usize>,
         broken: Vec<usize>,
         fruit: [bool; 7],
-        animals: [u8; 2],
-        housing: [bool; 2],
-        barn_extended: [bool; 2],
-        produce_at_barn: [bool; 2],
+        animals: [u8; Animal::ALL.len()],
+        housing: [bool; Animal::ALL.len()],
+        barn_extended: [bool; Animal::ALL.len()],
+        produce_at_barn: [bool; Animal::ALL.len()],
         gates: [bool; 3],
-        bells: [bool; 7],
+        bells: [bool; Bell::ALL.len()],
+        expansion_gates: [bool; Region::ALL.len()],
+        barn_known: [bool; Animal::ALL.len()],
         finds: [bool; FINDS.len()],
         resonance: [bool; Resonator::ALL.len()],
         season: Season,
@@ -2665,7 +2722,7 @@ enum Stamp {
         opening: bool,
         workshop: (bool, bool, bool, u8),
         watches: [bool; Watch::ALL.len()],
-        buildings: [Option<crate::decorate::Pose>; 5],
+        buildings: [Option<crate::decorate::Pose>; crate::decorate::Building::ALL.len()],
     },
     Home {
         furniture: Vec<u8>,
@@ -2720,6 +2777,8 @@ pub fn draw(
             produce_at_barn: garden.farm.animals.map(crate::homestead::AnimalState::has_products),
             gates: Frontier::ALL.map(|gate| gate.unlocked(&garden)),
             bells: Bell::ALL.map(|bell| bell.ready(&garden)),
+            expansion_gates: Region::ALL.map(|area| area.open(&garden)),
+            barn_known: garden.workshop.barns,
             finds: std::array::from_fn(|i| FINDS[i].available(&garden, i)),
             resonance: Resonator::ALL.map(|site| site.active(&garden)),
             season: Season::at(garden.day),
@@ -2809,6 +2868,8 @@ pub fn draw(
                 workshop: (restored, forge, loom, house),
                 watches,
                 buildings: _,
+                expansion_gates: _,
+                barn_known: _,
             } => {
                 use crate::decorate::Building;
                 let bench = Building::Bench.point(&garden);
@@ -2901,6 +2962,7 @@ pub fn draw(
                     0.,
                 );
                 for kind in Animal::ALL {
+                    if kind.region().is_some() && !garden.workshop.barns[kind as usize] { continue; }
                     let building = Building::animal(kind);
                     let site = building.point(&garden);
                     let model = spawn(
@@ -2936,7 +2998,14 @@ pub fn draw(
                         gate.angle(),
                     );
                 }
+                for region in Region::ALL {
+                    let p = region.gate();
+                    let facing = region.direction();
+                    spawn(if region.open(&garden) { "frontier_open" } else { "frontier_gate" },
+                        p, world::exterior_ground(p), facing.x.atan2(facing.y));
+                }
                 for bell in Bell::ALL {
+                    if !bell.accessible(&garden) { continue; }
                     let p = bell.position();
                     spawn(
                         if bells[bell as usize] {
@@ -3046,21 +3115,32 @@ pub fn draw(
                     }
                 }
                 let mut critters = Vec::new();
+                for (region, points) in [
+                    (Region::Amber, [Vec2::new(-254., -15.), Vec2::new(-257., -12.)]),
+                    (Region::Heights, [Vec2::new(256., -20.), Vec2::new(259., -21.)]),
+                    (Region::Reef, [Vec2::new(28.4, 229.), Vec2::new(31.1, 228.)]),
+                ] {
+                    for base in points {
+                        let kind = region.animal();
+                        let entity = spawn(kind.model(), base, world::exterior_ground(base), 0.);
+                        critters.push((entity, Critter { origin: base, kind, leash: 1.35, facing: 0. }));
+                    }
+                }
                 for kind in Animal::ALL {
                     let building = Building::animal(kind);
                     for i in 0..animals[kind as usize] {
                         let offset = Vec2::new(-0.61 + 0.59 * f32::from(i), 0.79);
                         let base = building.point(&garden) + building.offset(&garden, offset);
                         let entity = spawn(
-                            if kind == Animal::Hen { "farm_hen" } else { "farm_sheep" },
+                            kind.model(),
                             base, world::exterior_ground(base), 0.,
                         );
-                        critters.push((entity, Critter { origin: base, kind }));
+                        critters.push((entity, Critter { origin: base, kind, leash: 0.34, facing: building.angle(&garden) }));
                     }
                 }
                 // Release the spawn closure before attaching an animated component.
                 for (entity, critter) in critters {
-                    commands.entity(entity).insert(critter);
+                    commands.entity(entity).insert(critter).observe(bind_critter_legs);
                 }
                 Color::srgb_u8(132, 204, 201)
             }
@@ -3294,22 +3374,71 @@ pub fn draw(
 pub struct Critter {
     origin: Vec2,
     kind: Animal,
+    leash: f32,
+    facing: f32,
 }
 
-pub fn animate_animals(time: Res<Time>, mut animals: Query<(&Critter, &mut Transform)>) {
+#[derive(Component)]
+pub struct CritterLeg {
+    owner: Entity,
+    angle: f32,
+    forward: bool,
+}
+
+fn bind_critter_legs(
+    trigger: Trigger<bevy::scene::SceneInstanceReady>,
+    children: Query<&Children>,
+    names: Query<&Name>,
+    mut commands: Commands,
+) {
+    for entity in children.iter_descendants(trigger.target()) {
+        let Ok(name) = names.get(entity) else { continue };
+        let Some((side, depth)) = name.as_str().strip_prefix("Paw_").and_then(|part| part.split_once('_')) else { continue };
+        let forward = !depth.starts_with('-');
+        commands.entity(entity).insert(CritterLeg {
+            owner: trigger.target(),
+            angle: if side == "-1" { std::f32::consts::PI } else { 0. },
+            forward,
+        });
+    }
+}
+
+impl Critter {
+    fn stride(&self, time: f32) -> f32 {
+        time * [1.15, 0.69, 1.06, 0.62, 0.95][self.kind as usize]
+            + (self.origin.x * 1.23 + self.origin.y * 1.08).rem_euclid(std::f32::consts::TAU)
+    }
+}
+
+pub fn animate_animals(
+    time: Res<Time>,
+    mut animals: Query<(&Critter, &mut Transform), Without<CritterLeg>>,
+    mut legs: Query<(&CritterLeg, &mut Transform), Without<Critter>>,
+) {
     for (animal, mut pose) in &mut animals {
-        let speed = if animal.kind == Animal::Hen {
-            1.15
+        let elapsed = animal.stride(time.elapsed_secs());
+        let hop = if animal.kind == Animal::Rabbit { (elapsed * 3.4).sin().max(0.).powi(2) } else { 0. };
+        let turn = Mat2::from_angle(-animal.facing);
+        let offset = turn * Vec2::new(elapsed.sin(), (elapsed * 0.79).cos() * 0.57) * animal.leash;
+        let candidate = animal.origin + offset;
+        let at = if animal.leash < 1. || world::walkable(candidate) { candidate } else { animal.origin };
+        let bob = (elapsed * 6.).sin().abs() * 0.019 + hop * 0.13;
+        pose.translation = Vec3::new(at.x, world::exterior_ground(at) + bob, at.y);
+        let ahead = turn * Vec2::new(elapsed.cos(), -(elapsed * 0.79).sin() * 0.45);
+        let waddle = if animal.kind == Animal::Duck { (elapsed * 7.).sin() * 0.14 } else { 0. };
+        pose.rotation = Quat::from_euler(EulerRot::YXZ, ahead.x.atan2(ahead.y), -hop * 0.14, waddle);
+    }
+    for (leg, mut pose) in &mut legs {
+        let Ok((animal, _)) = animals.get(leg.owner) else { continue };
+        let elapsed = animal.stride(time.elapsed_secs());
+        let pitch = if animal.kind == Animal::Rabbit {
+            let offset = if leg.forward { 0.4 } else { -0.4 };
+            (elapsed * 3.4 + offset).sin().max(0.) * offset
         } else {
-            0.69
+            let offset = if leg.forward { leg.angle } else { leg.angle + 2.8 };
+            (elapsed * 5.3 + offset).sin() * 0.39
         };
-        let elapsed = time.elapsed_secs() * speed;
-        let x = elapsed.sin() * 0.53;
-        let z = (elapsed * 0.77).cos() * 0.38;
-        let bob = (elapsed * 6.).sin().abs() * 0.018;
-        pose.translation = Vec3::new(animal.origin.x + x, bob, animal.origin.y + z);
-        pose.rotation =
-            Quat::from_rotation_y((elapsed.cos() * 0.53).atan2(-(elapsed * 0.77).sin() * 0.29));
+        pose.rotation = Quat::from_rotation_x(pitch);
     }
 }
 

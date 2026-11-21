@@ -28,6 +28,9 @@ pub enum Npc {
     Runa,
     Nele,
     Edda,
+    Ivo,
+    Sanna,
+    Tilda,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -46,7 +49,7 @@ impl QuestMark {
 }
 
 impl Npc {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 12] = [
         Self::Lina,
         Self::Miro,
         Self::Mara,
@@ -56,6 +59,9 @@ impl Npc {
         Self::Runa,
         Self::Nele,
         Self::Edda,
+        Self::Ivo,
+        Self::Sanna,
+        Self::Tilda,
     ];
 
     pub fn name(self) -> &'static str {
@@ -69,6 +75,9 @@ impl Npc {
             Self::Runa => "Runa",
             Self::Nele => "Nele",
             Self::Edda => "Edda",
+            Self::Ivo => "Ivo",
+            Self::Sanna => "Sanna",
+            Self::Tilda => "Tilda",
         }
     }
     pub fn role(self) -> &'static str {
@@ -82,6 +91,9 @@ impl Npc {
             Self::Runa => "Schmiedin der Kupferklamm",
             Self::Nele => "Müllerin der Windweiden",
             Self::Edda => "Wegwacht im Nebelmoor",
+            Self::Ivo => "Harzsammler",
+            Self::Sanna => "Bergschmiedin",
+            Self::Tilda => "Hüterin der Tümpel",
         }
     }
     pub fn model(self) -> &'static str {
@@ -95,6 +107,9 @@ impl Npc {
             Self::Runa => "npc_runa",
             Self::Nele => "npc_nele",
             Self::Edda => "npc_edda",
+            Self::Ivo => "npc_ivo",
+            Self::Sanna => "npc_sanna",
+            Self::Tilda => "npc_tilda",
         }
     }
     pub fn frontier(self) -> Option<Frontier> {
@@ -106,8 +121,19 @@ impl Npc {
         }
     }
 
+    pub fn expansion(self) -> Option<crate::expansion::Region> {
+        use crate::expansion::Region;
+        match self {
+            Self::Ivo => Some(Region::Amber),
+            Self::Sanna => Some(Region::Heights),
+            Self::Tilda => Some(Region::Reef),
+            _ => None,
+        }
+    }
+
     pub fn available(self, garden: &Garden) -> bool {
         self.frontier().is_none_or(|region| region.unlocked(garden))
+            && self.expansion().is_none_or(|region| region.open(garden))
     }
 
     pub fn position(self, garden: &Garden) -> Vec2 {
@@ -197,6 +223,9 @@ impl Npc {
             Self::Edda => {
                 "Geh auf den Holzstegen und lausche den Glocken. Im Nebel kennen sie jeden Weg."
             }
+            Self::Ivo => "Psst. Wenn wir leise sind, trauen sich die Langohren bis zu den Harzschalen.",
+            Self::Sanna => "Morgens ist die Scharte windstill. Oben hört man dann sogar, wie sich die Ziegen im Geröll rufen.",
+            Self::Tilda => "Die Laufenten sind früher als ich wach. Folgen wir ihren Spuren, finden wir die ersten Salzblüten.",
         }
     }
 
@@ -225,7 +254,7 @@ impl Npc {
         let follow = match self {
             Self::Mara if garden.harbor.phase == harbor::Phase::Open => Quest::LongTable,
             Self::Fiete if garden.workshop.forge => Quest::StormBell,
-            Self::Bo if garden.farm.housing.iter().all(|&built| built) => Quest::FirstFair,
+            Self::Bo if garden.farm.housing[0] && garden.farm.housing[1] => Quest::FirstFair,
             _ => return Some(first),
         };
         Some(follow)
@@ -233,6 +262,7 @@ impl Npc {
 
     pub fn quest_mark(self, garden: &Garden) -> Option<QuestMark> {
         use QuestMark::{Available, TurnIn};
+        if let Some(region) = self.expansion() { return region.mark(garden); }
         if let Some(region) = self.frontier() {
             return region
                 .unlocked(garden)
@@ -719,7 +749,9 @@ pub fn input(
                 .map(|merchant| merchant.work(&mut garden, crop, product))
         }
         DialogueButton::Quest if !dialog.trading => {
-            if let Some(area) = npc.frontier() {
+            if let Some(area) = npc.expansion() {
+                Some(area.finish(&mut garden))
+            } else if let Some(area) = npc.frontier() {
                 Some(regions::finish_story(area, &mut garden))
             } else {
                 npc.current_quest(&garden).map(|quest| quest.advance(&mut garden))
@@ -822,7 +854,8 @@ pub fn update(
     let trade =
         merchant.map(|merchant| merchant.describe(&garden, dialog.crop(), dialog.product(&garden)));
     let quest = npc.current_quest(&garden);
-    let region_quest = npc.frontier().map(|area| regions::story(area, &garden));
+    let region_quest = npc.expansion().map(|area| area.dialogue(&garden))
+        .or_else(|| npc.frontier().map(|area| regions::story(area, &garden)));
     let quest_state = quest.map(|q| garden.town.state(q));
     for (field, mut text) in &mut fields {
         let value = match field {
@@ -953,7 +986,9 @@ pub fn update(
             DialogueButton::Quest => {
                 !dialog.trading
                     && (quest_state.is_some_and(|s| s != QuestState::Done)
-                        || region_quest.as_ref().is_some_and(|entry| entry.2))
+                        || region_quest.as_ref().is_some_and(|entry| {
+                            if npc.expansion().is_some() { entry.1 != "Abgeschlossen" } else { entry.2 }
+                        }))
             }
             DialogueButton::Story => npc == Npc::Juna && !garden.story.met_juna,
             DialogueButton::Harbor => !dialog.trading && matches!(npc, Npc::Bo | Npc::Fiete),
@@ -976,6 +1011,7 @@ pub fn update(
         }
         let enabled = match button {
             DialogueButton::Deal => trade.as_ref().is_some_and(|t| t.2),
+            DialogueButton::Quest if npc.expansion().is_some() => region_quest.as_ref().is_some_and(|entry| entry.2),
             DialogueButton::EveningMarket => {
                 evening_market::can_advance(&garden) || evening_market::trading(&garden)
             }

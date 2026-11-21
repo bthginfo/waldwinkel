@@ -14,7 +14,7 @@ use crate::{
 pub struct Logbook {
     crops: u8,
     parts: u8,
-    dishes: u8,
+    dishes: u16,
     batches: u32,
     meals: u32,
     claimed: [u8; Path::ALL.len()],

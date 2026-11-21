@@ -213,6 +213,27 @@ fn routine(npc: Npc) -> Option<Routine> {
             station: "Hält Wache am Moorweg",
             errand: "Prüft die Markierungen am Ufer",
         },
+        Npc::Ivo => Routine {
+            path: const { &[Vec2::new(-249., -12.), Vec2::new(-250., -11.), Vec2::new(-252., -8.), Vec2::new(-255., -5.)] },
+            shift: [(505, 608), (936, 1018)],
+            travel: 6,
+            station: "Sortiert Harz an der Hütte",
+            errand: "Sammelt Proben am Bachpfad",
+        },
+        Npc::Sanna => Routine {
+            path: const { &[Vec2::new(248., -21.), Vec2::new(247., -19.), Vec2::new(246., -17.), Vec2::new(245., -16.)] },
+            shift: [(484, 601), (878, 1019)],
+            travel: 6,
+            station: "Arbeitet am Windenhaus",
+            errand: "Prüft die unteren Terrassen",
+        },
+        Npc::Tilda => Routine {
+            path: const { &[Vec2::new(25., 230.), Vec2::new(24., 231.), Vec2::new(22., 234.), Vec2::new(21., 237.)] },
+            shift: [(445, 589), (904, 1033)],
+            travel: 6,
+            station: "Poliert Muscheln an der Werkstatt",
+            errand: "Kontrolliert die Gezeitentümpel",
+        },
         Npc::Bo | Npc::Fiete => return None,
     })
 }
@@ -387,7 +408,7 @@ pub(crate) fn pose(npc: Npc, garden: &Garden) -> Pose {
                 if (leave + routine.travel..back).contains(&minute) {
                     let duty = match npc {
                         Npc::Lina | Npc::Nele => Duty::Water,
-                        Npc::Miro | Npc::Runa | Npc::Mara => Duty::Sort,
+                        Npc::Miro | Npc::Runa | Npc::Mara | Npc::Ivo | Npc::Tilda => Duty::Sort,
                         _ => Duty::Write,
                     };
                     return Pose::stay(*routine.path.last().unwrap(), routine.errand).work(duty);
@@ -404,7 +425,7 @@ pub(crate) fn pose(npc: Npc, garden: &Garden) -> Pose {
             }
             let duty = match npc {
                 Npc::Mara => Duty::Stir,
-                Npc::Runa => Duty::Forge,
+                Npc::Runa | Npc::Sanna => Duty::Forge,
                 Npc::Juna | Npc::Edda => Duty::Write,
                 _ => Duty::Sort,
             };
@@ -460,9 +481,9 @@ pub(crate) fn bind_limbs(
             let duties: &[Duty] = match resident.0 {
                 Npc::Mara => &[Duty::Stir, Duty::Sort],
                 Npc::Lina | Npc::Nele => &[Duty::Water, Duty::Sort],
-                Npc::Miro => &[Duty::Sort],
+                Npc::Miro | Npc::Ivo | Npc::Tilda => &[Duty::Sort],
                 Npc::Bo | Npc::Juna | Npc::Edda => &[Duty::Write],
-                Npc::Runa => &[Duty::Forge, Duty::Sort],
+                Npc::Runa | Npc::Sanna => &[Duty::Forge, Duty::Sort, Duty::Write],
                 _ => &[],
             };
             for &duty in duties {
@@ -622,7 +643,7 @@ mod tests {
 
     #[test]
     fn residents_change_places_and_keep_to_walkable_ground() {
-        let mut garden: Garden = serde_json::from_str(r#"{"regions":{"gates":[2,2,2]}}"#).unwrap();
+        let mut garden: Garden = serde_json::from_str(r#"{"regions":{"gates":[2,2,2]},"expansion":{"gates":[2,2,2]}}"#).unwrap();
         let adventure = Adventure::default();
         for npc in Npc::ALL {
             assert!(npc.available(&garden));

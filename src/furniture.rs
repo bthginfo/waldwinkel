@@ -1,6 +1,6 @@
 use bevy::prelude::Vec2;
 
-use crate::{garden::Garden, homestead::Product};
+use crate::{garden::Garden, homestead::Product, regions::Material};
 
 #[derive(Clone, Copy)]
 pub enum Blueprint {
@@ -21,6 +21,7 @@ pub struct Furniture {
     pub half: Vec2,
     pub height: f32,
     materials: [u32; 4],
+    regional: Option<(Material, u32)>,
     pub blueprint: Blueprint,
 }
 
@@ -38,8 +39,14 @@ impl Furniture {
             half: Vec2::new(shape[0], shape[1]),
             height: shape[2],
             materials,
+            regional: None,
             blueprint,
         }
+    }
+
+    const fn regional(mut self, material: Material, count: u32) -> Self {
+        self.regional = Some((material, count));
+        self
     }
 
     pub fn source(&self, garden: &Garden) -> String {
@@ -56,7 +63,7 @@ impl Furniture {
         crate::craft::detail(&self.ingredients(), garden, 1)
     }
 
-    pub(crate) fn ingredients(&self) -> [crate::craft::Need; 4] {
+    pub(crate) fn ingredients(&self) -> [crate::craft::Need; 5] {
         use crate::craft::Need;
         let [wood, stone, copper, wool] = self.materials;
         [
@@ -64,6 +71,10 @@ impl Furniture {
             Need::Stone(stone),
             Need::Copper(copper),
             Need::Stock(Product::Wool, wool),
+            match self.regional {
+                Some((material, quantity)) => Need::Stock(Product::Regional(material), quantity),
+                None => Need::Wood(0),
+            },
         ]
     }
 
@@ -88,7 +99,9 @@ pub const SEASONS_SHELF: usize = 18;
 pub const HARBOR_LANTERN: usize = 19;
 pub const WATCH_LAMP: usize = 20;
 
-pub const CATALOG: [Furniture; 21] = [
+pub const EXPANSION_FURNITURE: usize = 21;
+pub const TRAIL_FURNITURE: usize = 30;
+pub const CATALOG: [Furniture; 33] = [
     Furniture::new(
         "Runder Tisch",
         "furniture_table",
@@ -236,6 +249,30 @@ pub const CATALOG: [Furniture; 21] = [
         [4, 2, 2, 0],
         Blueprint::Reward("Belohnung für Junas Inselkarte"),
     ),
+    Furniture::new("Harzlaterne", "furniture_harzlaterne", [0.37, 0.32, 1.48], [4, 1, 2, 0],
+        Blueprint::Reward("Die Harzspur")).regional(Material::GoldResin, 3),
+    Furniture::new("Flaumbank", "furniture_flaumbank", [0.76, 0.4, 0.94], [6, 0, 0, 1],
+        Blueprint::Reward("Decken für den ersten Frost")).regional(Material::RabbitDown, 2),
+    Furniture::new("Bernsteinvitrine", "furniture_bernsteinvitrine", [0.65, 0.4, 1.69], [5, 0, 2, 0],
+        Blueprint::Reward("Das goldene Blätterbuch")).regional(Material::Amber, 2),
+    Furniture::new("Salbeitrog", "furniture_salbeitrog", [0.62, 0.39, 0.93], [2, 5, 0, 0],
+        Blueprint::Reward("Pfad am Seil")).regional(Material::AlpineSage, 3),
+    Furniture::new("Almhüttenbank", "furniture_almbank", [0.79, 0.44, 1.03], [7, 0, 0, 2],
+        Blueprint::Reward("Frühstück am Wolkenrand")).regional(Material::StarOre, 2),
+    Furniture::new("Sternwarte-Lampe", "furniture_sternlampe", [0.43, 0.37, 1.45], [4, 2, 5, 0],
+        Blueprint::Reward("Sternkarte im Giebel")).regional(Material::SkyQuartz, 3),
+    Furniture::new("Gezeitenwindspiel", "furniture_gezeitenwindspiel", [0.39, 0.32, 1.61], [3, 0, 2, 0],
+        Blueprint::Reward("Wenn die Flut leise wird")).regional(Material::SaltBloom, 3),
+    Furniture::new("Perlmuttkasten", "furniture_perlmuttkasten", [0.65, 0.42, 0.9], [5, 1, 2, 0],
+        Blueprint::Reward("Frühe Eier am Anleger")).regional(Material::MotherPearl, 3),
+    Furniture::new("Strandtafeltisch", "furniture_strandtisch", [0.77, 0.56, 1.1], [7, 0, 2, 0],
+        Blueprint::Reward("Lichter am Seil")).regional(Material::Reefwood, 4),
+    Furniture::new("Harzsammlerregal", "furniture_harzregal", [0.59, 0.35, 1.56], [6, 0, 2, 0],
+        Blueprint::Find("Am westlichen Bachlauf im Bernsteinhain")).regional(Material::Ironwood, 3),
+    Furniture::new("Gipfelglobus", "furniture_gipfelglobus", [0.45, 0.38, 1.02], [3, 4, 2, 0],
+        Blueprint::Find("An der oberen Aussicht der Himmelstufen")).regional(Material::StarOre, 3),
+    Furniture::new("Entenboje", "furniture_entenboje", [0.46, 0.46, 0.95], [4, 0, 2, 0],
+        Blueprint::Find("Am Außenriff von Morgenriff")).regional(Material::DuckFeather, 2),
 ];
 
 pub fn learn(garden: &mut Garden, design: usize) -> bool {
@@ -274,11 +311,7 @@ pub fn build(garden: &mut Garden, index: usize) -> Result<String, String> {
             design.supplies(garden)
         ));
     }
-    let [wood, stone, copper, wool] = design.materials;
-    garden.wood -= wood;
-    garden.stone -= stone;
-    garden.copper -= copper;
-    garden.take_stock(Product::Wool, wool);
+    crate::craft::take(&design.ingredients(), garden, 1);
     garden.crafted[index] = true;
     Ok(format!(
         "{} hergestellt. Wähle einen Platz in der Hütte.",

@@ -14,21 +14,65 @@ pub enum Material {
     GorgeQuartz,
     MeadowFlax,
     MarshHerb,
+    GoldResin,
+    Ironwood,
+    Amber,
+    StarOre,
+    AlpineSage,
+    SkyQuartz,
+    MotherPearl,
+    SaltBloom,
+    Reefwood,
+    RabbitDown,
+    GoatMilk,
+    DuckEgg,
+    DuckFeather,
 }
 
 impl Material {
-    pub const ALL: [Self; 3] = [Self::GorgeQuartz, Self::MeadowFlax, Self::MarshHerb];
+    pub const ALL: [Self; 16] = [Self::GorgeQuartz, Self::MeadowFlax, Self::MarshHerb,
+        Self::GoldResin,
+        Self::Ironwood,
+        Self::Amber,
+        Self::StarOre,
+        Self::AlpineSage,
+        Self::SkyQuartz,
+        Self::MotherPearl,
+        Self::SaltBloom,
+        Self::Reefwood,
+        Self::RabbitDown,
+        Self::GoatMilk,
+        Self::DuckEgg,
+        Self::DuckFeather,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::GorgeQuartz => "Klammquarz",
             Self::MeadowFlax => "Wiesenflachs",
             Self::MarshHerb => "Nebelminze",
+            Self::GoldResin => "Goldharz",
+            Self::Ironwood => "Eisenholz",
+            Self::Amber => "Bernstein",
+            Self::StarOre => "Sternenerz",
+            Self::AlpineSage => "Alpensalbei",
+            Self::SkyQuartz => "Himmelsquarz",
+            Self::MotherPearl => "Perlmutt",
+            Self::SaltBloom => "Salzblüte",
+            Self::Reefwood => "Riffholz",
+            Self::RabbitDown => "Kaninchenflaum",
+            Self::GoatMilk => "Ziegenmilch",
+            Self::DuckEgg => "Enteneier",
+            Self::DuckFeather => "Entenfedern",
         }
     }
 
     pub fn value(self) -> u32 {
-        [8, 5, 7][self as usize]
+        [8, 5, 7, 9, 12, 18, 14, 8, 22, 13, 8, 17, 12, 13, 10, 11][self as usize]
+    }
+
+    pub fn icon(self) -> &'static str {
+        ["quartz", "flax", "mint", "gold_resin", "ironwood", "amber_gem", "star_ore", "alpine_sage", "sky_quartz", "mother_pearl", "salt_bloom", "reefwood", "rabbit_down", "goat_milk", "duck_egg", "duck_feather"][self as usize]
     }
 
     pub fn model(self) -> &'static str {
@@ -36,6 +80,19 @@ impl Material {
             Self::GorgeQuartz => "find_gorge_quartz",
             Self::MeadowFlax => "find_meadow_flax",
             Self::MarshHerb => "find_marsh_herb",
+            Self::GoldResin => "find_gold_resin",
+            Self::Ironwood => "find_ironwood",
+            Self::Amber => "find_amber",
+            Self::StarOre => "find_star_ore",
+            Self::AlpineSage => "find_alpine_sage",
+            Self::SkyQuartz => "find_sky_quartz",
+            Self::MotherPearl => "find_mother_pearl",
+            Self::SaltBloom => "find_salt_bloom",
+            Self::Reefwood => "find_reefwood",
+            Self::RabbitDown => "find_rabbit_down",
+            Self::GoatMilk => "find_goat_milk",
+            Self::DuckEgg => "find_duck_egg",
+            Self::DuckFeather => "find_duck_feather",
         }
     }
 }
@@ -182,10 +239,13 @@ pub enum Bell {
     Copper,
     Wind,
     Moor,
+    Amber,
+    Heights,
+    Reef,
 }
 
 impl Bell {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 10] = [
         Self::Farm,
         Self::Forest,
         Self::Beach,
@@ -193,6 +253,9 @@ impl Bell {
         Self::Copper,
         Self::Wind,
         Self::Moor,
+        Self::Amber,
+        Self::Heights,
+        Self::Reef,
     ];
 
     pub fn name(self) -> &'static str {
@@ -204,6 +267,9 @@ impl Bell {
             Self::Copper => "Kupferklamm",
             Self::Wind => "Windweiden",
             Self::Moor => "Nebelmoor",
+            Self::Amber => District::Amber.name(),
+            Self::Heights => District::Heights.name(),
+            Self::Reef => District::Reef.name(),
         }
     }
 
@@ -216,6 +282,9 @@ impl Bell {
             Self::Copper => District::Copper.waypoint() + Vec2::X * 1.36,
             Self::Wind => District::Wind.waypoint() + Vec2::X * 1.36,
             Self::Moor => District::Moor.waypoint() + Vec2::X * 1.36,
+            Self::Amber => Vec2::new(-244., -11.),
+            Self::Heights => Vec2::new(254., -17.),
+            Self::Reef => Vec2::new(30., 234.),
         }
     }
 
@@ -241,6 +310,19 @@ impl Bell {
                 Goods(Product::Wool, 1),
             ],
             Self::Moor => &[Goods(Product::Regional(Material::MarshHerb), 2), Wood(2)],
+            Self::Amber => &[Goods(Product::Regional(Material::GoldResin), 3), Wood(4)],
+            Self::Heights => &[Goods(Product::Regional(Material::AlpineSage), 3), Stone(5)],
+            Self::Reef => &[Goods(Product::Regional(Material::SaltBloom), 3), Wood(4)],
+        }
+    }
+
+    pub fn accessible(self, garden: &Garden) -> bool {
+        use crate::expansion::Region;
+        match self {
+            Self::Amber => Region::Amber.open(garden),
+            Self::Heights => Region::Heights.open(garden),
+            Self::Reef => Region::Reef.open(garden),
+            _ => true,
         }
     }
 
@@ -290,9 +372,11 @@ impl Bell {
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct RegionProgress {
-    pub goods: [u32; 3],
+    #[serde(deserialize_with = "crate::expansion::read_array")]
+    pub goods: [u32; Material::ALL.len()],
     gates: [u8; 3],
-    bells: [u8; 7],
+    #[serde(deserialize_with = "crate::expansion::read_array")]
+    bells: [u8; Bell::ALL.len()],
     stories: [u8; 3],
 }
 
@@ -567,7 +651,7 @@ mod tests {
     #[test]
     fn repaired_bells_have_walkable_arrivals() {
         let mut garden: Garden =
-            serde_json::from_str(r#"{"regions":{"gates":[2,2,2]},"wood":3}"#).unwrap();
+            serde_json::from_str(r#"{"regions":{"gates":[2,2,2]},"expansion":{"gates":[2,2,2]},"wood":3}"#).unwrap();
         assert!(!Bell::Farm.ready(&garden));
         Bell::Farm.work(&mut garden).unwrap();
         Bell::Farm.work(&mut garden).unwrap();

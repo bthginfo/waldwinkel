@@ -11,6 +11,7 @@ mod day;
 mod decorate;
 mod duel;
 mod evening_market;
+mod expansion;
 mod farm_ui;
 mod feedback;
 mod fieldwork;

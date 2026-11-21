@@ -61,7 +61,7 @@ impl FieldTool {
 
 #[derive(Debug)]
 pub struct Stroke {
-    targets: [usize; ROW_WIDTH],
+    targets: [usize; ROW_WIDTH * 2],
     count: usize,
     pub next: Option<usize>,
 }
@@ -76,7 +76,7 @@ impl Stroke {
 /// row and picks the next eligible bed after the current stroke.
 pub fn stroke(garden: &Garden, plot: usize, crop: Crop, action: Action, tool: FieldTool) -> Stroke {
     let mut result = Stroke {
-        targets: [plot; ROW_WIDTH],
+        targets: [plot; ROW_WIDTH * 2],
         count: 1,
         next: None,
     };
@@ -89,11 +89,14 @@ pub fn stroke(garden: &Garden, plot: usize, crop: Crop, action: Action, tool: Fi
         Action::Water => ToolKind::Can.level(garden),
         _ => 0,
     };
-    let wide = usize::from(sweep) + 1;
+    let double_row = sweep >= 3;
+    let wide = if double_row { ROW_WIDTH * 2 } else { usize::from(sweep) + 1 };
     let row_start = plot / ROW_WIDTH * ROW_WIDTH;
+    let paired_start = (plot / ROW_WIDTH ^ 1) * ROW_WIDTH;
     let mut neighbors = [row_start, row_start + 1, row_start + 2];
     neighbors.sort_by_key(|&other| (other.abs_diff(plot), other < plot));
-    for neighbor in neighbors {
+    let other_row = (paired_start..paired_start + ROW_WIDTH).take(if double_row { ROW_WIDTH } else { 0 });
+    for neighbor in neighbors.into_iter().chain(other_row) {
         if neighbor == plot || garden.action(neighbor, crop) != Some(action) {
             continue;
         }

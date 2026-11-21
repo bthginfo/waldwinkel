@@ -2151,8 +2151,8 @@ def find_assets():
     return [fungi,nuts,shells,drift]
 
 
-def npc_models():
-    specs=[
+def npc_models(specs=None):
+    specs=specs or [
         ("npc_lina","rabbit","d8b69c","ad684f","ecd2ab","a37a6d"),
         ("npc_miro","fox","c88857","6d8d73","ebd3ac","86634a"),
         ("npc_mara","cat","968c88","85718a","e6cbb0","706761"),
@@ -2442,7 +2442,7 @@ def build_object(model, bvh, material, collection, offset, finishes, local=False
 
 def scenery_patches(model, width=24.0):
     """Export spatial bounds small enough for the mobile renderer to cull distant scenery."""
-    if not model.asset.startswith(("district_","season_","world_ground","night_windows","island_relief")) or len(model.faces) < 2600:
+    if not model.asset.startswith(("district_","season_","world_ground","night_windows","island_relief","extension_")) or len(model.faces) < 2600:
         yield model
         return
     patches={}

@@ -251,7 +251,7 @@ pub fn play(
     };
     let harp = match district {
         Some(District::Town) => 0.82,
-        Some(District::Beach | District::Wind) => 0.44,
+        Some(District::Beach | District::Wind | District::Reef) => 0.44,
         _ => 0.25,
     };
     let birds = if outside && !matches!(sky, Sky::Rain | Sky::Snow) {
@@ -308,14 +308,15 @@ pub fn play(
     pace.distance %= stride;
     let wooden = area == Area::Home
         || (outside
-            && (garden.harbor.phase.deck_height(point).is_some() || crate::world::on_dock(point)));
+            && (garden.harbor.phase.deck_height(point).is_some() || crate::world::on_dock(point)
+                || crate::expansion::Region::ALL.into_iter().any(|region| region.on_causeway(point))));
     let sample = if wooden {
         1
     } else if outside && Season::at(garden.day) == Season::Winter {
         2
-    } else if district == Some(District::Beach) && outside {
+    } else if matches!(district, Some(District::Beach | District::Reef)) && outside {
         3
-    } else if !outside || matches!(district, Some(District::Town | District::Copper)) {
+    } else if !outside || matches!(district, Some(District::Town | District::Copper | District::Heights)) {
         4
     } else {
         0

@@ -94,6 +94,9 @@ pub enum Tool {
 }
 
 #[derive(Component)]
+pub struct StarTool;
+
+#[derive(Component)]
 pub struct Joint {
     top: Vec3,
     side: f32,
@@ -155,6 +158,7 @@ pub struct Models {
     leg: Handle<Scene>,
     boot: Handle<Scene>,
     tools: [(Tool, Handle<Scene>); 9],
+    star_tools: [(Tool, Handle<Scene>); 4],
     fertilized_soil: Handle<Scene>,
     water_drop: Handle<Scene>,
     clouds: [Handle<Scene>; 3],
@@ -174,7 +178,10 @@ impl FromWorld for Models {
                 (Vec2::ZERO, get("island_relief")),
             ]
             .into_iter()
-            .chain(District::ALL.map(|district| (district.origin(), get(district.model()))))
+            .chain(District::ALL.into_iter()
+                .filter_map(|district| district.model().map(|model| (district.origin(), get(model)))))
+            .chain(["extension_amber", "extension_heights", "extension_reef"]
+                .map(|model| (Vec2::ZERO, get(model))))
             .collect(),
             seasonal: Season::ALL.map(|season| get(&format!("season_{}", season.slug()))),
             frame: get("bed"),
@@ -207,6 +214,12 @@ impl FromWorld for Models {
                 (Tool::Weapon(Gear::CopperSickle), get("gear_sickle")),
                 (Tool::Weapon(Gear::SilverGuard), get("gear_silver")),
                 (Tool::Weapon(Gear::CrystalBlade), get("gear_crystal")),
+            ],
+            star_tools: [
+                (Tool::Hoe, get("star_hoe")),
+                (Tool::Axe, get("star_axe")),
+                (Tool::Pickaxe, get("star_pickaxe")),
+                (Tool::WateringCan, get("star_can")),
             ],
             fertilized_soil: get("fertilized_soil"),
             water_drop: get("water_drop"),
@@ -379,6 +392,15 @@ pub fn setup(
                                     },
                                 ));
                             }
+                            for (tool, scene) in &models.star_tools {
+                                hand.spawn((
+                                    *tool,
+                                    StarTool,
+                                    SceneRoot(scene.clone()),
+                                    Transform::from_xyz(0.007, -0.263, 0.042),
+                                    Visibility::Hidden,
+                                ));
+                            }
                         });
                     } else if !is_arm {
                         limb.with_children(|foot| {
@@ -529,7 +551,7 @@ pub fn update_camera(
     let clip = menu.clip().map(|(clip, elapsed)| clip.framing(elapsed));
     let town = area.outdoors() && !map && District::at(player.position) == Some(District::Town);
     let (base, center) = match (area, map) {
-        (Area::Island | Area::District(_), true) => (258., Vec3::new(0., 3., 54.)),
+        (Area::Island | Area::District(_), true) => (407., Vec3::new(-25., 3., 40.)),
         (Area::Island | Area::District(_), false) => {
             let eye = surface_height(player.position, &garden) + if town { 1.26 } else { 0.89 };
             (12.3, position3(player.position, eye))
@@ -564,7 +586,7 @@ pub fn update_camera(
         base * (-adventure.zoom).exp()
     };
     let width = if map && area.outdoors() {
-        448.0
+        655.0
     } else {
         height * 1.30
     };
@@ -921,7 +943,7 @@ pub fn animate_gardener(
     adventure: Res<Adventure>,
     focus: Res<GardenFocus>,
     garden: Res<Garden>,
-    mut tools: Query<(&Tool, &mut Visibility)>,
+    mut tools: Query<(&Tool, Option<&StarTool>, &mut Visibility)>,
     player: Single<(&Gardener, &Transform)>,
     mut joints: Query<
         (&Joint, &mut Transform),
@@ -991,8 +1013,14 @@ pub fn animate_gardener(
     } else {
         adventure.held_tool()
     };
-    for (&tool, mut visibility) in &mut tools {
-        visibility.set_if_neq(if held == tool {
+    use crate::workshop::ToolKind;
+    let star_steel = match held {
+        Tool::WateringCan => Some(ToolKind::Can),
+        Tool::Hoe => Some(ToolKind::Hoe),
+        _ => ToolKind::for_action(held),
+    }.is_some_and(|kind| kind.level(&garden) == ToolKind::MAX_LEVEL);
+    for (&tool, model, mut visibility) in &mut tools {
+        visibility.set_if_neq(if held == tool && star_steel == model.is_some() {
             Visibility::Inherited
         } else {
             Visibility::Hidden

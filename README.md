@@ -1,17 +1,35 @@
-# Waldwinkel 1.14.0
+# Waldwinkel 1.15.0
 
-Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
+Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und neun Ausflugsgebiete bilden eine zusammenhängende Insel. Zu Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor kommen Bernsteinhain, Himmelstufen und Morgenriff. Der Tanuki, die Bewohner und die 3D-Modelle stammen aus den beigefügten Blender-Projekten.
 
-![Die zusammenhängende Insel mit Gebirgspässen und Flusstälern](docs/190-insel.jpg)
+![Die zusammenhängende Insel mit Gebirgspässen und Flusstälern](docs/115-insel.jpg)
 
 ## Installieren
 
-- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK 1.14.0](https://raw.githubusercontent.com/bthginfo/waldwinkel/4e3f2adac5c1d0a11f53548a33c6e9fe266092e4/Waldwinkel-1.14.0.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
+- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK 1.15.0](https://raw.githubusercontent.com/bthginfo/waldwinkel/2b391f7a06d7819be6d5e09e5e61874bcb478e9c/Waldwinkel-1.15.0.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
 
 ## Zurück ins Hauptmenü
 
 Drücke im Spiel die Xbox-Menü-Taste **☰** oder tippe oben rechts auf **Menü**. Wähle **Speichern & Hauptmenü** und bestätige am Controller mit **A**. In der Spielstandsauswahl kannst du deinen Hof mit **Fortsetzen** wieder öffnen. [Pausenmenü auf dem Tablet](docs/113-hauptmenue.jpg)
+
+## Neu in 1.15.0
+
+| Gebiet | Weg | Entdeckungen |
+| --- | --- | --- |
+| Bernsteinhain | Vom Westrand des Nebelmoors | Ivos Harzhütte, Goldharz, Eisenholz, Bernstein und Seidenkaninchen |
+| Himmelstufen | Von der östlichen Kupferklamm | Sannas Windenhaus, Alpensalbei, Sternenerz, Himmelsquarz und Felsziegen |
+| Morgenriff | Vom Südende der Windweiden | Tildas Muschelwerkstatt, Gezeitentümpel, Salzblüte, Perlmutt, Riffholz und Laufenten |
+
+- **Neue Wege und Aufträge.** Erledige zwei Aufträge im jeweiligen Nachbargebiet. Am Übergang beginnt ein eigener Bauauftrag. In jedem neuen Gebiet erwarten dich vier Ortsaufträge und ein Auftrag für die Wegglocke. Alle drei Bewohner haben einen Tagesablauf und zeigen sich mit Auftragsmarkierungen auf der Karte. Im Journal unter **Aufträge** stehen die Geschichten, Materialien und Kartenmarkierungen.
+- **Drei weitere Tierställe.** Der zweite Ortsauftrag schaltet im jeweiligen Gebiet das passende Tier und seinen Stallbauplan frei. Wähle an der **Werkbank → Hof einrichten** die Lage des Stalls. Kaninchenflaum und Ziegenmilch brauchen jeweils zwei gefütterte Tage, Enteneier und Entenfedern einen. Du sammelst die Produkte am Stall ein. Jeder neue Stall bietet nach seinem Ausbau Platz für drei Tiere.
+- **Sternstahl.** Sannas zweiter Auftrag eröffnet vier Schmiederezepte für Axt, Spitzhacke, Hacke und Gießkanne. Eine Silberstufe genügt für Eisenholz, Sternenerz und Perlmutt. Sternstahl erschließt Bernstein, Himmelsquarz und Riffholz. Hacke und Gießkanne bearbeiten mit dem passenden Werkzeugmodus bis zu sechs Beete in benachbarten Reihen.
+- **Weitere Baupläne und Rezepte.** Neun Möbelbaupläne kommen aus Ortsaufträgen. Drei weitere liegen entlang der Wege. In der Hofküche lernst du Salbei-Ziegenkäse und Gezeiten-Omelett. Neue Produkte erscheinen mit eigenen Bildern in Tasche und Verkauf.
+- **Spielstände.** Das signierte Update übernimmt die vorhandenen Spielstände. Die Außenbezirke stehen im Journal, sobald du fortsetzt.
+
+[Inselkarte](docs/115-insel.jpg) · [Bernsteinhain](docs/115-bernsteinhain.jpg) · [Himmelstufen](docs/115-himmelstufen.jpg) · [Morgenriff](docs/115-morgenriff.jpg) · [Tierhaltung auf dem Hof](docs/115-tierhof.jpg)
+
+Die neuen Blender-Modelle liegen im [Projekt der Außenbezirke](art/Waldwinkel-Aussenbezirke.blend). Die Entwürfe zeigen [Bernsteinhain](art/references/bernsteinhain.jpg), [Himmelstufen](art/references/himmelstufen.jpg) und [Morgenriff](art/references/morgenriff.jpg).
 
 ## Neu in 1.14.0
 

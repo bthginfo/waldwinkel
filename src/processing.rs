@@ -37,6 +37,8 @@ pub enum Dish {
     HazelFlour,
     SunflowerMeal,
     HarborBroth,
+    SageCheese,
+    TideOmelette,
 }
 
 #[derive(Clone, Copy)]
@@ -65,7 +67,7 @@ impl Ingredient {
 }
 
 impl Dish {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 9] = [
         Self::CarrotSoup,
         Self::TomatoStew,
         Self::BerryJam,
@@ -73,6 +75,8 @@ impl Dish {
         Self::HazelFlour,
         Self::SunflowerMeal,
         Self::HarborBroth,
+        Self::SageCheese,
+        Self::TideOmelette,
     ];
 
     pub fn name(self) -> &'static str {
@@ -84,23 +88,26 @@ impl Dish {
             Self::StrawberryCompote => "Erdbeerkompott",
             Self::HazelFlour => "Haselnussmehl",
             Self::SunflowerMeal => "Sonnenblumenschrot",
+            Self::SageCheese => "Salbei-Ziegenkäse",
+            Self::TideOmelette => "Gezeiten-Omelett",
         }
     }
 
     pub fn method(self) -> Method {
         match self {
-            Self::CarrotSoup | Self::TomatoStew | Self::HarborBroth => Method::Cook,
+            Self::CarrotSoup | Self::TomatoStew | Self::HarborBroth | Self::SageCheese | Self::TideOmelette => Method::Cook,
             Self::BerryJam | Self::StrawberryCompote => Method::Preserve,
             Self::HazelFlour | Self::SunflowerMeal => Method::Mill,
         }
     }
 
     pub fn value(self) -> u32 {
-        [13, 18, 10, 14, 13, 15, 14][self as usize]
+        [13, 18, 10, 14, 13, 15, 14, 42, 44][self as usize]
     }
 
     fn ingredients(self) -> &'static [Ingredient] {
         use Ingredient::{Crop as Field, Stock};
+        use crate::regions::Material;
         match self {
             Self::HarborBroth => &[Ingredient::Fish, Field(Crop::Carrot, 1)],
             Self::CarrotSoup => &[Field(Crop::Carrot, 2), Stock(Product::Mushroom, 1)],
@@ -109,6 +116,8 @@ impl Dish {
             Self::StrawberryCompote => &[Field(Crop::Strawberry, 2), Stock(Product::Hazel, 1)],
             Self::HazelFlour => &[Stock(Product::Hazel, 3)],
             Self::SunflowerMeal => &[Field(Crop::Sunflower, 2)],
+            Self::SageCheese => &[Stock(Product::Regional(Material::GoatMilk), 2), Stock(Product::Regional(Material::AlpineSage), 1)],
+            Self::TideOmelette => &[Stock(Product::Regional(Material::DuckEgg), 2), Stock(Product::Regional(Material::SaltBloom), 1)],
         }
     }
 
@@ -123,8 +132,18 @@ impl Dish {
             .join(" · ")
     }
 
+    pub fn learned(self, garden: &Garden) -> bool {
+        use crate::expansion::Region;
+        match self {
+            Self::HarborBroth => garden.fish_supper.learned(),
+            Self::SageCheese => Region::Heights.steps(garden) >= 2,
+            Self::TideOmelette => Region::Reef.steps(garden) >= 2,
+            _ => true,
+        }
+    }
+
     pub fn ready(self, garden: &Garden) -> bool {
-        (self != Self::HarborBroth || garden.fish_supper.learned()) && self.ingredients().iter().all(|ingredient| {
+        self.learned(garden) && self.ingredients().iter().all(|ingredient| {
             let (stock, count, _) = ingredient.requirement(garden);
             stock >= count
         })
@@ -178,6 +197,8 @@ impl Dish {
         match self {
             Self::CarrotSoup => [(0, "Möhre würfeln · Fein schneiden"), (1, "Pilz · Grob teilen"), (0, "Möhre würfeln · Fein schneiden")],
             Self::TomatoStew => [(1, "Tomate · Grob teilen"), (1, "Tomate · Grob teilen"), (0, "Kräuter · Fein schneiden")],
+            Self::SageCheese => [(0, "Alpensalbei · Fein hacken"), (1, "Käsebruch · Grob teilen"), (0, "Alpensalbei · Fein hacken")],
+            Self::TideOmelette => [(0, "Salzblüte · Fein hacken"), (1, "Entenei aufschlagen · Grob teilen"), (0, "Salzblüte · Fein hacken")],
             _ => [(0, "Möhre würfeln · Fein schneiden"), (1, "Fisch · Grob teilen"), (0, "Kräuter · Fein schneiden")],
         }
     }
@@ -186,6 +207,8 @@ impl Dish {
         match self {
             Self::HarborBroth => (1, "Der kräftigen Brühe fehlt etwas Frisches."),
             Self::TomatoStew => (2, "Geröstetes rundet die Säure der Tomaten ab."),
+            Self::SageCheese => (2, "Geröstetes gibt dem milden Käse einen Gegenpol."),
+            Self::TideOmelette => (1, "Frische Kräuter passen zu den salzigen Blüten."),
             _ => (0, "Zu den erdigen Pilzen passt etwas Würziges."),
         }
     }
@@ -287,6 +310,8 @@ impl Preparation {
             Phase::Simmer => match self.dish {
                 Dish::TomatoStew => 0.48..=0.82,
                 Dish::HarborBroth => 0.40..=0.70,
+                Dish::SageCheese => 0.35..=0.62,
+                Dish::TideOmelette => 0.45..=0.66,
                 _ => 0.37..=0.72,
             },
             Phase::Seal => 0.0..=0.24,

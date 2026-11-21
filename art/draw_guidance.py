@@ -1,34 +1,39 @@
 """Draw the island atlas and the two new harvest icons used by the HUD."""
 from pathlib import Path
 import math
-import struct
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 UI = ROOT / "assets" / "ui"
 
+from expansion_layout import ATLAS_BOUNDS, Ground, SITES, original, phase, smooth
+
 def atlas():
-    data = (ROOT / "assets/world/terrain.bin").read_bytes()
-    _, _, _, cols, rows = struct.unpack_from("<fffHH", data, 4)
-    width, height = 480, round(480 * rows / cols)
+    ox, oz, ex, ez = ATLAS_BOUNDS
+    width, height = 740, round(740 * (ez-oz)/(ex-ox))
     image = Image.new("RGB", (width, height))
     pixels = image.load()
-    for y in range(height):
-        z = min(rows - 1, round(y / (height - 1) * (rows - 1)))
-        for x in range(width):
-            k = min(cols - 1, round(x / (width - 1) * (cols - 1)))
-            i = 20 + 3 * (z * cols + k)
-            h, blocked = struct.unpack_from("<hB", data, i)
-            if h < -46:
-                variation = 4 * math.sin(x * .084 + y * .115)
-                pixels[x, y] = (58, round(108 + variation), round(108 + variation))
-            elif h < 10:
-                pixels[x, y] = (178, 162, 113)
+    tiles = [Ground(name) for name in SITES]
+    climates = {'amber':(150,139,72),'heights':(125,135,111),'reef':(165,155,105)}
+    for j in range(height):
+        z = oz+j/(height-1)*(ez-oz)
+        for i in range(width):
+            x = ox+i/(width-1)*(ex-ox)
+            tile = next((t for t in tiles if t.bounds[0]<=x<t.bounds[2] and t.bounds[1]<=z<t.bounds[3]),None)
+            h, blocked = tile.sample(x,z) if tile else original(x,z)
+            if h < -.46:
+                lift = 6 * phase(x*.31,z*.31)
+                pixels[i, j] = (57, round(107+lift), round(111+lift))
+            elif h < .10:
+                pixels[i, j] = (180, 164, 117)
             else:
-                ridge = min(1, h / 940)
-                shade = 12 * math.sin(x * .16 - y * .21)
-                pixels[x, y] = tuple(round(n + ridge * lift + shade + blocked * offset)
-                                     for n, lift, offset in [(100, 49, -5), (135, 2, -4), (91, 12, 2)])
+                seed = climates[tile.name] if tile and h > original(x,z)[0]+.10 else (100,135,91)
+                ridge = smooth(h/13.)
+                shade = 9*phase(x,z) - 6*blocked
+                lane = (1-smooth(tile.way(x,z)/1.9))*.65 if tile else 0
+                target = (224,218,186)
+                terrain = tuple(c + ridge*(a-c) for c,a in zip(seed,target))
+                pixels[i, j] = tuple(round(c+shade+lane*(a-c)) for c,a in zip(terrain,(197,174,125)))
     image.save(UI / "island_atlas.png", optimize=True)
 
 def item_icons():

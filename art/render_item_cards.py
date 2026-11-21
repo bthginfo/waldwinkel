@@ -1,6 +1,7 @@
 """Render catalogue thumbnails from Waldwinkel's own Blender model exports."""
 from pathlib import Path
 import re
+import sys
 import bpy
 from mathutils import Vector
 
@@ -9,6 +10,15 @@ SOURCE = ROOT / "assets/models"
 OUT = ROOT / "assets/ui/items"
 furniture = list(dict.fromkeys(re.findall(r'"(furniture_[a-z_]+)"', (ROOT / "src/furniture.rs").read_text())))
 models = furniture + ["workshop_forge", "workshop_loom", "farm_coop", "farm_barn"]
+name_map = {}
+if "--outer" in sys.argv:
+    materials = ("gold_resin", "ironwood", "amber", "star_ore", "alpine_sage", "sky_quartz",
+                 "mother_pearl", "salt_bloom", "reefwood", "rabbit_down", "goat_milk", "duck_egg", "duck_feather")
+    name_map = {f"find_{material}": material for material in materials}
+    name_map["find_amber"] = "amber_gem"
+    name_map.update({f"star_{tool}": f"tool_{tool}_3" for tool in ("axe","pickaxe","can","hoe")})
+    models = furniture[21:] + ["farm_hutch", "farm_goat_shed", "farm_duck_house"] + list(name_map)
+
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
@@ -59,7 +69,7 @@ for name in models:
         lamp.rotation_euler = (center - lamp.location).to_track_quat("-Z", "Y").to_euler()
         lamp.data.energy = power * size ** 2 / 4
         lamp.data.size = size * 1.28
-    scene.render.filepath = str(OUT / f"{name}.png")
+    scene.render.filepath = str(OUT / f"{name_map.get(name, name)}.png")
     bpy.ops.render.render(write_still=True)
     for obj in imported:
         bpy.data.objects.remove(obj, do_unlink=True)

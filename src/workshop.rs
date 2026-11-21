@@ -26,7 +26,8 @@ pub struct Progress {
     pub loom: bool,
     pub house: u8,
     pub rooms: [bool; 2],
-    pub barns: [bool; 2],
+    #[serde(deserialize_with = "crate::expansion::read_array")]
+    pub barns: [bool; Animal::ALL.len()],
     tools: [u8; 4],
 }
 
@@ -66,6 +67,19 @@ pub enum ToolKind {
 
 impl ToolKind {
     pub const ALL: [Self; 4] = [Self::Axe, Self::Pickaxe, Self::Can, Self::Hoe];
+    pub const MAX_LEVEL: u8 = 3;
+
+    pub fn grade(level: u8) -> &'static str {
+        ["Einfach", "Kupfer", "Silber", "Sternstahl"][level.min(Self::MAX_LEVEL) as usize]
+    }
+
+    pub(crate) fn for_action(tool: crate::world::Tool) -> Option<Self> {
+        match tool {
+            crate::world::Tool::Axe => Some(Self::Axe),
+            crate::world::Tool::Pickaxe => Some(Self::Pickaxe),
+            _ => None,
+        }
+    }
 
     pub fn name(self) -> &'static str {
         ["Axt", "Spitzhacke", "Gießkanne", "Hacke"][self as usize]
@@ -78,15 +92,15 @@ impl ToolKind {
 
     pub fn effect(self) -> &'static str {
         match self {
-            Self::Axe => "Kupfer fällt Laubbäume · Silber fällt Moorbäume",
-            Self::Pickaxe => "Kupfer baut Silber ab · Silber löst Kristalle",
-            Self::Can => "Gießt in der Reihe · Kupfer 2 Beete · Silber 3 Beete",
-            Self::Hoe => "Lockert in der Reihe · Kupfer 2 Beete · Silber 3 Beete",
+            Self::Axe => "Silber fällt Eisenholz · Sternstahl fällt Riffholz und spart Schläge",
+            Self::Pickaxe => "Silber löst Sternenerz und Perlmutt · Sternstahl löst Bernstein und Himmelsquarz",
+            Self::Can => "Kupfer gießt 2 Beete · Silber 3 · Sternstahl bis zu 6 in zwei Reihen",
+            Self::Hoe => "Kupfer lockert 2 Beete · Silber 3 · Sternstahl bis zu 6 in zwei Reihen",
         }
     }
 
     pub fn level(self, garden: &Garden) -> u8 {
-        let level = garden.workshop.tools[self as usize].min(2);
+        let level = garden.workshop.tools[self as usize].min(Self::MAX_LEVEL);
         if self == Self::Pickaxe {
             level.max(u8::from(garden.farm.pickaxe))
         } else {
@@ -95,11 +109,26 @@ impl ToolKind {
     }
 
     pub fn tier(self, garden: &Garden) -> &'static str {
-        ["Einfach", "Kupfer", "Silber"][self.level(garden) as usize]
+        Self::grade(self.level(garden))
     }
 
-    pub(crate) fn ingredients(self, tier: u8) -> [crate::craft::Need; 5] {
-        Self::cost(tier).ingredients()
+    pub(crate) fn ingredients(self, tier: u8) -> Vec<crate::craft::Need> {
+        use crate::{craft::Need, regions::Material};
+        if tier < 3 {
+            return Self::cost(tier).ingredients().to_vec();
+        }
+        let (material, amount) = match self {
+            Self::Axe => (Material::Ironwood, 5),
+            Self::Pickaxe => (Material::GorgeQuartz, 6),
+            Self::Can => (Material::MotherPearl, 4),
+            Self::Hoe => (Material::GoldResin, 4),
+        };
+        vec![
+            Need::Stock(Product::Regional(Material::StarOre), 8),
+            Need::Stock(Product::Regional(material), amount),
+            Need::Stock(Product::Silver, 4),
+            Need::Coins(68),
+        ]
     }
 
     fn cost(tier: u8) -> Cost {
@@ -121,26 +150,31 @@ impl ToolKind {
     }
 
     pub fn requirements(self, garden: &Garden, at_forge: bool) -> String {
-        match self.level(garden) {
-            2 => format!("Silberstufe · {}", self.effect()),
-            1 if !at_forge => "Silberstufe am Schmiedetisch".into(),
-            level => Self::cost(level + 1).detail(garden),
+        let level = self.level(garden);
+        match level {
+            Self::MAX_LEVEL => format!("Sternstahlstufe · {}", self.effect()),
+            2 if !crate::expansion::starsteel(garden) => "Sternstahlvorlage · Hilf Sanna in den Himmelstufen".into(),
+            1 | 2 if !at_forge => format!("{} am Schmiedetisch", Self::grade(level + 1)),
+            _ => crate::craft::detail(&self.ingredients(level + 1), garden, 1),
         }
     }
 
     pub fn can_upgrade(self, garden: &Garden, at_forge: bool) -> bool {
+        let level = self.level(garden);
         garden.workshop.restored
-            && self.level(garden) < 2
-            && (self.level(garden) == 0 || (at_forge && garden.workshop.forge))
-            && Self::cost(self.level(garden) + 1).ready(garden)
+            && level < Self::MAX_LEVEL
+            && (level == 0 || at_forge && garden.workshop.forge)
+            && (level < 2 || crate::expansion::starsteel(garden))
+            && crate::craft::ready(&self.ingredients(level + 1), garden, 1)
     }
 
     pub fn upgrade(self, garden: &mut Garden, at_forge: bool) -> Result<String, String> {
         if !self.can_upgrade(garden, at_forge) {
             return Err(self.requirements(garden, at_forge));
         }
-        Self::cost(self.level(garden) + 1).take(garden);
-        garden.workshop.tools[self as usize] = self.level(garden) + 1;
+        let tier = self.level(garden) + 1;
+        crate::craft::take(&self.ingredients(tier), garden, 1);
+        garden.workshop.tools[self as usize] = tier;
         Ok(format!(
             "{} verbessert · {} · {}",
             self.name(),
@@ -317,12 +351,13 @@ impl BuildingPlan {
         }
     }
 
-    fn price(self) -> u32 {
-        match self {
+    fn price(self) -> Option<u32> {
+        Some(match self {
             Self::Barn(Animal::Hen) => 30,
             Self::Barn(Animal::Sheep) => 52,
+            Self::Barn(_) => return None,
             Self::Room(i) => ROOM_PRICES[i],
-        }
+        })
     }
 
     pub fn known(self, garden: &Garden) -> bool {
@@ -336,17 +371,23 @@ impl BuildingPlan {
         if self.known(garden) {
             "Bauplan gelernt".into()
         } else {
+            let Some(price) = self.price() else {
+                return match self {
+                    Self::Barn(kind) => kind.housing_hint(garden).0,
+                    Self::Room(_) => unreachable!(),
+                };
+            };
             let requirement = match self {
                 Self::Barn(Animal::Hen) if !garden.workshop.restored => " · Erst Werkbank reparieren",
                 Self::Barn(Animal::Sheep) if !garden.farm.housing[Animal::Hen as usize] => " · Erst Hühnerstall fertigstellen",
                 _ => "",
             };
-            format!("Bauplan · {} Münzen{requirement}", self.price())
+            format!("Bauplan · {price} Münzen{requirement}")
         }
     }
 
     pub fn can_buy(self, garden: &Garden) -> bool {
-        !self.known(garden) && garden.clock.market_open() && garden.farm.coins >= self.price()
+        !self.known(garden) && garden.clock.market_open() && self.price().is_some_and(|price| garden.farm.coins >= price)
             && match self {
                 Self::Barn(Animal::Hen) => garden.workshop.restored,
                 Self::Barn(Animal::Sheep) => garden.farm.housing[Animal::Hen as usize],
@@ -358,7 +399,7 @@ impl BuildingPlan {
         if !self.can_buy(garden) {
             return Err(self.detail(garden));
         }
-        garden.farm.coins -= self.price();
+        garden.farm.coins -= self.price().expect("priced building plan");
         match self {
             Self::Barn(animal) => garden.workshop.barns[animal as usize] = true,
             Self::Room(i) => garden.workshop.rooms[i] = true,

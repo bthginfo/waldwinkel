@@ -217,7 +217,7 @@ mod tests {
             assert_eq!(garden.fish_supper.stage, expected);
             assert_eq!(
                 Dish::ALL.map(|dish| garden.stock(Product::Prepared(dish))),
-                [3, 1, 0, 2, 8, 4, 0]
+                [3, 1, 0, 2, 8, 4, 0, 0, 0]
             );
         }
     }

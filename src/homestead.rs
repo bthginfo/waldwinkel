@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    expansion::Region,
     adventure::{Area, Target},
     duel::Loot,
     garden::{Crop, Garden, Quality},
@@ -64,8 +65,7 @@ impl Village {
             Self::Board => "Schwarzes Brett",
             Self::Smith => "Hafenschmiede",
             Self::Feed => "Futterkiste",
-            Self::Animal(Animal::Hen) => "Hühnerstall",
-            Self::Animal(Animal::Sheep) => "Schafweide",
+            Self::Animal(kind) => kind.housing_name(),
             Self::Orchard(i) if i < 4 => "Apfelbaum",
             Self::Orchard(_) => "Beerenstrauch",
         }
@@ -80,6 +80,7 @@ impl Village {
             Self::Feed => FEED,
             Self::Animal(Animal::Hen) => HEN,
             Self::Animal(Animal::Sheep) => SHEEP,
+            Self::Animal(kind) => kind.site(),
             Self::Orchard(i) => ORCHARD[i],
         }
     }
@@ -161,7 +162,9 @@ impl Village {
             ),
             Self::Animal(kind) => {
                 let state = farm.animals[kind as usize];
-                if !farm.housing[kind as usize] {
+                if !g.workshop.barns[kind as usize] && kind.region().is_some() {
+                    (kind.housing_hint(g).0, "Bauplan finden", false)
+                } else if !farm.housing[kind as usize] {
                     (
                         format!(
                             "Baue auf deinem Hof zuerst das Gebäude „{}“.",
@@ -287,9 +290,9 @@ impl Village {
                     let quantity = std::mem::take(&mut state.pending);
                     g.farm.collected = g.farm.collected.saturating_add(quantity);
                     g.add_stock(kind.product(), quantity);
-                    if kind == Animal::Sheep {
-                        g.add_stock(Product::Milk, quantity);
-                        return Ok(format!("+{quantity} Wolle · +{quantity} Schafmilch"));
+                    if let Some(product) = kind.secondary_product() {
+                        g.add_stock(product, quantity);
+                        return Ok(format!("+{quantity} {} · +{quantity} {}", kind.product().name(), product.name()));
                     }
                     return Ok(format!("+{quantity} {}", kind.product().name()));
                 }
@@ -330,26 +333,59 @@ impl Village {
 pub enum Animal {
     Hen,
     Sheep,
+    Rabbit,
+    Goat,
+    Duck,
 }
 
 impl Animal {
-    pub const ALL: [Self; 2] = [Self::Hen, Self::Sheep];
+    pub const ALL: [Self; 5] = [Self::Hen, Self::Sheep, Self::Rabbit, Self::Goat, Self::Duck];
+
+    pub fn region(self) -> Option<Region> {
+        match self {
+            Self::Rabbit => Some(Region::Amber),
+            Self::Goat => Some(Region::Heights),
+            Self::Duck => Some(Region::Reef),
+            _ => None,
+        }
+    }
+
+    pub fn model(self) -> &'static str {
+        ["farm_hen", "farm_sheep", "farm_rabbit", "farm_goat", "farm_duck"][self as usize]
+    }
     pub fn name(self) -> &'static str {
         match self {
             Self::Hen => "Huhn",
             Self::Sheep => "Schaf",
+            Self::Rabbit => "Seidenkaninchen",
+            Self::Goat => "Felsziege",
+            Self::Duck => "Laufente",
         }
     }
     pub fn price(self) -> u32 {
         match self {
             Self::Hen => 9,
             Self::Sheep => 17,
+            Self::Rabbit => 74,
+            Self::Goat => 105,
+            Self::Duck => 83,
         }
     }
     pub fn product(self) -> Product {
         match self {
             Self::Hen => Product::Egg,
             Self::Sheep => Product::Wool,
+            Self::Rabbit => Product::Regional(Material::RabbitDown),
+            Self::Goat => Product::Regional(Material::GoatMilk),
+            Self::Duck => Product::Regional(Material::DuckEgg),
+        }
+    }
+
+    fn secondary_product(self) -> Option<Product> {
+        match self {
+            Self::Sheep => Some(Product::Milk),
+            Self::Duck => Some(Product::Regional(Material::DuckFeather)),
+            _ => None,
         }
     }
 
@@ -357,6 +393,9 @@ impl Animal {
         match self {
             Self::Hen => Vec2::new(-6.4, 9.4),
             Self::Sheep => Vec2::new(13.05, 8.83),
+            Self::Rabbit => Vec2::new(-4.5, 8.),
+            Self::Goat => Vec2::new(14.1, 1.9),
+            Self::Duck => Vec2::new(7.4, 11.8),
         }
     }
 
@@ -364,6 +403,9 @@ impl Animal {
         match self {
             Self::Hen => "Hühnerstall",
             Self::Sheep => "Schafscheune",
+            Self::Rabbit => "Kaninchenstall",
+            Self::Goat => "Ziegenstall",
+            Self::Duck => "Entenhaus",
         }
     }
 
@@ -371,6 +413,9 @@ impl Animal {
         match self {
             Self::Hen => "farm_coop",
             Self::Sheep => "farm_barn",
+            Self::Rabbit => "farm_hutch",
+            Self::Goat => "farm_goat_shed",
+            Self::Duck => "farm_duck_house",
         }
     }
 
@@ -379,6 +424,9 @@ impl Animal {
         match self {
             Self::Hen => &[Wood(18), Stone(8), Stock(Product::Crafted(Recipe::Boards), 3)],
             Self::Sheep => &[Wood(27), Stone(14), Copper(4), Stock(Product::Crafted(Recipe::Boards), 5)],
+            Self::Rabbit => &[Wood(30), Stone(15), Stock(Product::Regional(Material::Ironwood), 6), Stock(Product::Crafted(Recipe::Boards), 5)],
+            Self::Goat => &[Wood(38), Stone(25), Stock(Product::Regional(Material::StarOre), 6), Stock(Product::Crafted(Recipe::Boards), 6)],
+            Self::Duck => &[Wood(34), Stone(18), Stock(Product::Regional(Material::MotherPearl), 6), Stock(Product::Crafted(Recipe::Boards), 6)],
         }
     }
 
@@ -388,7 +436,11 @@ impl Animal {
             return (format!("Baustelle · Fertig an Tag {}", build.ready), false);
         }
         if !garden.workshop.barns[i] {
-            return ("Kaufe den Bauplan am Bauplanstand.".into(), false);
+            let hint = self.region().map_or_else(
+                || "Kaufe den Bauplan am Bauplanstand.".into(),
+                |region| format!("Erledige die ersten zwei Aufträge von {} in {}.", region.npc().name(), region.district().name()),
+            );
+            return (hint, false);
         }
         if !garden.workshop.restored {
             return ("Setze zuerst deine Hofwerkbank instand.".into(), false);
@@ -406,7 +458,7 @@ impl Animal {
             return Err(hint);
         }
         crate::craft::take(self.housing_cost(), garden, 1);
-        let days = if self == Self::Hen { 1 } else { 2 };
+        let days = [1, 2, 2, 3, 2][self as usize];
         let ready = garden.day.saturating_add(days);
         garden.farm.barn_work[self as usize] = Some(BarnWork { ready, expansion: false });
         Ok(format!("{} im Bau · Fertig an Tag {ready}", self.housing_name()))
@@ -441,6 +493,9 @@ impl Animal {
         match self {
             Self::Hen => &[Wood(24), Stone(12), Copper(6), Stock(Product::Crafted(Recipe::Boards), 5)],
             Self::Sheep => &[Wood(36), Stone(20), Copper(8), Stock(Product::Crafted(Recipe::Boards), 8)],
+            Self::Rabbit => &[Wood(34), Stone(21), Stock(Product::Regional(Material::Ironwood), 9), Stock(Product::Regional(Material::GoldResin), 5)],
+            Self::Goat => &[Wood(45), Stone(32), Stock(Product::Regional(Material::StarOre), 10), Stock(Product::Crafted(Recipe::Boards), 8)],
+            Self::Duck => &[Wood(41), Stone(22), Stock(Product::Regional(Material::MotherPearl), 9), Stock(Product::Regional(Material::SaltBloom), 5)],
         }
     }
 
@@ -467,8 +522,8 @@ impl Animal {
 
     fn cycle(self) -> u8 {
         match self {
-            Self::Hen => 1,
-            Self::Sheep => 2,
+            Self::Hen | Self::Duck => 1,
+            Self::Sheep | Self::Rabbit | Self::Goat => 2,
         }
     }
 }
@@ -624,10 +679,14 @@ pub struct Homestead {
     pub feed: u32,
     pub grass: u32,
     pub milk: u32,
-    pub animals: [AnimalState; 2],
-    pub housing: [bool; 2],
-    pub barn_work: [Option<BarnWork>; 2],
-    pub barn_extended: [bool; 2],
+    #[serde(deserialize_with = "crate::expansion::read_array")]
+    pub animals: [AnimalState; Animal::ALL.len()],
+    #[serde(deserialize_with = "crate::expansion::read_array")]
+    pub housing: [bool; Animal::ALL.len()],
+    #[serde(deserialize_with = "crate::expansion::read_array")]
+    pub barn_work: [Option<BarnWork>; Animal::ALL.len()],
+    #[serde(deserialize_with = "crate::expansion::read_array")]
+    pub barn_extended: [bool; Animal::ALL.len()],
     pub fruit_days: [Option<u32>; 7],
     pub goods: [u32; 6],
     pub seeds: [u32; 3],
@@ -646,10 +705,10 @@ impl Default for Homestead {
             feed: 3,
             grass: 0,
             milk: 0,
-            animals: [AnimalState::default(); 2],
-            housing: [false; 2],
-            barn_work: [None; 2],
-            barn_extended: [false; 2],
+            animals: [AnimalState::default(); Animal::ALL.len()],
+            housing: [false; Animal::ALL.len()],
+            barn_work: [None; Animal::ALL.len()],
+            barn_extended: [false; Animal::ALL.len()],
             fruit_days: [None; 7],
             goods: [0; 6],
             seeds: [3; 3],

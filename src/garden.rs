@@ -23,7 +23,7 @@ pub const PLOT_COUNT: usize = 18;
 pub const FERTILIZER_PRICE: u32 = 4;
 pub const RESOURCE_RENEWAL_DAYS: u32 = 3;
 const FERTILIZER_PACK: u32 = 2;
-const SAVE_VERSION: u8 = 19;
+const SAVE_VERSION: u8 = 20;
 pub const MAX_SAVE_SIZE: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -240,7 +240,8 @@ pub struct Garden {
     pub deepest: u32,
     pub furniture: Vec<u8>,
     pub decorations: Vec<crate::decorate::Furniture>,
-    pub building_layout: [Option<crate::decorate::Pose>; 5],
+    #[serde(deserialize_with = "crate::expansion::read_array")]
+    pub building_layout: [Option<crate::decorate::Pose>; crate::decorate::Building::ALL.len()],
     pub expanded_field: bool,
     pub crafted: Vec<bool>,
     pub blueprints: Vec<bool>,
@@ -249,6 +250,7 @@ pub struct Garden {
     pub checkpoint: Option<Checkpoint>,
     pub town: Journal,
     pub regions: RegionProgress,
+    pub expansion: crate::expansion::Progress,
     pub rpg: duel::Progress,
     pub story: StoryProgress,
     pub seasons: crate::seasons::SeasonProgress,
@@ -298,7 +300,7 @@ impl Default for Garden {
             deepest: 0,
             furniture: vec![0; FURNITURE_COUNT],
             decorations: Vec::new(),
-            building_layout: [None; 5],
+            building_layout: [None; crate::decorate::Building::ALL.len()],
             expanded_field: false,
             crafted: vec![false; CATALOG.len()],
             blueprints: vec![false; CATALOG.len()],
@@ -307,6 +309,7 @@ impl Default for Garden {
             checkpoint: None,
             town: Journal::default(),
             regions: RegionProgress::default(),
+            expansion: crate::expansion::Progress::default(),
             rpg: duel::Progress::default(),
             story: StoryProgress::default(),
             seasons: Default::default(),
@@ -609,10 +612,15 @@ impl Garden {
     }
 
     pub fn chop_tree(&mut self, index: usize) -> bool {
-        if self.felled.contains(&index) {
+        let kind = crate::workshop::ToolKind::Axe;
+        let node = crate::forest::node(index);
+        if self.felled.contains(&index) || node.is_some_and(|node| !node.is_tree() || node.tool_level() > kind.level(self)) {
             return false;
         }
         self.felled.push(index);
+        if let Some(material) = node.and_then(crate::forest::Node::material) {
+            self.add_stock(Product::Regional(material), crate::forest::Node::yield_count(self, crate::world::Tool::Axe));
+        }
         self.ledger.record(crate::commissions::Activity::Fell, 1);
         self.tree_regrowth
             .push((index, self.day.saturating_add(RESOURCE_RENEWAL_DAYS)));
@@ -624,10 +632,16 @@ impl Garden {
     }
 
     pub fn quarry(&mut self, index: usize) -> Option<u32> {
-        if self.broken.contains(&index) {
+        let kind = crate::workshop::ToolKind::Pickaxe;
+        let node = crate::forest::node(index);
+        if self.broken.contains(&index) || node.is_some_and(|node| node.is_tree() || node.tool_level() > kind.level(self)) {
             return None;
         }
         self.broken.push(index);
+        if let Some(material) = node.and_then(crate::forest::Node::material) {
+            self.ledger.record(crate::commissions::Activity::Mine, 1);
+            self.add_stock(Product::Regional(material), crate::forest::Node::yield_count(self, crate::world::Tool::Pickaxe));
+        }
         self.rock_regrowth
             .push((index, self.day.saturating_add(RESOURCE_RENEWAL_DAYS)));
         if let Some(prologue) = &mut self.prologue {
@@ -1134,7 +1148,7 @@ mod tests {
         assert!(g.workshop.barns[0]);
         assert_eq!(g.furniture.len(), 14);
         assert!(g.crafted[2] && g.farm.animals[0].owned);
-        assert_eq!(g.farm.housing, [true, false]);
+        assert_eq!(g.farm.housing, [true, false, false, false, false]);
         assert!(g.blueprints[crate::furniture::ARMCHAIR]);
     }
 }

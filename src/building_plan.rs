@@ -32,7 +32,7 @@ impl Plan {
         match self {
             Self::Furniture(index) => index < CATALOG.len(),
             Self::Project(Project::Room(index)) => index < 2,
-            Self::Tool { tier, .. } => (1..=2).contains(&tier),
+            Self::Tool { tier, .. } => (1..=ToolKind::MAX_LEVEL).contains(&tier),
             Self::Material { batches, .. } => (1..=5).contains(&batches),
             _ => true,
         }
@@ -62,7 +62,7 @@ impl Plan {
         match self {
             Self::Furniture(index) => (CATALOG[index].ingredients().to_vec(), 1),
             Self::Project(project) => (project.ingredients().to_vec(), 1),
-            Self::Tool { tool, tier } => (tool.ingredients(tier).to_vec(), 1),
+            Self::Tool { tool, tier } => (tool.ingredients(tier), 1),
             Self::Material {
                 recipe,
                 batches,
@@ -77,7 +77,7 @@ impl Plan {
 
     fn station(self) -> Target {
         match self {
-            Self::Tool { tier: 2, .. } => Target::Forge,
+            Self::Tool { tier: 2.., .. } => Target::Forge,
             Self::Material { recipe, .. } => match recipe.sort() {
                 Bench::Work => Target::Bench,
                 Bench::Forge => Target::Forge,
@@ -111,6 +111,10 @@ impl Plan {
                     )
                 })
             }
+            Self::Tool { tier: 3, .. } if !crate::expansion::starsteel(garden) => Some((
+                "Sannas Sternstahlvorlage in den Himmelstufen".into(),
+                crate::expansion::Region::Heights.target(garden),
+            )),
             _ if self != Self::Project(Project::Restore) && !garden.workshop.restored => Some((
                 "Zuerst die Werkbank instand setzen".into(),
                 Some(Target::Bench),
@@ -221,6 +225,21 @@ fn source(need: Need, garden: &Garden) -> (&'static str, Target) {
                 },
             ),
             Product::Regional(material) => {
+                use crate::{expansion::Region, homestead::Animal};
+                let region = match material {
+                    Material::GoldResin | Material::Ironwood | Material::Amber => Some(Region::Amber),
+                    Material::StarOre | Material::AlpineSage | Material::SkyQuartz => Some(Region::Heights),
+                    Material::MotherPearl | Material::SaltBloom | Material::Reefwood => Some(Region::Reef),
+                    Material::RabbitDown => return (Animal::Rabbit.housing_name(), Target::FarmAnimal(Animal::Rabbit)),
+                    Material::GoatMilk => return (Animal::Goat.housing_name(), Target::FarmAnimal(Animal::Goat)),
+                    Material::DuckEgg | Material::DuckFeather => return (Animal::Duck.housing_name(), Target::FarmAnimal(Animal::Duck)),
+                    _ => None,
+                };
+                if let Some(region) = region {
+                    let place = region.district();
+                    let target = if region.open(garden) { Target::Travel(place) } else { Target::ExpansionGate(region) };
+                    return (place.name(), target);
+                }
                 let (area, place) = match material {
                     Material::MeadowFlax => (Frontier::Wind, "Flachs auf den Windweiden"),
                     Material::MarshHerb => (Frontier::Moor, "Kräuter im Nebelmoor"),

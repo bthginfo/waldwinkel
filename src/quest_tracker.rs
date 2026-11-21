@@ -37,6 +37,11 @@ fn accepted(garden: &Garden) -> Vec<Objective> {
             tasks.push(Objective { title, materials, ready, deliver_to: npc.name(), guide: Some(Guide::Regional(area)) });
         }
     }
+    for region in crate::expansion::Region::ALL {
+        if let Some((title, materials, ready, deliver_to)) = region.tracking(garden) {
+            tasks.push(Objective { title, materials, ready, deliver_to, guide: Some(Guide::Expansion(region)) });
+        }
+    }
     if garden.harbor.started && garden.harbor.phase != harbor::Phase::Open {
         tasks.push(Objective {
             title: garden.harbor.phase.label(),

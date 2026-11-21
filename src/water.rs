@@ -35,9 +35,9 @@ pub fn bind(
         let label = name.as_str();
         let surface = if label.starts_with("Gezeitenwasser") {
             Vec4::new(2.6, 0.48, 0.20, 0.)
-        } else if label.starts_with("Der Farnbach") {
+        } else if label.starts_with("Der Farnbach") || label.starts_with("Bachlauf am Außenweg") {
             Vec4::new(6.4, 0.72, 0.15, 0.)
-        } else if label.starts_with("Teich · Wasseroberfläche") {
+        } else if label.starts_with("Teich · Wasseroberfläche") || label.starts_with("Gezeitentümpel") {
             Vec4::new(7.6, 0.36, 0.27, 0.)
         } else if label.starts_with("Brunnen · Wasseroberfläche") {
             Vec4::new(9.2, 0.61, 0.24, 0.)

@@ -200,6 +200,7 @@ pub enum Guide {
     Resident(Npc),
     Town(Npc),
     Regional(Frontier),
+    Expansion(crate::expansion::Region),
 }
 
 impl Guide {
@@ -237,6 +238,9 @@ impl Guide {
                 Self::Regional(Frontier::Copper),
                 Self::Regional(Frontier::Wind),
                 Self::Regional(Frontier::Moor),
+                Self::Expansion(crate::expansion::Region::Amber),
+                Self::Expansion(crate::expansion::Region::Heights),
+                Self::Expansion(crate::expansion::Region::Reef),
             ],
             GuideTab::Watches => &[
                 Self::Watch(crate::waywatch::Watch::Fern),
@@ -257,6 +261,9 @@ impl Guide {
                 Self::Resident(Npc::Runa),
                 Self::Resident(Npc::Nele),
                 Self::Resident(Npc::Edda),
+                Self::Resident(Npc::Ivo),
+                Self::Resident(Npc::Sanna),
+                Self::Resident(Npc::Tilda),
             ],
         };
         entries.iter().copied()
@@ -284,6 +291,7 @@ impl Guide {
             Self::WatchFinale => "Junas Inselkarte",
             Self::Resident(npc) => npc.name(),
             Self::Town(npc) => town::order_name(npc, garden),
+            Self::Expansion(region) => region.current_title(garden),
             Self::Regional(frontier) => garden
                 .regions
                 .next_order(frontier)
@@ -294,6 +302,8 @@ impl Guide {
     pub fn preview(self, garden: &Garden) -> String {
         match self {
             Self::Town(npc) => town::order_preview(npc, garden),
+            Self::Expansion(region) if !region.open(garden) => format!("{} · Zugang", region.district().name()),
+            Self::Expansion(region) => format!("{} · {}/4 Ortsaufträge", region.district().name(), region.steps(garden)),
             Self::Regional(frontier) if !frontier.unlocked(garden) => "Zugang gesperrt".into(),
             Self::Regional(frontier) => format!("{}/3 abgeschlossen · {}",
                 garden.regions.story_steps(frontier), frontier.district().name()),
@@ -391,6 +401,7 @@ impl Guide {
                 format!("Weg gesperrt · {}", frontier.describe(garden).0)
             }
             Self::Regional(frontier) => regions::journal_detail(frontier, garden),
+            Self::Expansion(region) => region.journal(garden),
         }
     }
 
@@ -454,6 +465,7 @@ impl Guide {
             Self::TownGarden if garden.town_garden.stage.model().is_some() => Some(Target::TownGarden),
             Self::TownGarden | Self::SeasonMeeting => Some(Target::SeasonMeeting),
             Self::Town(npc) => town::order_target(npc, garden).then_some(Target::Person(npc)),
+            Self::Expansion(region) => region.target(garden),
             Self::Regional(frontier) if !frontier.unlocked(garden) => gateway(frontier),
             Self::Regional(frontier) if garden.regions.story_steps(frontier) >= 3 => None,
             Self::Regional(frontier) => person(match frontier {

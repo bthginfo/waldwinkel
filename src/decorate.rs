@@ -91,15 +91,21 @@ pub enum Building {
     Loom,
     Coop,
     Barn,
+    Hutch,
+    GoatShed,
+    DuckHouse,
 }
 
 impl Building {
-    pub const ALL: [Self; 5] = [Self::Bench, Self::Forge, Self::Loom, Self::Coop, Self::Barn];
+    pub const ALL: [Self; 8] = [Self::Bench, Self::Forge, Self::Loom, Self::Coop, Self::Barn, Self::Hutch, Self::GoatShed, Self::DuckHouse];
 
     pub fn animal(kind: Animal) -> Self {
         match kind {
             Animal::Hen => Self::Coop,
             Animal::Sheep => Self::Barn,
+            Animal::Rabbit => Self::Hutch,
+            Animal::Goat => Self::GoatShed,
+            Animal::Duck => Self::DuckHouse,
         }
     }
 
@@ -110,6 +116,9 @@ impl Building {
             Self::Loom => "Webrahmen",
             Self::Coop => "Hühnerstall",
             Self::Barn => "Schafscheune",
+            Self::Hutch => Animal::Rabbit.housing_name(),
+            Self::GoatShed => Animal::Goat.housing_name(),
+            Self::DuckHouse => Animal::Duck.housing_name(),
         }
     }
 
@@ -120,6 +129,9 @@ impl Building {
             Self::Loom => "workshop_loom",
             Self::Coop => "farm_coop",
             Self::Barn => "farm_barn",
+            Self::Hutch => Animal::Rabbit.housing_model(),
+            Self::GoatShed => Animal::Goat.housing_model(),
+            Self::DuckHouse => Animal::Duck.housing_model(),
         }
     }
 
@@ -130,6 +142,9 @@ impl Building {
             Self::Loom => garden.workshop.loom,
             Self::Coop => garden.farm.housing[0],
             Self::Barn => garden.farm.housing[1],
+            Self::Hutch => garden.farm.housing[Animal::Rabbit as usize],
+            Self::GoatShed => garden.farm.housing[Animal::Goat as usize],
+            Self::DuckHouse => garden.farm.housing[Animal::Duck as usize],
         }
     }
 
@@ -140,6 +155,9 @@ impl Building {
             Self::Loom => workshop::LOOM,
             Self::Coop => Animal::Hen.site(),
             Self::Barn => Animal::Sheep.site(),
+            Self::Hutch => Animal::Rabbit.site(),
+            Self::GoatShed => Animal::Goat.site(),
+            Self::DuckHouse => Animal::Duck.site(),
         }
     }
 
@@ -157,14 +175,14 @@ impl Building {
 
     fn half(self) -> Vec2 {
         match self {
-            Self::Coop | Self::Barn => Vec2::new(1.57, 1.22),
+            Self::Coop | Self::Barn | Self::Hutch | Self::GoatShed | Self::DuckHouse => Vec2::new(1.57, 1.22),
             _ => Vec2::new(0.71, 0.56),
         }
     }
 
     fn height(self) -> f32 {
         match self {
-            Self::Coop | Self::Barn => 2.16,
+            Self::Coop | Self::Barn | Self::Hutch | Self::GoatShed | Self::DuckHouse => 2.16,
             _ => 1.15,
         }
     }
@@ -174,7 +192,11 @@ impl Building {
     }
 
     fn obstacle(self, garden: &Garden) -> bool {
-        self.built(garden) || matches!(self, Self::Bench | Self::Coop | Self::Barn)
+        self.built(garden)
+            || matches!(self, Self::Bench | Self::Coop | Self::Barn)
+            || Animal::ALL.into_iter().any(|kind| Self::animal(kind) == self
+                && kind.region().is_some()
+                && garden.farm.barn_work[kind as usize].is_some())
     }
 }
 

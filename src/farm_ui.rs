@@ -278,7 +278,8 @@ impl FarmMenu {
                     .filter(|building| page == FarmPage::Yard && building.built(garden))
                     .map(Entry::Building))
                 .chain(Animal::ALL.into_iter()
-                    .filter(|kind| page == FarmPage::Yard && !garden.farm.housing[*kind as usize]
+                    .filter(|kind| page == FarmPage::Yard
+                        && !garden.farm.housing[*kind as usize]
                         && garden.workshop.barns[*kind as usize])
                     .map(Entry::NewBarn))
                 .chain(Animal::ALL.into_iter().filter(|kind| page == FarmPage::Yard
@@ -304,7 +305,7 @@ impl FarmMenu {
                 .collect(),
             FarmPage::Kitchen => self.preparation.as_ref().map_or_else(
                 || garden.fish_supper.learned().then_some(Entry::Dish(Dish::HarborBroth)).into_iter()
-                    .chain(Dish::ALL.into_iter().filter(|dish| *dish != Dish::HarborBroth).map(Entry::Dish)).collect(),
+                    .chain(Dish::ALL.into_iter().filter(|dish| *dish != Dish::HarborBroth && dish.learned(garden)).map(Entry::Dish)).collect(),
                 |game| {
                     game.buttons()
                         .iter()
@@ -388,7 +389,7 @@ impl Entry {
                 Some(Plan::Furniture(index))
             }
             (FarmPage::Projects, Self::Project(project)) => Some(Plan::Project(project)),
-            (FarmPage::Tools { .. }, Self::Tool(tool)) if tool.level(garden) < 2 => {
+            (FarmPage::Tools { .. }, Self::Tool(tool)) if tool.level(garden) < ToolKind::MAX_LEVEL => {
                 Some(Plan::Tool {
                     tool,
                     tier: tool.level(garden) + 1,

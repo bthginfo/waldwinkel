@@ -16,16 +16,22 @@ pub enum District {
     Copper,
     Wind,
     Moor,
+    Amber,
+    Heights,
+    Reef,
 }
 
 impl District {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 9] = [
         Self::Forest,
         Self::Beach,
         Self::Town,
         Self::Copper,
         Self::Wind,
         Self::Moor,
+        Self::Amber,
+        Self::Heights,
+        Self::Reef,
     ];
 
     pub fn name(self) -> &'static str {
@@ -36,17 +42,21 @@ impl District {
             Self::Copper => "Kupferklamm",
             Self::Wind => "Windweiden",
             Self::Moor => "Nebelmoor",
+            Self::Amber => "Bernsteinhain",
+            Self::Heights => "Himmelstufen",
+            Self::Reef => "Morgenriff",
         }
     }
-    pub fn model(self) -> &'static str {
-        match self {
+    pub fn model(self) -> Option<&'static str> {
+        Some(match self {
             Self::Forest => "district_forest",
             Self::Beach => "district_beach",
             Self::Town => "district_town",
             Self::Copper => "district_copper",
             Self::Wind => "district_wind",
             Self::Moor => "district_moor",
-        }
+            _ => return None,
+        })
     }
     pub fn origin(self) -> Vec2 {
         match self {
@@ -56,7 +66,24 @@ impl District {
             Self::Copper => Vec2::new(137., -5.),
             Self::Wind => Vec2::new(28., 130.),
             Self::Moor => Vec2::new(-137., -13.),
+            Self::Amber => Vec2::new(-251., -16.),
+            Self::Heights => Vec2::new(250., -28.),
+            Self::Reef => Vec2::new(26., 239.),
         }
+    }
+
+    pub fn expansion(self) -> Option<crate::expansion::Region> {
+        use crate::expansion::Region;
+        match self {
+            Self::Amber => Some(Region::Amber),
+            Self::Heights => Some(Region::Heights),
+            Self::Reef => Some(Region::Reef),
+            _ => None,
+        }
+    }
+
+    pub fn accessible(self, garden: &Garden) -> bool {
+        self.expansion().is_none_or(|area| area.open(garden))
     }
 
     pub fn former_origin(self) -> Vec2 {
@@ -72,11 +99,16 @@ impl District {
                 Self::Copper => Vec2::new(-12., 13.),
                 Self::Wind => Vec2::new(-11., -14.),
                 Self::Moor => Vec2::new(-7., 5.),
+                Self::Amber => return Vec2::new(-246., -11.),
+                Self::Heights => return Vec2::new(249., -20.),
+                Self::Reef => return Vec2::new(28., 232.),
             }
     }
 
     pub fn at(point: Vec2) -> Option<Self> {
-        if point.x >= 78. && point.y < 70. {
+        if let Some(region) = crate::expansion::Region::ALL.into_iter().find(|area| area.boundary(point)) {
+            Some(region.district())
+        } else if point.x >= 78. && point.y < 70. {
             Some(Self::Copper)
         } else if point.y >= 76. {
             Some(Self::Wind)
@@ -103,6 +135,9 @@ impl District {
             Self::Copper => "Brücken führen zu Quarz, Werkhöfen und Runas Schmiede.",
             Self::Wind => "Folge den Wiesenwegen zu Nele, der Mühle und den Flachsfeldern.",
             Self::Moor => "Sammle Nebelminze an den trockenen Ufern und sprich mit Edda.",
+            Self::Amber => "Am Harzpfad findest du Goldharz. Mit der Silberaxt kannst du Eisenholz schlagen.",
+            Self::Heights => "Salbei wächst an den unteren Terrassen. Zu den Erzadern führt der Serpentinenweg.",
+            Self::Reef => "Salzblüten blühen an den Tümpeln. Perlmutt findest du an den flachen Felsbänken.",
         }
     }
 }
@@ -125,6 +160,10 @@ pub struct Find {
 }
 
 impl Find {
+    const fn regional(district: District, local: Vec2, material: Material) -> Self {
+        Self { district, local, loot: FindLoot::Product(Product::Regional(material)), quantity: 2 }
+    }
+
     pub fn position(self) -> Vec2 {
         self.district.origin() + self.local
     }
@@ -162,6 +201,7 @@ impl Find {
     }
 
     pub fn available(self, garden: &Garden, index: usize) -> bool {
+        if !self.district.accessible(garden) { return false; }
         match self.loot {
             FindLoot::Blueprint(plan) => !garden.blueprints[plan],
             FindLoot::Card(card) => !garden.rpg.knows(card),
@@ -181,7 +221,7 @@ impl Find {
     }
 }
 
-pub const FINDS: [Find; 57] = [
+pub const FINDS: [Find; 90] = [
     Find {
         district: District::Forest,
         local: Vec2::new(-6.8, 2.4),
@@ -494,6 +534,39 @@ pub const FINDS: [Find; 57] = [
     Find { district: District::Forest, local: Vec2::new(8.6, 5.0), loot: FindLoot::Product(Product::Grass), quantity: 2 },
     Find { district: District::Beach, local: Vec2::new(-6.1, -3.0), loot: FindLoot::Product(Product::Grass), quantity: 2 },
     Find { district: District::Wind, local: Vec2::new(-12.2, -12.5), loot: FindLoot::Product(Product::Grass), quantity: 3 },
+    Find::regional(District::Amber, Vec2::new(8., 2.), Material::GoldResin),
+    Find::regional(District::Amber, Vec2::new(4., 5.), Material::GoldResin),
+    Find::regional(District::Amber, Vec2::new(-3., 7.), Material::GoldResin),
+    Find::regional(District::Amber, Vec2::new(-8., 1.), Material::GoldResin),
+    Find::regional(District::Amber, Vec2::new(-10., 15.), Material::GoldResin),
+    Find::regional(District::Amber, Vec2::new(-23., 12.), Material::GoldResin),
+    Find::regional(District::Amber, Vec2::new(-24., -7.), Material::GoldResin),
+    Find::regional(District::Amber, Vec2::new(7., -11.), Material::GoldResin),
+    Find::regional(District::Amber, Vec2::new(14., 14.), Material::GoldResin),
+    Find::regional(District::Amber, Vec2::new(-7., -15.), Material::GoldResin),
+    Find::regional(District::Heights, Vec2::new(-14., 14.), Material::AlpineSage),
+    Find::regional(District::Heights, Vec2::new(-9., 7.), Material::AlpineSage),
+    Find::regional(District::Heights, Vec2::new(-5., 14.), Material::AlpineSage),
+    Find::regional(District::Heights, Vec2::new(-12., 0.), Material::AlpineSage),
+    Find::regional(District::Heights, Vec2::new(6., -10.), Material::AlpineSage),
+    Find::regional(District::Heights, Vec2::new(13., -18.), Material::AlpineSage),
+    Find::regional(District::Heights, Vec2::new(8., 11.), Material::AlpineSage),
+    Find::regional(District::Heights, Vec2::new(21., -27.), Material::AlpineSage),
+    Find::regional(District::Heights, Vec2::new(17., -6.), Material::AlpineSage),
+    Find::regional(District::Heights, Vec2::new(4., -24.), Material::AlpineSage),
+    Find::regional(District::Reef, Vec2::new(8., -10.), Material::SaltBloom),
+    Find::regional(District::Reef, Vec2::new(-5., -12.), Material::SaltBloom),
+    Find::regional(District::Reef, Vec2::new(-12., -3.), Material::SaltBloom),
+    Find::regional(District::Reef, Vec2::new(-11., 12.), Material::SaltBloom),
+    Find::regional(District::Reef, Vec2::new(-22., 9.), Material::SaltBloom),
+    Find::regional(District::Reef, Vec2::new(-24., -8.), Material::SaltBloom),
+    Find::regional(District::Reef, Vec2::new(13., 0.), Material::SaltBloom),
+    Find::regional(District::Reef, Vec2::new(14., 16.), Material::SaltBloom),
+    Find::regional(District::Reef, Vec2::new(8., 18.), Material::SaltBloom),
+    Find::regional(District::Reef, Vec2::new(-25., 14.), Material::SaltBloom),
+    Find { district: District::Amber, local: Vec2::new(-35., 8.), loot: FindLoot::Blueprint(crate::furniture::TRAIL_FURNITURE), quantity: 1 },
+    Find { district: District::Heights, local: Vec2::new(19., -36.), loot: FindLoot::Blueprint(crate::furniture::TRAIL_FURNITURE + 1), quantity: 1 },
+    Find { district: District::Reef, local: Vec2::new(22., 15.), loot: FindLoot::Blueprint(crate::furniture::TRAIL_FURNITURE + 2), quantity: 1 },
 ];
 
 pub fn collect(g: &mut Garden, index: usize) -> Option<String> {

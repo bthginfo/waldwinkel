@@ -4,6 +4,8 @@ use bevy::prelude::*;
 
 use crate::{
     garden::Garden,
+    regions::Material,
+    workshop::ToolKind,
     weather::Season,
     world::{self, Exterior},
 };
@@ -45,7 +47,7 @@ pub struct Node {
 
 impl Node {
     pub fn is_tree(self) -> bool {
-        self.variant != 8
+        matches!(self.variant, 0..=7 | 9 | 10 | 15)
     }
 
     pub fn tool_level(self) -> u8 {
@@ -54,6 +56,8 @@ impl Node {
             7 => 2,
             8 if self.scale > 1.48 => 2,
             8 if self.scale > 1.27 => 1,
+            10 | 11 | 14 => 2,
+            12 | 13 | 15 => 3,
             _ => 0,
         }
     }
@@ -65,14 +69,40 @@ impl Node {
             7 => "Moorbaum",
             8 if self.scale > 1.48 => "Granitfindling",
             8 if self.scale > 1.27 => "Schwerer Findling",
+            9 => "Harzbirke",
+            10 => "Eisenholzbaum",
+            11 => "Sternenerzader",
+            12 => "Himmelsquarzader",
+            13 => "Bernsteinader",
+            14 => "Perlmuttfels",
+            15 => "Riffbaum",
             _ => "Stein",
         }
+    }
+
+    pub fn material(self) -> Option<Material> {
+        Some(match self.variant {
+            10 => Material::Ironwood,
+            11 => Material::StarOre,
+            12 => Material::SkyQuartz,
+            13 => Material::Amber,
+            14 => Material::MotherPearl,
+            15 => Material::Reefwood,
+            _ => return None,
+        })
+    }
+
+    pub fn yield_count(garden: &Garden, tool: world::Tool) -> u32 {
+        ToolKind::for_action(tool).map_or(1, |kind| 1 + u32::from(kind.level(garden).saturating_sub(1)))
     }
 
     pub fn top(self) -> f32 {
         (match self.variant {
             0..=5 => 4.88,
             6 | 7 => 3.72,
+            9 => 3.8,
+            10 => 4.28,
+            15 => 3.6,
             _ => 0.97,
         }) * self.scale
     }
@@ -89,6 +119,15 @@ impl Node {
         match self.variant {
             0..=5 => MODELS[self.variant as usize][usize::from(season == Season::Winter)],
             6 | 7 => LEAF_MODELS[(self.variant - 6) as usize][season as usize],
+            9 | 10 | 15 => [
+                ["extension_node_9", "extension_node_9_snow"],
+                ["extension_node_10", "extension_node_10_snow"],
+                ["extension_node_15", "extension_node_15_snow"],
+            ][match self.variant { 9 => 0, 10 => 1, _ => 2 }][usize::from(season == Season::Winter)],
+            11 => "extension_node_11",
+            12 => "extension_node_12",
+            13 => "extension_node_13",
+            14 => "extension_node_14",
             _ => "forage_8_summer",
         }
     }
@@ -118,21 +157,26 @@ fn cell(point: Vec2) -> IVec2 {
 }
 
 static FOREST: LazyLock<Forest> = LazyLock::new(|| {
-    let data = include_bytes!("../assets/world/harvest.bin");
-    let (header, body) = data.split_at(8);
-    assert_eq!(&header[..4], b"WHV1");
-    assert_eq!(
-        body.len(),
-        u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize * 21
-    );
+    let legacy = include_bytes!("../assets/world/harvest.bin");
+    let extension = include_bytes!("../assets/world/harvest_extension.bin");
     let mut forest = Forest::default();
-    for row in body.chunks_exact(21) {
-        let value = |i: usize| f32::from_le_bytes(row[i * 4..i * 4 + 4].try_into().unwrap());
-        let point = Vec2::new(value(0), value(1));
-        // Coordinate-based IDs keep saves stable when unrelated scenery is added.
-        let grid = (point * 16.).round().as_ivec2() + IVec2::splat(4096);
-        assert!((0..8192).contains(&grid.x) && (0..8192).contains(&grid.y));
-        let id = ID_OFFSET + (grid.x * 8192 + grid.y) as usize;
+    for (data, extended) in [(legacy.as_slice(), false), (extension.as_slice(), true)] {
+        let (header, body) = data.split_at(8);
+        assert_eq!(&header[..4], b"WHV1");
+        assert_eq!(body.len(), u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize * 21);
+        for row in body.chunks_exact(21) {
+            let value = |i: usize| f32::from_le_bytes(row[i * 4..i * 4 + 4].try_into().unwrap());
+            let point = Vec2::new(value(0), value(1));
+            // Keep legacy IDs and reserve a distinct coordinate range for the extension.
+            let grid = (point * 16.).round().as_ivec2();
+            let id = if extended {
+                let grid = grid + IVec2::splat(8192);
+                assert!(grid.cmpge(IVec2::ZERO).all() && grid.cmplt(IVec2::splat(16384)).all());
+                (1 << 29) + (grid.x * 16384 + grid.y) as usize
+            } else {
+                let grid = grid + IVec2::splat(4096);
+                ID_OFFSET + (grid.x * 8192 + grid.y) as usize
+            };
         let index = forest.nodes.len();
         assert!(
             forest.by_id.insert(id, index).is_none(),
@@ -147,6 +191,7 @@ static FOREST: LazyLock<Forest> = LazyLock::new(|| {
             variant: row[20],
         });
         forest.cells.entry(cell(point)).or_default().push(index);
+        }
     }
     forest
 });
