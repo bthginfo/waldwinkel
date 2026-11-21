@@ -2,6 +2,9 @@
 import math
 
 
+import town_garden_art
+
+
 def models(Model):
     stall = Model("Abendmarkt · Maras Suppentisch", "evening_market")
     glow = Model("Abendmarkt · Laternenkerzen", "evening_market_lights")
@@ -83,7 +86,7 @@ def models(Model):
     hammer.pole((0., .02, -.105), (0., .08, .194), .027, "a78561", 8)
     hammer.box(0., .074, .201, .204, .091, .096, "68686b", .015)
     hammer.box(.092, .074, .201, .043, .105, .108, "8f8e8b", .015)
-    return [stall, glow, light, spoon, parcel, book, hammer, *broth_models(Model)]
+    return [stall, glow, light, spoon, parcel, book, hammer, *broth_models(Model), *town_garden_art.models(Model)]
 
 
 def broth_models(Model):

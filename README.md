@@ -1,4 +1,4 @@
-# Waldwinkel 1.12.0
+# Waldwinkel 1.13.0
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
@@ -6,8 +6,22 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 
 ## Installieren
 
-- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK 1.12.0](https://raw.githubusercontent.com/bthginfo/waldwinkel/0c7091acd56636c8d4f19b79ae111803fa84e31e/Waldwinkel-1.12.0.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
+- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK 1.13.0](https://raw.githubusercontent.com/bthginfo/waldwinkel/4fee293ed65e61505d3bb4b059c8fd3ef99d97af/Waldwinkel-1.13.0.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
+
+## Zurück ins Hauptmenü
+
+Drücke im Spiel die Xbox-Menü-Taste **☰** oder tippe oben rechts auf **Menü**. Wähle **Speichern & Hauptmenü** und bestätige am Controller mit **A**. In der Spielstandsauswahl kannst du deinen Hof mit **Fortsetzen** wieder öffnen. [Pausenmenü auf dem Tablet](docs/113-hauptmenue.jpg)
+
+## Neu in 1.13.0
+
+- **Tablet mit Xbox-Controller.** Beim ersten Tastendruck wechseln die Touchflächen zu einer kompakten Tastenhilfe. Du siehst am Ziel, was **A** auslöst. Mit **X** öffnest du das Werkzeugrad, mit **LT** das Saatgut und mit **Y** die Karte. **↑** öffnet das Journal, **↓** die Tasche. Mit **←/→** wechselst du zwischen nahen Zielen, etwa zwischen Möbeln und Kartenbinder in der Hütte. **LB/RB** zoomen in der Welt und blättern in Listen mit mehreren Seiten. Im Kartenbinder und anderen Listen bleibt der Fokus beim seitlichen Blättern mit dem Steuerkreuz in derselben Reihe, auch wenn dazwischen Schaltflächen gesperrt sind. Beim Zurückgehen aus einem Untermenü landet er wieder an der vorherigen Stelle. Eine Berührung holt die Touchsteuerung zurück.
+- **Dein erster Morgen.** Du kannst in Ruhe die erste Bewegungsaufgabe lesen. Erst nach deinen ersten Schritten läuft die Hofuhr weiter. Acht Abschnitte zeigen deinen Weg durch den Prolog. Sobald du Bo besuchen sollst, nennt dir die Aufgabe seinen aktuellen Aufenthaltsort.
+- **Was dein Hof schon kann.** Öffne **Journal → Hofbuch**. Neben deinen fünf Meisterschaften siehst du Lebenspunkte, freie Talentpunkte, gesammelte Karten und Wohnräume. Wähle eine Meisterschaft für die Voraussetzungen und die nächste Belohnung. Über **Eichenhafens Dorfplatz → Dorfplatz zeigen** findest du das Gemeinschaftsprojekt.
+- **Ein Garten für Eichenhafen.** Wähle am Dorftisch **Dorf ausbauen**. Lina errichtet Pflanzkisten, Bo setzt eine Kupferpumpe und Mara baut ein blühendes Laternenspalier. Zu jeder Lieferung siehst du, woher das Material kommt und wie viel noch fehlt. Auch kleine Beiträge bleiben gespeichert. Am fertigen Platz kannst du alle drei Spieltage einen Erntekorb für deinen Hof abholen.
+- **19 illustrierte Kampfkarten.** Am heimischen Kartenbinder startet das Übungsduell. Beim Auswählen siehst du, was nach Rüstung und Schild ankommt. Die Vorschau berücksichtigt auch durchbrochene Deckung und tödliche Sporen. Karten werden einzeln ausgeteilt. Treffer, Deckung und Heilung haben eigene Effekte. Die neue Karte **Blütenwacht** erhältst du für den Dorfgarten. Sie schützt, heilt und lässt dich bei vorhandenem Schild eine Karte ziehen.
+
+[Tablet mit Xbox-Steuerung](docs/113-tablet-hof.jpg) · [Karten auf dem 4:3-Tablet](docs/113-tablet-duell.jpg) · [Einstieg auf dem Hof](docs/113-prolog.jpg) · [Hofbuch](docs/113-hofbuch.jpg) · [Am Dorftisch](docs/113-ausbau.jpg) · [Der fertige Garten](docs/113-dorfgarten.jpg) · [Kartenkampf](docs/113-duell.jpg)
 
 ## Neu in 1.12.0
 
@@ -261,6 +275,7 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 ## Blender und Weiterentwicklung
 
 - `art/Waldwinkel.blend` enthält die Modelle und eine Gesamtansicht der Landschaft. `blender -b -P art/build_scene.py` exportiert die Modelle als GLB und erzeugt das Höhenfeld für Ufer, Brücken und Hindernisse. Bevy animiert Beine, Schuhe, Arme und den Schweif des Tanuki über getrennte Drehpunkte.
+- `art/Dorfgarten.blend` enthält die Ausbaustufen des Gemeinschaftsgartens. `art/town_garden_art.py` baut die Modelle für den gemeinsamen Szenenexport. Die Bildquellen für die neuen Karten und den Dorfplatz liegen in `art/card_art/`.
 - `art/draw_icons.py` zeichnet die HUD-Symbole und das App-Icon. Die verwendeten Schriften sind DM Sans und DM Serif Text mit beigefügter OFL-Lizenz.
 - `art/draw_inventory.py` zeichnet die Gegenstandsbilder. `art/render_item_cards.py` rendert Möbel und Hofgebäude in Blender. `art/draw_guidance.py` zeichnet die Inselkarte aus dem Höhenfeld. `art/draw_card_portraits.py` erzeugt die Illustrationen für Karten und Kochstationen. `art/render_score.py` rendert die Musik. `art/build_audio.py`, `art/action_audio.py` und `art/footsteps.py` erzeugen Umgebungsklänge und Effekte. [Quellen der Aufnahmen](docs/audio.md)
 - Android leitet Controller-Ereignisse aus der NDK-Eingabewarteschlange an dasselbe Spiel- und UI-Eingabesystem weiter wie Touch. Die Schnittstelle liegt in `src/controller.rs`.
@@ -278,11 +293,13 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 ## Tests
 
+In 1.13.0 wurden der erste Morgen ohne Eingabe, die sechs Lieferungen am Dorftisch, der fertige Platz und die Abholung des Erntekorbs im laufenden Spiel geprüft. Am Xbox-Controller wurden der Wechsel vom Werkzeugrad zurück auf den Hof und das Zurückspringen aus dem Hofbuch auf den zuvor gewählten Journaleintrag geprüft. Die Regressionstests prüfen Teillieferungen über das Laden hinweg, die alte Kartensammlung, die Zustandsänderungen aller 19 Karten und den Unterbruch eines aufgeladenen Angriffs. Beim Update von 1.12.0 auf Android 16 blieben zwei bestehende Testspielstände bytegleich.
+
 Im Spieltest von 1.12.0 ließen sich Bos Rezept am Hof lernen, die Brühe im Kochspiel abschöpfen und eine Portion am Abendmarkt kaufen. Die Tests decken auch den bereits verkauften ersten Fang, alte Küchenvorräte, die späte Eröffnung und die Wirkung im Duell ab. Beim Android-Update von 1.11.0 auf 1.12.0 blieben zwei bestehende Testspielstände bytegleich.
 
 Beim Spieltest von 1.11.0 ließ sich ein Beet über das Menü am Ziel anlegen, düngen, besäen und gießen. Beim Angeln wechselte die Anzeige von der Wartephase ins Bissfenster. Ein rechtzeitiges Einholen erhöhte den Fischbestand. Zwei bestehende Android-Testspielstände blieben beim Update von 1.10.2 auf 1.11.0 bytegleich.
 
-106 Rust-Tests prüfen den Prolog bis zum Start der Geschichte, die Wegverbindungen, das Speichern, die Menünavigation und die Systeme für Hof, Handwerk und Kampf. Alle 229 GLB-Dateien sind lesbar. Ein Spieltest mit leerem Spielstand führte über die erste Aussaat, zwei Nächte, Werkbank, Ernte und Kochen bis zum Sieg im Übungsduell und zum Beginn der Hauptgeschichte. In weiteren Testspielständen ließ sich ein Möbel versetzen und drehen. Saatgutkauf, Einzelverkauf und die Reparatur des Fischerstegs mit Kupfer wurden im laufenden Spiel geprüft. Beim Update von 1.9.2 auf 1.10.0 blieben zwei Testspielstände auf Android 16 bytegenau erhalten. Beide Räder wurden mit einem virtuellen Xbox-Controller getestet. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen aus.
+113 Rust-Tests prüfen den Prolog bis zum Start der Geschichte, die Wegverbindungen, das Speichern, die Menünavigation und die Systeme für Hof, Handwerk und Kampf. Alle 233 GLB-Dateien sind lesbar. Ein Spieltest mit leerem Spielstand führte über die erste Aussaat, zwei Nächte, Werkbank, Ernte und Kochen bis zum Sieg im Übungsduell und zum Beginn der Hauptgeschichte. In weiteren Testspielständen ließ sich ein Möbel versetzen und drehen. Saatgutkauf, Einzelverkauf und die Reparatur des Fischerstegs mit Kupfer wurden im laufenden Spiel geprüft. Beim Update von 1.9.2 auf 1.10.0 blieben zwei Testspielstände auf Android 16 bytegenau erhalten. Beide Räder wurden mit einem virtuellen Xbox-Controller getestet. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen aus.
 
 Die Blender-Landschaften entstanden nach eigenen Bildreferenzen. [Insel und Pässe](art/references/insel.jpg) · [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)
 

@@ -128,6 +128,12 @@ impl Prologue {
 }
 
 impl Lesson {
+    fn chapter(self) -> u8 {
+        match self { Self::Walk => 1, Self::Till | Self::Sow | Self::Water => 2, Self::Wood | Self::Stone => 3,
+            Self::Bench | Self::Boards => 4, Self::Sleep | Self::Tend | Self::Harvest => 5, Self::Kitchen => 6,
+            Self::Cards => 7, Self::Map | Self::Complete => 8 }
+    }
+
     pub fn title(self) -> &'static str {
         match self {
             Self::Walk => "Erste Schritte",
@@ -240,6 +246,8 @@ pub struct TutorialPanel;
 #[derive(Component)]
 pub struct TutorialTitle;
 #[derive(Component)]
+pub struct ChapterPip(u8);
+#[derive(Component)]
 pub struct TutorialText;
 
 pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
@@ -263,6 +271,13 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
             BackgroundColor(Color::srgba_u8(31, 57, 49, 242)),
         ))
         .with_children(|p| {
+            p.spawn(Node { column_gap: Val::Px(4.), margin: UiRect::bottom(Val::Px(5.)), ..default() })
+                .with_children(|row| {
+                    for chapter in 1..=8 {
+                        row.spawn((ChapterPip(chapter), Node { height: Val::Px(3.), flex_grow: 1., ..default() },
+                            BackgroundColor(Color::NONE), BorderRadius::all(Val::Px(2.))));
+                    }
+                });
             let (label, font, _) = fonts.title("", 16.);
             p.spawn((
                 TutorialTitle,
@@ -298,6 +313,7 @@ pub fn update(
     time: Res<Time>,
     mut notice: ResMut<Notice>,
     mut panel: Single<&mut Visibility, With<TutorialPanel>>,
+    mut pips: Query<(&ChapterPip, &mut BackgroundColor)>,
     mut title: Single<&mut Text, (With<TutorialTitle>, Without<TutorialText>)>,
     mut body: Single<&mut Text, (With<TutorialText>, Without<TutorialTitle>)>,
 ) {
@@ -330,18 +346,25 @@ pub fn update(
             &path,
             &mut notice,
             time.elapsed_secs(),
-            "Prolog geschafft · +10 Münzen · Triff Bo in Eichenhafen".into(),
+            "Prolog geschafft · +10 Münzen · Bo ist auf der Karte markiert".into(),
             None,
             None,
         );
         return;
     }
+    let chapter = lesson.chapter();
     if garden.clock.night() && lesson.action().is_some() {
         lesson = Lesson::Sleep;
     }
     if !adventure.map {
         panel.set_if_neq(Visibility::Inherited);
-        title.set_if_neq(Text::new(format!("Prolog · {}", lesson.title())));
+        title.set_if_neq(Text::new(format!("{chapter}/8 · {}", lesson.title())));
+        for (pip, mut color) in &mut pips {
+            let tint = if pip.0 < chapter { Color::srgb_u8(164, 201, 157) } else if pip.0 == chapter {
+                Color::srgb_u8(255, 204, 119)
+            } else { Color::srgb_u8(86, 113, 96) };
+            color.set_if_neq(BackgroundColor(tint));
+        }
         body.set_if_neq(Text::new(lesson.instruction(
             &garden,
             controller.active,

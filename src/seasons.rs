@@ -170,10 +170,9 @@ pub fn meeting_status(garden: &Garden) -> String {
     if garden.seasons.attended(garden.day) {
         "Du hast an diesem Treffen teilgenommen.".into()
     } else if day < MEETING_START {
-        format!(
-            "Beginn in {} Tagen · Tag {MEETING_START}–7, 06–20 Uhr",
-            MEETING_START - day
-        )
+        let remaining = MEETING_START - day;
+        let when = if remaining == 1 { "morgen".into() } else { format!("in {remaining} Tagen") };
+        format!("Beginn {when} · Tag {MEETING_START}–7, 06–20 Uhr")
     } else if !garden.clock.market_open() {
         "Für heute ist der Dorftisch geschlossen.".into()
     } else {

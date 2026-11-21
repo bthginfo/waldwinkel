@@ -193,6 +193,7 @@ pub enum Guide {
     BuildPlan,
     EveningMarket,
     FishSupper,
+    TownGarden,
     Pier,
     Watch(crate::waywatch::Watch),
     WatchFinale,
@@ -224,6 +225,7 @@ impl Guide {
             GuideTab::Orders => &[
                 Self::BuildPlan,
                 Self::FishSupper,
+                Self::TownGarden,
                 Self::FirstMorning,
                 Self::Workshop,
                 Self::Pier,
@@ -270,6 +272,7 @@ impl Guide {
             Self::SeasonMeeting => "Dorftisch in Eichenhafen",
             Self::Farm => garden.task().0,
             Self::Workshop => "Die alte Hofwerkbank",
+            Self::TownGarden => crate::town_garden::TITLE,
             Self::FishSupper => crate::fish_supper::TITLE,
             Self::EveningMarket => crate::evening_market::TITLE,
             Self::BuildPlan => garden
@@ -295,6 +298,7 @@ impl Guide {
                 "Erfüllt · Juna hat dir von den Klangsteinen erzählt.".into()
             }
             Self::BuildPlan => garden.plan.map_or_else(String::new, |plan| format!("Angeheftet · {}", plan.summary(garden))),
+            Self::TownGarden => garden.town_garden.summary(garden.day),
             Self::FishSupper => garden.fish_supper.detail().into(),
             Self::EveningMarket => crate::evening_market::detail(garden).lines().next().unwrap_or("").into(),
             Self::Workshop if garden.workshop.restored => {
@@ -439,7 +443,8 @@ impl Guide {
             Self::WatchFinale => crate::waywatch::finale_route(garden),
             Self::Resident(npc) if npc.available(garden) => person(npc),
             Self::Resident(_) => None,
-            Self::SeasonMeeting => Some(Target::SeasonMeeting),
+            Self::TownGarden if garden.town_garden.stage.model().is_some() => Some(Target::TownGarden),
+            Self::TownGarden | Self::SeasonMeeting => Some(Target::SeasonMeeting),
             Self::Town(npc) => (!town::order_done(npc, garden)).then_some(Target::Person(npc)),
             Self::Regional(frontier) if !frontier.unlocked(garden) => gateway(frontier),
             Self::Regional(frontier) if garden.regions.story_steps(frontier) >= 3 => None,

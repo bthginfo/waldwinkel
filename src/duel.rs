@@ -46,6 +46,7 @@ pub enum Card {
     HarborSong,
     StoneEcho,
     HearthMeal,
+    BloomWard,
 }
 
 struct CardSpec {
@@ -75,7 +76,7 @@ impl CardSpec {
 }
 
 impl Card {
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::TwigStrike,
         Self::BarkShield,
         Self::TrailRush,
@@ -94,6 +95,7 @@ impl Card {
         Self::HarborSong,
         Self::StoneEcho,
         Self::HearthMeal,
+        Self::BloomWard,
     ];
 
     fn spec(self) -> CardSpec {
@@ -140,6 +142,7 @@ impl Card {
                 ..base("Hafenlied", 0, 0, 2, 0)
             },
             Self::StoneEcho => base("Steinecho", 1, 9, 7, 0),
+            Self::BloomWard => base("Blütenwacht", 1, 0, 7, 3),
             Self::HearthMeal => base("Abendmahl", 2, 0, 10, 14),
         }
     }
@@ -201,6 +204,7 @@ impl Card {
             pieces.push(format!("{} ziehen", spec.draw));
         }
         match self {
+            Self::BloomWard => pieces.push("Mit vorhandenem Schild 1 ziehen".into()),
             Self::Scout => pieces.push("Nächster Treffer +4".into()),
             Self::SeedShot => pieces.push("Verstärkt aktive Sporen".into()),
             _ => {}
@@ -309,6 +313,7 @@ impl Loot {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Progress {
+    #[serde(deserialize_with = "read_collection")]
     cards: [bool; Card::ALL.len()],
     deck: [Card; DECK_SIZE],
     pub gear: Gear,
@@ -319,6 +324,16 @@ pub struct Progress {
     pub hp: u16,
     pub trophies: [u32; Loot::ALL.len()],
     pub style: Style,
+}
+
+fn read_collection<'de, D: serde::Deserializer<'de>>(reader: D) -> Result<[bool; Card::ALL.len()], D::Error> {
+    let cards = Vec::<bool>::deserialize(reader)?;
+    if !(18..=Card::ALL.len()).contains(&cards.len()) {
+        return Err(serde::de::Error::custom("Ungültige Kartensammlung"));
+    }
+    let mut known = [false; Card::ALL.len()];
+    known[..cards.len()].copy_from_slice(&cards);
+    Ok(known)
 }
 
 impl Default for Progress {
@@ -753,6 +768,14 @@ impl Ration {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CardImpact {
+    pub damage: u16,
+    pub armor: u16,
+    pub healed: u16,
+    pub shield: u16,
+}
+
 pub struct Battle {
     pub level: u32,
     pub enemy: Enemy,
@@ -927,6 +950,56 @@ impl Battle {
         (self.drawing.len(), self.used.len())
     }
 
+    pub(crate) fn impact(&self, card: Card) -> CardImpact {
+        let spec = card.spec();
+        let warden = self.style == Style::Warden && self.warden_ready && spec.guard > 0;
+        let mut result = CardImpact {
+            shield: u16::from(spec.guard) + 3 * u16::from(warden),
+            healed: u16::from(spec.healing).min(self.max_hp.saturating_sub(self.hp)),
+            ..Default::default()
+        };
+        if spec.damage > 0 {
+            let broken = if self.armor_break { self.enemy_guard.min(8) } else { 0 };
+            let power = u16::from(spec.damage) + u16::from(self.strength) + 4 * u16::from(self.marked);
+            let absorbed = if spec.piercing { 0 } else { (self.enemy_guard - broken).min(power) };
+            result.armor = broken + absorbed;
+            result.damage = (power - absorbed).min(self.enemy_hp);
+        }
+        result
+    }
+
+    pub fn forecast(&self, card: Card) -> String {
+        if card.cost() > self.energy {
+            return format!("{} · Noch {} Kraft nötig.", card.name(), card.cost() - self.energy);
+        }
+        let hit = self.impact(card);
+        let mut lines = Vec::new();
+        if card.spec().damage > 0 {
+            lines.push(format!("Hüter −{} Leben", hit.damage));
+            if hit.armor > 0 { lines.push(format!("−{} Rüstung", hit.armor)); }
+        }
+        if hit.healed > 0 { lines.push(format!("Tanuki +{} Leben", hit.healed)); }
+        if hit.shield > 0 {
+            lines.push(format!("+{} Schild", hit.shield));
+        }
+        let incoming = self.incoming(self.intent());
+        let spores = self.spores[0].saturating_add(u16::from(card.spec().spores))
+            .saturating_add(if card == Card::SeedShot && self.spores[0] > 0 { 2 } else { 0 });
+        let interrupts = self.charged.is_some() && hit.armor == self.enemy_guard;
+        if incoming > 0 {
+            let counter = if self.enemy_hp.saturating_sub(hit.damage) <= spores || interrupts {
+                0
+            } else {
+                incoming.saturating_sub(hit.shield)
+            };
+            if counter != incoming {
+                lines.push(format!("Gegentreffer {incoming} → {counter}"));
+            }
+        }
+        if card == Card::BloomWard && self.guard > 0 { lines.push("1 Karte ziehen".into()); }
+        format!("{} · {}", card.name(), lines.join(" · "))
+    }
+
     pub fn card_description(&self, card: Card) -> String {
         card.description_with(self.strength)
     }
@@ -971,38 +1044,28 @@ impl Battle {
         self.energy -= spec.cost;
         self.hand.remove(index);
         let (old_hp, old_enemy_hp, old_enemy_guard) = (self.hp, self.enemy_hp, self.enemy_guard);
-        let warden = spec.guard > 0 && self.style == Style::Warden && self.warden_ready;
-        let shield = spec.guard + if warden { 3 } else { 0 };
-        if warden {
+        let sheltered = card == Card::BloomWard && self.guard > 0;
+        let impact = self.impact(card);
+        let shield = impact.shield;
+        if spec.guard > 0 && self.style == Style::Warden {
             self.warden_ready = false;
         }
-        self.guard = self.guard.saturating_add(u16::from(shield));
-        self.hp = self
-            .hp
-            .saturating_add(u16::from(spec.healing))
-            .min(self.max_hp);
+        self.guard = self.guard.saturating_add(shield);
+        self.hp += impact.healed;
         let marked_hit = spec.damage > 0 && std::mem::take(&mut self.marked);
-        if spec.damage > 0 {
-            if self.armor_break && self.enemy_guard > 0 {
-                self.enemy_guard = self.enemy_guard.saturating_sub(8);
-                self.armor_break = false;
-            }
-            let power = u16::from(spec.damage) + u16::from(self.strength) + 4*u16::from(marked_hit);
-            let absorbed = if spec.piercing {
-                0
-            } else {
-                self.enemy_guard.min(power)
-            };
-            self.enemy_guard -= absorbed;
-            self.enemy_hp = self.enemy_hp.saturating_sub(power - absorbed);
+        if spec.damage > 0 && self.enemy_guard > 0 {
+            self.armor_break = false;
         }
+        self.enemy_guard -= impact.armor;
+        self.enemy_hp -= impact.damage;
         for spores in &mut self.spores {
             *spores = spores.saturating_add(u16::from(spec.spores));
         }
-        self.draw(spec.draw);
+        self.draw(spec.draw + u8::from(sheltered));
         self.used.push(card);
         self.played_this_turn = self.played_this_turn.saturating_add(1);
         let mut effects = Vec::new();
+        if sheltered { effects.push("Blütenwacht · eine Karte ziehen".into()); }
         if card == Card::Scout {
             self.marked = true;
             effects.push("Spur erkannt · nächster Treffer +4".into());
@@ -1063,11 +1126,12 @@ impl Battle {
             Intent::Attack(_) | Intent::Flurry(_) => {
                 let lost = self.incoming(intent);
                 self.hp = self.hp.saturating_sub(lost);
-                format!(
-                    "{} greift an · {} Lebenspunkte verloren",
-                    if self.training { "Der Strohwächter" } else { self.enemy.name() },
-                    lost
-                )
+                let name = if self.training { "Der Strohwächter" } else { self.enemy.name() };
+                if lost == 0 {
+                    format!("{name} greift an · Du wehrst den Angriff ab.")
+                } else {
+                    format!("{name} greift an · −{lost} Leben")
+                }
             }
             Intent::Brace(shield) => {
                 self.enemy_guard = shield;
@@ -1549,4 +1613,49 @@ mod tests {
         battle.guard = 3;
         assert_eq!(battle.incoming(Intent::Flurry(8)), 9);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn choosing_any_card_forecasts_the_actual_life_and_armor_change() {
+    for card in Card::ALL {
+        for armor in [0, 5, 60] {
+            for combo in [false, true] {
+                let mut battle = Battle::new(1, &Progress::default());
+                battle.enemy_guard=armor; battle.enemy_hp=12; battle.hp=battle.max_hp-3;
+                battle.marked=combo; battle.armor_break=combo; battle.style=Style::Warden;
+                battle.warden_ready=true; battle.guard=u16::from(combo)*4;
+                battle.hand=vec![card]; battle.energy=3;
+                let hit=battle.impact(card); let before=(battle.enemy_hp,battle.hp,battle.guard);
+                assert!(battle.play(0));
+                assert_eq!((before.0-battle.enemy_hp, armor-battle.enemy_guard, battle.hp-before.1,battle.guard-before.2),
+                    (hit.damage,hit.armor,hit.healed,hit.shield), "{card:?}, armor {armor}, combo {combo}");
+                if card==Card::BloomWard {assert_eq!(battle.hand.len(),usize::from(combo));}
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn preview_recognizes_an_interrupted_charge_and_a_lethal_spore_tick() {
+    let mut battle = Battle::new(1, &Progress::default());
+    battle.charged = Some(16);
+    battle.enemy_guard = 3;
+    battle.hand = vec![Card::TwigStrike];
+    assert!(battle.forecast(Card::TwigStrike).contains("16 → 0"));
+    let hp = battle.hp;
+    assert!(battle.play(0));
+    battle.end_turn();
+    assert_eq!(battle.hp, hp);
+
+    let mut dummy = Battle::training();
+    dummy.enemy_hp = 7;
+    dummy.spores = [2, 0];
+    dummy.hand = vec![Card::SeedShot];
+    assert!(dummy.forecast(Card::SeedShot).contains("8 → 0"));
+    assert!(dummy.play(0));
+    dummy.end_turn();
+    assert_eq!(dummy.outcome, Outcome::Won);
+    assert_eq!(dummy.hp, dummy.max_hp);
 }

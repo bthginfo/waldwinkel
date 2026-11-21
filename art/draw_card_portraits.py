@@ -4,7 +4,7 @@ from pathlib import Path
 import math
 import random
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 OUT = Path(__file__).resolve().parents[1] / "assets" / "ui"
 SIZE = (252, 152)
@@ -213,7 +213,7 @@ def gilded_plate(picture, index):
     for br, radius, color in [(4, 22, (64, 43, 31)), (7, 21, bright), (11, 17, (145, 104, 61)),
                               (14, 15, (80, 50, 34)), (18, 13, tuple(round(c*.86) for c in bright))]:
         edges.rounded_rectangle((br, br, width-1-br, height-1-br), radius=radius, outline=color, width=2)
-    pane = picture.crop((8, 7, 244, 144)).resize((333, 183), Image.Resampling.LANCZOS)
+    pane = ImageOps.fit(picture, (333, 183), method=Image.Resampling.LANCZOS)
     mask = Image.new("L", pane.size)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, *pane.size), radius=19, fill=255)
     plate.paste(pane, (22, 22), mask)
@@ -227,8 +227,42 @@ def gilded_plate(picture, index):
     return plate
 
 
+def sheet_cells(name, side):
+    path = Path(__file__).with_name("card_art") / (name + ".jpg")
+    with Image.open(path) as sheet:
+        width, height = sheet.size
+        for y in range(side):
+            for x in range(side):
+                yield sheet.crop((round(x*width/side)+2, round(y*height/side)+2,
+                                  round((x+1)*width/side)-2, round((y+1)*height/side)-2))
+
+
 if __name__ == "__main__":
-    for i in range(18):
-        gilded_plate(scene(i), i).save(OUT / f"portrait_card_{i:02}.png", optimize=True)
+    town = list(sheet_cells("garden", 2))
+    cards = [*sheet_cells("starter", 3), *sheet_cells("island", 3), town[-1]]
+    for i, picture in enumerate(cards):
+        gilded_plate(picture, i).save(OUT / f"portrait_card_{i:02}.png", optimize=True)
+    for name, picture in zip(("seedlings", "pump", "lanterns"), town):
+        ImageOps.fit(picture, (352, 204), method=Image.Resampling.LANCZOS).save(OUT / f"town_{name}.png", optimize=True)
     for index, station in enumerate(("cook","preserve","mill"),start=17):
         scene(index).save(OUT / f"station_{station}.png", optimize=True)
+
+    # Short-lived hit particles. Transparent margins allow the art to move across the scene.
+    for kind in ("strike", "guard", "heal", "focus", "spore"):
+        sprite = Image.new("RGBA", (64, 64))
+        ink = ImageDraw.Draw(sprite)
+        if kind == "strike":
+            ink.polygon([(5,53),(32,16),(28,34),(58,7),(33,46),(38,30)], fill="#ffdc83")
+        elif kind == "guard":
+            ink.polygon([(8,28),(34,7),(56,19),(36,55)], fill="#82cfcf")
+            ink.line([(10,28),(34,11),(48,18)], fill="#f5efd3", width=4)
+        elif kind == "heal":
+            ink.ellipse((17,9,46,54),fill="#a8d57c")
+            ink.line([(28,49),(31,36),(34,26),(34,16)], fill="#edecaf", width=3)
+        elif kind == "spore":
+            for x,y,r in [(31,32,11),(49,17,5),(17,50,4)]:
+                ink.ellipse((x-r,y-r,x+r,y+r),fill="#dfb3e1")
+                ink.ellipse((x-r//2,y-r//2,x,y),fill="#fae7d1")
+        else:
+            ink.polygon([(32,5),(38,24),(54,33),(39,40),(30,59),(25,40),(9,33),(25,24)], fill="#eedb98")
+        sprite.resize((32,32), Image.Resampling.LANCZOS).save(OUT / f"burst_{kind}.png", optimize=True)

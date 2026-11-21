@@ -53,7 +53,7 @@ pub enum DuelText {
 pub struct CardPicture(usize);
 
 #[derive(Component)]
-pub struct HealthFill(bool);
+pub struct HealthFill { player: bool, forecast: bool }
 
 #[derive(Component)]
 pub struct FlyingCard;
@@ -62,6 +62,9 @@ pub struct CombatImpact;
 #[derive(Component)]
 pub struct ImpactSymbol;
 
+#[derive(Component)]
+pub struct SpellMote(u8);
+
 #[derive(Clone, Copy)]
 struct Feedback {
     at: f32,
@@ -69,6 +72,7 @@ struct Feedback {
     from: Vec2,
     to: Vec2,
     amount: u16,
+    armor: u16,
     kind: Emblem,
     opponent: bool,
     sounded: bool,
@@ -155,12 +159,19 @@ pub fn animate_guardian(
 }
 
 #[derive(Resource)]
-pub struct DeckIcons([Handle<Image>; Card::ALL.len()]);
+pub struct DeckIcons {
+    portraits: [Handle<Image>; Card::ALL.len()],
+    motes: [Handle<Image>; 5],
+}
 
 impl FromWorld for DeckIcons {
     fn from_world(world: &mut World) -> Self {
         let assets = world.resource::<AssetServer>();
-        Self(Card::ALL.map(|card| assets.load(card.portrait())))
+        Self {
+            portraits: Card::ALL.map(|card| assets.load(card.portrait())),
+            motes: ["strike", "guard", "heal", "focus", "spore"]
+                .map(|kind| assets.load(format!("ui/burst_{kind}.png"))),
+        }
     }
 }
 
@@ -237,20 +248,22 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                                     BorderRadius::all(Val::Px(4.)),
                                     BackgroundColor(Color::srgb_u8(224, 205, 165)),
                                 ))
-                                .with_child((
-                                    HealthFill(player),
-                                    Node {
-                                        width: Val::Percent(100.),
-                                        height: Val::Percent(100.),
-                                        ..default()
-                                    },
-                                    BorderRadius::all(Val::Px(4.)),
-                                    BackgroundColor(if player {
-                                        Color::srgb_u8(86, 120, 75)
-                                    } else {
-                                        Color::srgb_u8(155, 81, 63)
-                                    }),
-                                ));
+                                .with_children(|bar| {
+                                    for forecast in [false, true] {
+                                        let color = match (player, forecast) {
+                                            (true, false) => Color::srgb_u8(86, 120, 75),
+                                            (true, true) => Color::srgb_u8(152, 201, 126),
+                                            (false, false) => Color::srgb_u8(155, 81, 63),
+                                            (false, true) => Color::srgb_u8(249, 192, 100),
+                                        };
+                                        bar.spawn((
+                                            HealthFill { player, forecast },
+                                            Node { position_type: PositionType::Absolute, height: Val::Percent(100.),
+                                                width: Val::Percent(if forecast { 0. } else {100.}), ..default() },
+                                            BorderRadius::all(Val::Px(4.)), BackgroundColor(color),
+                                        ));
+                                    }
+                                });
                         }
                     });
                 }
@@ -324,8 +337,8 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                                 Button,
                                 FocusEnabled(true),
                                 Node {
-                                    width: Val::Px(121.),
-                                    max_width: Val::Percent(12.0),
+                                    width: Val::Px(180.),
+                                    max_width: Val::Percent(18.),
                                     min_height: Val::Px(146.),
                                     padding: UiRect::all(Val::Px(5.)),
                                     flex_direction: FlexDirection::Column,
@@ -341,7 +354,8 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                             ))
                             .with_children(|card| {
                                 card.spawn(Node {
-                                    min_height: Val::Px(61.),
+                                    width: Val::Percent(100.),
+                                    aspect_ratio: Some(378. / 228.),
                                     ..default()
                                 })
                                 .with_children(|top| {
@@ -350,7 +364,8 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                                         ImageNode::default(),
                                         Node {
                                             width: Val::Percent(100.),
-                                            height: Val::Px(61.),
+                                            height: Val::Percent(100.),
+                                            position_type: PositionType::Absolute,
                                             ..default()
                                         },
                                     ));
@@ -418,6 +433,11 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                         });
                     });
             });
+            for seed in 0..7 {
+                veil.spawn((SpellMote(seed), ImageNode::default(), bevy::ui::FocusPolicy::Pass, Node {
+                    display: Display::None, position_type: PositionType::Absolute, ..default()
+                }, ZIndex(3)));
+            }
             veil.spawn((
                 FlyingCard,
                 ImageNode::default(),
@@ -535,6 +555,7 @@ pub fn input(
     let battle = menu.battle_mut().expect("open battle");
     let now = time.elapsed_secs();
     let old = (battle.enemy_hp, battle.enemy_guard, battle.hp, battle.guard);
+    let expected_attack = matches!(battle.intent(), Intent::Attack(_) | Intent::Flurry(_));
     let mut played = None;
     let (player, transform) = &mut *player;
     if battle.outcome == Outcome::Running {
@@ -626,14 +647,17 @@ pub fn input(
         }
         _ => return,
     }
-    let strike = old.0.saturating_sub(battle.enemy_hp) + old.1.saturating_sub(battle.enemy_guard);
+    let strike = old.0.saturating_sub(battle.enemy_hp);
+    let armor = old.1.saturating_sub(battle.enemy_guard);
     let hurt = old.2.saturating_sub(battle.hp);
     let mend = battle.hp.saturating_sub(old.2);
     let shield = battle.guard.saturating_sub(old.3);
     let (kind, amount, opponent) = if hurt > 0 {
         (Emblem::Strike, hurt, false)
-    } else if strike > 0 {
+    } else if strike > 0 || armor > 0 {
         (Emblem::Strike, strike, true)
+    } else if played.is_none() && expected_attack {
+        (Emblem::Guard, 0, false)
     } else if mend > 0 {
         (Emblem::Heal, mend, false)
     } else if shield > 0 {
@@ -651,7 +675,7 @@ pub fn input(
     motion.feedback = Some(Feedback {
         at: now, card: played, from,
         to: if opponent { Vec2::new(71., 39.) } else { Vec2::new(29., 40.) },
-        amount, kind, opponent, sounded: false,
+        amount, armor, kind, opponent, sounded: false,
     });
     if played.is_some() {
         sounds.write(Cue::CardSlide);
@@ -682,6 +706,45 @@ pub fn input(
     if let Some(reward) = prize {
         battle.message.clone_from(&reward);
         commit(&garden, &path, &mut notice, now, reward, None, None);
+    }
+}
+
+pub fn animate_motes(
+    time: Res<Time>,
+    menu: Res<FarmMenu>,
+    motion: Res<CombatMotion>,
+    icons: Res<DeckIcons>,
+    mut motes: Query<(&SpellMote, &mut Node, &mut ImageNode)>,
+) {
+    let effect = motion.feedback.filter(|_| menu.battle().is_some()).and_then(|fx| {
+        let age = time.elapsed_secs() - fx.at - if fx.card.is_some() { 0.21 } else { 0.08 };
+        (0.0..0.50).contains(&age).then_some((fx, age / 0.50))
+    });
+    for (mote, mut node, mut image) in &mut motes {
+        let Some((fx, t)) = effect else {
+            if node.display != Display::None { node.display = Display::None; }
+            continue;
+        };
+        let kind = if fx.amount == 0 && fx.armor > 0 { Emblem::Guard } else { fx.kind };
+        let n = f32::from(mote.0);
+        let angle = n * std::f32::consts::TAU / 7.;
+        let spread = 1. - (1. - t).powi(3);
+        let offset = match kind {
+            Emblem::Strike => Vec2::new(angle.cos() * 53., angle.sin() * 29. - 12.) * spread,
+            Emblem::Guard => Vec2::from_angle(angle) * (12. + 28. * spread),
+            Emblem::Heal => Vec2::new(angle.cos() * (11. + t * 18.), angle.sin() * 16. - t * 43.),
+            Emblem::Spore => Vec2::from_angle(angle + t) * (9. + 31. * spread) - Vec2::Y * t * 17.,
+            Emblem::Focus => Vec2::from_angle(angle - t) * (33. - 24. * t),
+        };
+        let size = (11. + n % 3. * 3.) * (1. - 0.4 * t);
+        node.display = Display::Flex;
+        node.left = Val::Percent(fx.to.x);
+        node.top = Val::Percent(fx.to.y);
+        node.margin = UiRect { left: Val::Px(offset.x - size/2.), top: Val::Px(offset.y - size/2.), ..default() };
+        node.width = Val::Px(size);
+        node.height = Val::Px(size);
+        image.image = icons.motes[kind as usize].clone();
+        image.color = Color::srgba(1., 1., 1., 1. - t*t);
     }
 }
 
@@ -720,7 +783,7 @@ pub fn animate_feedback(
         fly_node.margin = UiRect::left(Val::Px(-width*0.5));
         fly_node.width = Val::Px(width);
         fly_node.height = Val::Px(width*0.60);
-        art.image = icons.0[card as usize].clone();
+        art.image = icons.portraits[card as usize].clone();
         art.color = Color::srgba(1., 1., 1., (1.45-t).min(1.));
     }
     let local = age - if fx.card.is_some() { 0.23 } else { 0.08 };
@@ -745,8 +808,10 @@ pub fn animate_feedback(
     let t = local / 0.62;
     let fade = (1. - t).sqrt();
     let (label, color) = match fx.kind {
+        Emblem::Strike if fx.armor > 0 && fx.amount == 0 => (format!("−{} Rüstung", fx.armor), (0.80, 0.88, 1.)),
         Emblem::Strike if fx.amount > 0 =>
-            (format!("−{}", fx.amount), if fx.opponent { (1., 0.77, 0.48) } else { (1., 0.56, 0.45) }),
+            (format!("−{} Leben", fx.amount), if fx.opponent { (1., 0.77, 0.48) } else { (1., 0.56, 0.45) }),
+        Emblem::Guard if fx.card.is_none() => ("Abgewehrt".into(), (0.69, 0.87, 1.)),
         Emblem::Guard => (format!("+{} Schild", fx.amount), (0.69, 0.87, 1.)),
         Emblem::Heal => (format!("+{} Leben", fx.amount), (0.72, 1., 0.66)),
         Emblem::Spore => ("Sporen".into(), (0.83, 1., 0.64)),
@@ -775,6 +840,7 @@ pub fn update(
     mut veil: Single<&mut Node, With<DuelPane>>,
     mut fields: Query<(&DuelText, &mut Text)>,
     mut pictures: Query<(&CardPicture, &mut ImageNode)>,
+    mut deal: Local<Option<(u16, f32)>>,
     mut bars: Query<(&HealthFill, &mut Node), (Without<DuelPane>, Without<DuelButton>)>,
     mut buttons: Query<
         (&DuelButton, &Interaction, &mut Node, &mut BackgroundColor, &mut FocusEnabled, &mut BorderColor),
@@ -782,15 +848,30 @@ pub fn update(
     >,
 ) {
     let Some(battle) = menu.battle().filter(|_| session.playing()) else {
+        *deal = None;
         veil.display = Display::None;
         return;
     };
     veil.display = Display::Flex;
+    if !deal.is_some_and(|(round, _)| round == battle.round) {
+        *deal = Some((battle.round, time.elapsed_secs()));
+    }
+    let deal_age = time.elapsed_secs() - deal.unwrap().1;
     let ease = (1. - (-time.delta_secs()*13.).exp()).clamp(0., 1.);
-    for (HealthFill(player), mut node) in &mut bars {
-        let (current, max) = if *player { (battle.hp, battle.max_hp) }
+    let selected = motion.selected.filter(|_| battle.hand_controls()).and_then(|i| battle.hand.get(i)).copied();
+    let forecast = selected.filter(|c| c.cost() <= battle.energy).map(|c| battle.impact(c)).unwrap_or_default();
+    for (bar, mut node) in &mut bars {
+        let player = bar.player;
+        let (current, max) = if player { (battle.hp, battle.max_hp) }
             else { (battle.enemy_hp, battle.enemy_max) };
-        let target = 100. * f32::from(current) / f32::from(max);
+        let pct = |amount| 100. * f32::from(amount) / f32::from(max);
+        if bar.forecast {
+            let (from, span) = if player { (current, forecast.healed) } else { (current - forecast.damage, forecast.damage) };
+            node.left = Val::Percent(pct(from));
+            node.width = Val::Percent(pct(span));
+            continue;
+        }
+        let target = pct(current);
         let Val::Percent(previous) = node.width else { continue };
         let next = previous + (target-previous)*ease;
         if (target-previous).abs() > 0.001 {
@@ -800,7 +881,7 @@ pub fn update(
     if menu.is_changed() || session.is_changed() || controller.is_changed() || motion.is_changed() {
         for (CardPicture(i), mut picture) in &mut pictures {
             if let Some(card) = battle.hand.get(*i) {
-                let icon = &icons.0[*card as usize];
+                let icon = &icons.portraits[*card as usize];
                 if picture.image != *icon {
                     picture.image = icon.clone();
                 }
@@ -916,6 +997,7 @@ pub fn update(
                     "Proviant"
                 }
                 .into(),
+                DuelText::Message if motion.feedback.is_none() && selected.is_some() => battle.forecast(selected.unwrap()),
                 DuelText::Message => battle.message.clone(),
                 DuelText::Name(i) => battle.hand.get(i).map_or("", |card| card.name()).into(),
                 DuelText::Cost(i) => battle
@@ -957,7 +1039,7 @@ pub fn update(
                 battle.outcome == Outcome::Running && !battle.retreat_pending,
                 true,
             ),
-            DuelButton::Commit => (battle.hand_controls() && !controller.active, motion.selected.is_some()),
+            DuelButton::Commit => (battle.hand_controls() && !controller.active, selected.is_some_and(|c| c.cost() <= battle.energy)),
             DuelButton::Stay => (battle.retreat_pending, true),
             DuelButton::Pack => (
                 battle.outcome == Outcome::Running
@@ -982,12 +1064,17 @@ pub fn update(
         };
         focus.0 = visible && enabled;
         if let DuelButton::Play(index) = button {
+            // Keep the illustrated hand in one row, including the eight-card draw limit.
+            let slots = battle.hand.len().clamp(5, 8) as f32;
+            node.max_width = Val::Percent(100. / slots - 1.2);
             let selected = motion.selected == Some(index) && battle.hand_controls();
             let Val::Px(previous) = node.top else {
                 node.top = Val::Px(0.);
                 continue;
             };
-            node.top = Val::Px(previous + (if selected { -7. } else { 0. } - previous) * ease);
+            let fan = (1. - (deal_age - index as f32 * 0.035) / 0.24).clamp(0., 1.);
+            let lift = if selected { -7. } else { 0. };
+            node.top = Val::Px(if fan > 0. { lift + 24. * fan * fan } else { previous + (lift - previous) * ease });
             border.0 = if selected {
                 Color::srgb_u8(237, 174, 67)
             } else {

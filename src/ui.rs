@@ -34,7 +34,7 @@ const FIELD_TOOL_WIDTH: f32 = 162.;
 const ZOOM_WIDTH: f32 = 56.;
 const MENU_WIDTH: f32 = 94.;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Utility {
     In,
     Out,
@@ -107,6 +107,7 @@ pub struct HudLayout {
     fertilizer: bool,
     field_tools: bool,
     large: bool,
+    pub(crate) tablet_pad: bool,
 }
 
 impl Default for HudLayout {
@@ -120,6 +121,7 @@ impl Default for HudLayout {
             fertilizer: false,
             field_tools: false,
             large: false,
+            tablet_pad: false,
         }
     }
 }
@@ -158,7 +160,7 @@ impl HudLayout {
     }
 
     pub fn on_stick(self, at: Vec2) -> bool {
-        at.distance_squared(self.stick_center()) <= ((STICK_SIZE * 0.5 + 5.0) * self.scale).powi(2)
+        !self.tablet_pad && at.distance_squared(self.stick_center()) <= ((STICK_SIZE * 0.5 + 5.0) * self.scale).powi(2)
     }
 
     pub fn on_action(self, at: Vec2) -> bool {
@@ -179,6 +181,7 @@ impl HudLayout {
         {
             return Some(Utility::Menu);
         }
+        if self.tablet_pad { return None; }
         if self.fertilizer
             && (MARGIN..=MARGIN + FERTILIZER_WIDTH).contains(&right)
             && (FERTILIZER_BOTTOM..=FERTILIZER_BOTTOM + FERTILIZER_HEIGHT).contains(&bottom)
@@ -270,7 +273,8 @@ pub fn resize(
     let fertilizer = !adventure.map
         && focus.selected.is_some_and(|i| garden.fertilizable(i))
         && !garden.clock.night();
-    let field_tools = !adventure.map
+    let tablet_pad = controller.active && size.min_element() >= 590.;
+    let field_tools = !tablet_pad && !adventure.map
         && (controller.active || adventure.area == Area::Island && player.position.length() < 17.);
     field_button.set_if_neq(if field_tools {
         Visibility::Inherited
@@ -282,6 +286,7 @@ pub fn resize(
         || layout.context_height != context_height
         || layout.fertilizer != fertilizer
         || layout.field_tools != field_tools
+        || layout.tablet_pad != tablet_pad
         || layout.large != garden.large_ui
     {
         let preference = if garden.large_ui { 1.16 } else { 1.0 };
@@ -298,6 +303,7 @@ pub fn resize(
             fertilizer,
             field_tools,
             large: garden.large_ui,
+            tablet_pad,
         };
         scale.0 = fit;
         hud.position_type = PositionType::Absolute;
@@ -534,6 +540,59 @@ pub fn dialog_button(width: f32) -> (Button, Node, BorderRadius, BackgroundColor
     )
 }
 
+#[derive(Component)]
+pub struct TouchControls;
+
+#[derive(Component)]
+pub struct TabletLegend;
+
+#[derive(Component)]
+pub struct TabletShortcut(Utility, bool);
+
+#[derive(Component)]
+pub struct ActionPrompt;
+
+pub fn tablet_controls(
+    layout: Res<HudLayout>,
+    adventure: Res<Adventure>,
+    mut touch: Query<&mut Visibility, (With<TouchControls>, Without<TabletLegend>)>,
+    mut legend: Single<&mut Visibility, With<TabletLegend>>,
+    mut shortcuts: Query<(&TabletShortcut, &mut Text)>,
+    garden: Res<Garden>, focus: Res<GardenFocus>, notice: Res<Notice>, time: Res<Time>,
+    mut prompts: Query<&mut Node, With<ActionPrompt>>,
+) {
+    let first_steps = layout.tablet_pad && !adventure.map && adventure.focus.is_none()
+        && focus.selected.is_none() && garden.prologue.as_ref().is_some_and(|p| !p.moved)
+        && time.elapsed_secs() >= notice.until;
+    for mut prompt in &mut prompts {
+        let display = if first_steps { Display::None } else { Display::Flex };
+        if prompt.display != display { prompt.display = display; }
+    }
+    if layout.is_changed() {
+        for mut item in &mut touch {
+            item.set_if_neq(if layout.tablet_pad { Visibility::Hidden } else { Visibility::Inherited });
+        }
+    }
+    if layout.is_changed() || adventure.is_changed() {
+        legend.set_if_neq(if layout.tablet_pad && !adventure.map { Visibility::Inherited } else { Visibility::Hidden });
+    }
+    if layout.tablet_pad && (adventure.is_changed() || layout.is_changed()) {
+        for (key, mut label) in &mut shortcuts {
+            let home = adventure.area == Area::Home;
+            let word = match (key.0, key.1, home) {
+                (Utility::FieldTool, true, true) => "←/→",
+                (Utility::FieldTool, true, false) => "X",
+                (Utility::FieldTool, false, true) => "Zielwahl",
+                (Utility::FieldTool, false, false) => "Werkzeuge",
+                (Utility::Choice, false, true) => "Einrichten",
+                (Utility::Choice, false, false) => "Saatgut",
+                _ => continue,
+            };
+            if label.0 != word { label.0 = word.into(); }
+        }
+    }
+}
+
 pub fn setup(mut commands: Commands, fonts: Res<UiFonts>, icons: Res<Icons>) {
     let title = fonts.serif.clone();
     let regular = fonts.regular.clone();
@@ -691,6 +750,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>, icons: Res<Icons>) {
             });
 
             root.spawn((
+                TouchControls,
                 Node {
                     position_type: PositionType::Absolute,
                     left: px(MARGIN),
@@ -742,6 +802,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>, icons: Res<Icons>) {
             });
 
             root.spawn((
+                ActionPrompt,
                 Node {
                     position_type: PositionType::Absolute,
                     left: Val::Percent(50.0),
@@ -798,8 +859,39 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>, icons: Res<Icons>) {
                 ));
             });
 
+            root.spawn((
+                TabletLegend, Visibility::Hidden, bevy::ui::FocusPolicy::Pass,
+                Node {
+                    position_type: PositionType::Absolute, left: px(MARGIN), bottom: px(MARGIN),
+                    flex_direction: FlexDirection::Column, row_gap: px(5.),
+                    padding: UiRect::axes(px(10.), px(8.)), border: UiRect::all(px(1.)),
+                    ..default()
+                },
+                BorderRadius::all(px(14.)), BackgroundColor(Color::srgba(0.13, 0.23, 0.18, 0.93)),
+                BorderColor(stroke()), shadow(),
+            )).with_children(|panel| {
+                for pair in [
+                    [("X", "Werkzeuge", Utility::FieldTool), ("LT", "Saatgut", Utility::Choice)],
+                    [("Y", "Karte", Utility::Map), ("↑", "Journal", Utility::Task)],
+                    [("↓", "Tasche", Utility::Inventory), ("LB/RB", "Zoom", Utility::In)],
+                ] {
+                    panel.spawn(Node { column_gap: px(8.), ..default() }).with_children(|row| {
+                        for (key, label, action) in pair {
+                            row.spawn(Node { width: px(105.), align_items: AlignItems::Center,
+                                column_gap: px(4.), ..default() }).with_children(|shortcut| {
+                                shortcut.spawn((Node { min_width: px(21.), justify_content: JustifyContent::Center,
+                                    padding: UiRect::horizontal(px(3.)), ..default() },
+                                    BorderRadius::all(px(5.)), BackgroundColor(sage())))
+                                    .with_child((TabletShortcut(action, true), text(key, &bold, 12., ink())));
+                                shortcut.spawn((TabletShortcut(action, false), text(label, &bold, 14., cream())));
+                            });
+                        }
+                    });
+                }
+            });
+
             for (row, labels) in Utility::TOOLBAR.into_iter().enumerate() {
-                root.spawn(Node {
+                root.spawn((TouchControls, Node {
                     position_type: PositionType::Absolute,
                     left: px(MARGIN),
                     top: px(TOOLS_TOP + row as f32 * TOOL_STEP),
@@ -807,7 +899,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>, icons: Res<Icons>) {
                     height: px(TOOL_HEIGHT),
                     column_gap: px(TOOL_GAP),
                     ..default()
-                })
+                }))
                 .with_children(|group| {
                     for (utility, label) in labels {
                         let image = match utility {
@@ -885,7 +977,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>, icons: Res<Icons>) {
                 ));
             });
             root.spawn((
-                ZoomTools,
+                ZoomTools, TouchControls,
                 Node {
                     position_type: PositionType::Absolute,
                     right: px(MARGIN),
@@ -934,7 +1026,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>, icons: Res<Icons>) {
                 button.spawn(text("Düngen", &bold, 15., ink()));
             });
             root.spawn((
-                ActionSurface,
+                ActionSurface, ActionPrompt,
                 Node {
                     position_type: PositionType::Absolute,
                     right: px(MARGIN),
@@ -1020,7 +1112,7 @@ pub fn update_fertilizer(
     mut zoom: Single<&mut Node, With<ZoomTools>>,
 ) {
     let (node, color) = &mut *button;
-    node.display = if layout.fertilizer {
+    node.display = if layout.fertilizer && !layout.tablet_pad {
         Display::Flex
     } else {
         Display::None
@@ -1325,6 +1417,21 @@ pub fn update(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tablet_can_switch_between_touch_hit_boxes_and_controller_shortcuts() {
+        for size in [Vec2::new(1280., 800.), Vec2::new(1024., 768.)] {
+            let touch = HudLayout { size, ..default() };
+            let pad = HudLayout { tablet_pad: true, ..touch };
+            let map_button = touch.origin + Vec2::new(MARGIN + TOOL_WIDTH / 2., TOOLS_TOP + TOOL_HEIGHT / 2.);
+            let menu = Vec2::new(size.x - MARGIN - MENU_WIDTH / 2., MARGIN + TOOL_HEIGHT / 2.);
+            assert!(touch.on_stick(touch.stick_center()));
+            assert!(!pad.on_stick(pad.stick_center()));
+            assert_eq!(touch.utility(map_button), Some(Utility::Map));
+            assert_eq!(pad.utility(map_button), None);
+            assert_eq!(pad.utility(menu), Some(Utility::Menu));
+        }
+    }
 
     #[test]
     fn compact_toolbar_and_zoom_hit_boxes_fit_phone_and_tablet_layouts() {

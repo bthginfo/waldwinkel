@@ -78,7 +78,7 @@ impl Step {
             Self::Tutorial(lesson) => lesson.instruction(garden, controller, false),
             Self::Garden if controller => "Stell dich vor ein Beet und drücke A. X öffnet das Werkzeugrad.".into(),
             Self::Garden => garden.onboarding.hint().into(),
-            Self::MeetBo => "Folge dem Weg nach Eichenhafen und sprich mit Bo.".into(),
+            Self::MeetBo => format!("Sprich mit Bo. {}", Npc::Bo.whereabouts(garden)),
             Self::Watch(site) => site.summary(garden),
             Self::Pier => garden.harbor.phase.label().into(),
             Self::Done => String::new(),
@@ -91,7 +91,7 @@ impl Step {
         match self {
             Self::Tutorial(lesson) => lesson.title(),
             Self::Garden => "Dein erster Morgen",
-            Self::MeetBo => "Bo in Eichenhafen",
+            Self::MeetBo => "Besuch bei Bo",
             Self::Watch(site) => site.name(),
             Self::Pier => "Der Fischersteg",
             Self::MeetJuna => "Junas Geschichte",
@@ -120,7 +120,8 @@ impl Step {
     pub fn detail(self, garden: &Garden) -> String {
         match self {
             Self::Tutorial(lesson) => lesson.instruction(garden, false, false),
-            Self::Garden | Self::MeetBo => garden.onboarding.hint().into(),
+            Self::Garden => garden.onboarding.hint().into(),
+            Self::MeetBo => self.hint(garden, false),
             Self::Watch(Watch::Fern) if Watch::Fern.stage(garden) == Stage::Surveyed
                 && !garden.workshop.restored => Project::Restore.detail(garden),
             Self::Watch(Watch::Fern) if Watch::Fern.stage(garden) == Stage::Surveyed

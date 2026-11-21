@@ -22,7 +22,7 @@ use std::{
 pub const PLOT_COUNT: usize = 18;
 pub const FERTILIZER_PRICE: u32 = 4;
 const FERTILIZER_PACK: u32 = 2;
-const SAVE_VERSION: u8 = 17;
+const SAVE_VERSION: u8 = 18;
 pub const MAX_SAVE_SIZE: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -258,6 +258,7 @@ pub struct Garden {
     pub music_muted: bool,
     pub workshop: crate::workshop::Progress,
     pub plan: Option<crate::building_plan::Plan>,
+    pub town_garden: crate::town_garden::TownGarden,
     pub fish_supper: crate::fish_supper::Supper,
     pub evening_market: crate::evening_market::Progress,
 }
@@ -313,6 +314,7 @@ impl Default for Garden {
             music_muted: false,
             workshop: Default::default(),
             plan: None,
+            town_garden: Default::default(),
             fish_supper: Default::default(),
             evening_market: Default::default(),
         }

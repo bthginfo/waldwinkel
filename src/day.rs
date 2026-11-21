@@ -76,7 +76,8 @@ pub fn tick(
     dialog: Res<crate::town::Dialog>,
     mut garden: ResMut<Garden>,
 ) {
-    if ready.0 && garden.clock.minute() < MIDNIGHT && !menu.open() && !dialog.open() {
+    let finding_controls = garden.prologue.as_ref().is_some_and(|p| !p.moved);
+    if ready.0 && !finding_controls && garden.clock.minute() < MIDNIGHT && !menu.open() && !dialog.open() {
         garden.clock.advance(time.delta_secs());
     }
 }

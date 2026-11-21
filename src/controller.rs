@@ -59,15 +59,16 @@ fn focus_step(
         .filter_map(|(entity, point, close)| {
             let Some(from) = from else {
                 let score = point.y * 4. + point.x * 0.01 + if close { 10_000. } else { 0. };
-                return Some((entity, score));
+                return Some((entity, false, score));
             };
             let offset = point - from;
             let along = axis.dot(offset);
             let sideways = axis.perp_dot(offset).abs();
-            (along > 7.).then_some((entity, along + sideways * 2.5))
+            let other_row = axis.x.abs() > 0.5 && sideways > 18.;
+            (along > 7.).then_some((entity, other_row, along + sideways * 2.5))
         })
-        .min_by(|(_, a), (_, b)| a.total_cmp(b))
-        .map(|(entity, _)| entity)
+        .min_by(|(_, row_a, a), (_, row_b, b)| row_a.cmp(row_b).then_with(|| a.total_cmp(b)))
+        .map(|(entity, _, _)| entity)
 }
 
 #[cfg(target_os = "android")]
@@ -239,6 +240,7 @@ mod android {
             },
             BorderRadius::all(Val::Px(12.)),
             BorderColor(Color::srgb_u8(240, 168, 58)),
+            Outline { width: Val::Px(2.), offset: Val::Px(0.), color: Color::srgb_u8(58, 56, 43) },
             BackgroundColor(Color::NONE),
         ));
     }
@@ -255,6 +257,7 @@ mod android {
     pub struct LastInput {
         release_escape: bool,
         panel: Option<(Panel, Option<FarmPage>)>,
+        parents: Vec<(FarmPage, Entity)>,
         direction: Vec2,
         repeat_at: f32,
         triggers: (bool, bool),
@@ -372,7 +375,19 @@ mod android {
         let panel = layer.map(|layer| (layer, menu.page()));
         let changed_panel = panel != last.panel;
         if changed_panel {
-            controller.focused = None;
+            let previous = controller.focused.take();
+            if let (Some((Panel::Farm | Panel::Duel, Some(from))), Some((Panel::Farm | Panel::Duel, Some(to)))) =
+                (last.panel, panel)
+            {
+                if let Some(index) = last.parents.iter().rposition(|&(page, _)| page == to) {
+                    controller.focused = Some(last.parents[index].1);
+                    last.parents.truncate(index);
+                } else if let Some(button) = previous {
+                    last.parents.push((from, button));
+                }
+            } else {
+                last.parents.clear();
+            }
             controller.pointer = None;
             last.direction = Vec2::ZERO;
         }
@@ -457,7 +472,7 @@ mod android {
                 },
             );
         }
-        let selection = layer.filter(|_| controller.active && !direct).and_then(|layer| {
+        let selection = layer.filter(|_| controller.active && !direct && !changed_panel).and_then(|layer| {
             let candidates: Vec<_> = targets
                 .buttons
                 .iter()
@@ -567,6 +582,15 @@ pub use android::{hide_after_touch, poll, setup};
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn moving_right_in_the_binder_crosses_disabled_buttons_in_the_same_row() {
+        let save_deck = Entity::from_raw(1);
+        let talents = Entity::from_raw(2);
+        let buttons = [(save_deck, Vec2::new(582., 418.), false),
+                       (talents, Vec2::new(404., 473.), false)];
+        assert_eq!(focus_step(buttons.into_iter(), Some(Vec2::new(348., 418.)), Vec2::X), Some(save_deck));
+    }
 
     #[test]
     fn first_focus_prefers_a_work_button_and_direction_stays_in_the_column() {

@@ -156,6 +156,7 @@ pub enum Target {
     Find(usize),
     SeasonFind(usize),
     SeasonMeeting,
+    TownGarden,
     EveningMarket,
     Person(Npc),
     Binder,
@@ -242,6 +243,7 @@ impl Target {
             Self::Travel(district) => district.name(),
             Self::Find(i) => FINDS[i].name(),
             Self::SeasonFind(i) => SITES[i].season.find_name(),
+            Self::TownGarden => "Dorfgarten",
             Self::SeasonMeeting => "Dorftisch",
             Self::EveningMarket => "Abendmarkt",
             Self::Person(person) => person.name(),
@@ -283,7 +285,8 @@ impl Target {
             Self::Village(_) => "Benutzen",
             Self::Travel(_) => "Angekommen",
             Self::Find(_) | Self::SeasonFind(_) => "Sammeln",
-            Self::SeasonMeeting => "Treffen ansehen",
+            Self::TownGarden => "Garten besuchen",
+            Self::SeasonMeeting => "Dorftisch ansehen",
             Self::EveningMarket => "Proviant ansehen",
             Self::Person(_) => "Ansprechen",
             Self::Binder => "Öffnen",
@@ -316,7 +319,7 @@ impl Target {
             Self::Travel(_) => 0.2,
             Self::Find(i) => FINDS[i].height(),
             Self::SeasonFind(_) => 0.23,
-            Self::SeasonMeeting | Self::EveningMarket => 0.94,
+            Self::TownGarden | Self::SeasonMeeting | Self::EveningMarket => 0.94,
             Self::Person(_) => 1.02,
             Self::Binder | Self::DuskFoe => 0.86,
             Self::DuskGate | Self::DuskExit => 1.05,
@@ -741,6 +744,7 @@ impl Adventure {
                     })
                     && !inside(KITCHEN, Vec2::new(1.15, 0.64))
                     && !inside(PATTERN_STALL, Vec2::new(0.85, 0.51))
+                    && !(garden.town_garden.stage.model().is_some() && inside(crate::town_garden::SITE, crate::town_garden::HALF))
                     && !inside(MEETING_POINT, TABLE_HALF_SIZE)
                     && !(crate::evening_market::stall_present(garden)
                         && inside(
@@ -824,7 +828,7 @@ impl Adventure {
             Target::Gate(_) => 0.67,
             Target::Bell(_) => 0.66,
             Target::Resonator(_) => 0.69,
-            Target::SeasonMeeting | Target::EveningMarket => 0.95,
+            Target::TownGarden | Target::SeasonMeeting | Target::EveningMarket => 0.95,
             Target::Person(_) => NPC_RADIUS + 0.07,
             Target::HarborBoard => 0.95,
             Target::Bed => 1.10,
@@ -913,6 +917,7 @@ impl Adventure {
             Target::Travel(district) => district.waypoint(),
             Target::Find(i) => FINDS[i].position(),
             Target::SeasonFind(i) => SITES[i].point,
+            Target::TownGarden => crate::town_garden::SITE,
             Target::SeasonMeeting => MEETING_POINT,
             Target::EveningMarket => crate::evening_market::PLACE,
             Target::Person(person) => person.position(garden),
@@ -958,6 +963,7 @@ impl Adventure {
                 crate::evening_market::stall_present(garden)
                     .then_some(Target::EveningMarket),
             )
+            .chain(garden.town_garden.stage.model().map(|_| Target::TownGarden))
             .chain(garden.workshop.forge.then_some(Target::Forge))
             .chain(garden.workshop.loom.then_some(Target::Loom))
             .chain(
@@ -1212,6 +1218,7 @@ impl Adventure {
                     "Hier kaufst du Baupläne für deine Werkbank.".into(),
                     "Baupläne",
                 ),
+                Target::TownGarden => (garden.town_garden.summary(garden.day), target.label()),
                 Target::SeasonMeeting => (seasons::meeting_status(garden), target.label()),
                 Target::EveningMarket => {
                     (if garden.fish_supper.offered_today(garden.day) { "Heute auf der Tafel · Bos Hafenbrühe" } else { "Maras Proviant · derzeit geöffnet" }.into(), target.label())
@@ -1595,6 +1602,7 @@ fn hit_volume(ray: Ray3d, target: Target, base: Vec3, garden: &Garden) -> Option
         ),
         Target::Bell(_) => hit(Vec2::splat(0.67), 0., 1.95),
         Target::Resonator(_) => hit(Vec2::splat(0.53), 0., 1.62),
+        Target::TownGarden => hit(crate::town_garden::HALF, 0., if garden.town_garden.stage == crate::town_garden::Stage::Bloom { 1.96 } else { 0.88 }),
         Target::SeasonMeeting => hit(TABLE_HALF_SIZE, 0., 1.85),
         Target::EveningMarket => hit(crate::evening_market::HALF_SIZE, 0., 2.04),
         Target::HarborBoard => hit(harbor::BOARD_HALF, 0., 1.71),
@@ -1736,6 +1744,11 @@ pub fn preview_nearby(
     let (player, pose) = *player;
     let heading = (pose.rotation * Vec3::Z).xz();
     let view = (adventure.area, player.position, heading);
+    // During the first movement lesson, leave selection to deliberate taps or A.
+    if garden.prologue.as_ref().is_some_and(|p| !p.moved) {
+        *previous = None;
+        return;
+    }
     if adventure.map || controls.cancel || controls.pick_at.is_some() || controls.cycle
         || controls.pad_action || controls.pad_cycle != 0 || controls.act || controls.fertilize
         || controls.task || controls.inventory || controls.choice || controls.wheel || controls.map
@@ -2254,6 +2267,7 @@ pub fn interact(
         | Target::PatternStall
         | Target::Kitchen
         | Target::HarborBoard
+        | Target::TownGarden
         | Target::SeasonMeeting
         | Target::EveningMarket => {
             farm_menu.show(match target {
@@ -2269,6 +2283,7 @@ pub fn interact(
                 Target::Binder => FarmPage::Binder,
                 Target::DuskGate => FarmPage::Expedition,
                 Target::SeasonMeeting => FarmPage::SeasonMeeting,
+                Target::TownGarden => FarmPage::TownGarden,
                 Target::EveningMarket => FarmPage::EveningMarket,
                 Target::HarborBoard => FarmPage::Harbor { at_site: true },
                 _ => FarmPage::SeedShop,
@@ -2564,6 +2579,7 @@ enum Stamp {
         finds: [bool; FINDS.len()],
         resonance: [bool; Resonator::ALL.len()],
         season: Season,
+        town_garden: crate::town_garden::Stage,
         seasonal_finds: [bool; SITES.len()],
         pier: Phase,
         evening_market: (bool, bool, bool),
@@ -2627,6 +2643,7 @@ pub fn draw(
             finds: std::array::from_fn(|i| FINDS[i].available(&garden, i)),
             resonance: Resonator::ALL.map(|site| site.active(&garden)),
             season: Season::at(garden.day),
+            town_garden: garden.town_garden.stage,
             seasonal_finds: std::array::from_fn(|i| garden.seasons.available(i, garden.day)),
             pier: garden.harbor.phase,
             evening_market: (
@@ -2676,6 +2693,7 @@ pub fn draw(
             .id();
         use crate::decorate::Original;
         let mut editable = Vec::new();
+        let mut lanterns = Vec::new();
         let load = |name: &str| assets.load::<Scene>(format!("models/{name}.glb#Scene0"));
         let mut spawn = |asset: &str, point: Vec2, y: f32, angle: f32| {
             let child = commands
@@ -2700,6 +2718,7 @@ pub fn draw(
                 finds,
                 resonance,
                 season,
+                town_garden,
                 seasonal_finds,
                 pier,
                 evening_market,
@@ -2884,6 +2903,17 @@ pub fn draw(
                     world::exterior_ground(MEETING_POINT),
                     0.,
                 );
+                if let Some(model) = town_garden.model() {
+                    let site = crate::town_garden::SITE;
+                    let ground = world::exterior_ground(site);
+                    spawn(model, site, ground, 0.);
+                    if *town_garden == crate::town_garden::Stage::Bloom {
+                        for (dx, height, phase) in [(-0.68, 1.92, 0.), (0.22, 1.87, 2.1)] {
+                            let e = spawn("town_lantern", site + Vec2::new(dx, -0.27), ground + height, 0.);
+                            lanterns.push((e, phase));
+                        }
+                    }
+                }
                 for (i, site) in SITES.into_iter().enumerate() {
                     if seasonal_finds[i] {
                         spawn(
@@ -3141,6 +3171,7 @@ pub fn draw(
                 }
             }
         };
+        for (entity, phase) in lanterns { commands.entity(entity).insert(crate::town_garden::WindLamp(phase)); }
         for (entity, original) in editable {
             commands.entity(entity).insert(original);
         }
@@ -3220,6 +3251,25 @@ mod tests {
                     let player = center + Vec2::from_angle(step as f32 * std::f32::consts::TAU / 16.) * 1.30;
                     trip.walkable(player, &garden) && trip.can_reach(target, player, &garden)
                 }), "{stage:?} target {target:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn all_garden_expansions_keep_the_dorftisch_and_the_new_beds_reachable() {
+        use crate::town_garden::{SITE,Stage};
+        let trip=Adventure::default();
+        let mut g=Garden::default();
+        assert!(trip.walkable_without_residents(SITE,&g), "occupied ground");
+        for stage in [Stage::Beds,Stage::Pump,Stage::Bloom] {
+            g.town_garden.stage=stage;
+            assert!(!trip.walkable(SITE,&g));
+            for target in [Target::SeasonMeeting, Target::TownGarden] {
+                let center=trip.position(target,&g);
+                assert!((0..24).any(|i| {
+                    let p=center+Vec2::from_angle(i as f32*std::f32::consts::TAU/24.)*1.22;
+                    trip.walkable(p,&g) && trip.can_reach(target,p,&g)
+                }),"{stage:?} {target:?}");
             }
         }
     }

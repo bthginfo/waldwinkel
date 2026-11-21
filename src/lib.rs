@@ -42,6 +42,7 @@ mod sound;
 mod story;
 mod terrain;
 mod town;
+mod town_garden;
 mod travel;
 mod tutorial;
 mod ui;
@@ -212,6 +213,7 @@ pub fn main() {
                 wildlife::setup,
             ),
         )
+        .add_systems(Update, ui::tablet_controls.after(ui::resize))
         .add_systems(Startup, (context_menu::setup, night::setup, wheel::setup, navigation_ui::setup, decorate::setup, feedback::setup))
         .add_systems(
             Update,
@@ -295,6 +297,8 @@ pub fn main() {
                 battle_ui::animate_feedback.before(sound::play),
                 battle_ui::draw_trial_guardian,
                 battle_ui::animate_guardian,
+                battle_ui::animate_motes,
+                town_garden::sway,
                 ui::sync_visibility,
             )
                 .after(adventure::interact),

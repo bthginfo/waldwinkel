@@ -65,6 +65,7 @@ pub enum FarmPage {
     Harbor { at_site: bool },
     Cinematic(Clip),
     SeasonMeeting,
+    TownGarden,
     Battle,
 }
 
@@ -316,7 +317,9 @@ impl FarmMenu {
                 .map(Entry::Guide)
                 .collect(),
             FarmPage::Calendar => Season::ALL.into_iter().map(Entry::Season).collect(),
-            FarmPage::Logbook => Path::ALL.into_iter().map(Entry::Practice).collect(),
+            FarmPage::Logbook => Path::ALL.into_iter().map(Entry::Practice)
+                .chain([Entry::Guide(Guide::TownGarden)]).collect(),
+            FarmPage::TownGarden => garden.town_garden.stage.requests().iter().map(|&(s, _)| Entry::Supply(s)).collect(),
             FarmPage::SeasonMeeting | FarmPage::Harbor { .. } | FarmPage::Cinematic(_) => {
                 Vec::new()
             }
@@ -346,6 +349,7 @@ enum Entry {
     Ration(Ration),
     Step(&'static str),
     Practice(Path),
+    Supply(crate::town_garden::Supply),
     Destination(Bell),
     CombatCard(Card),
     Style(Style),
@@ -412,6 +416,8 @@ impl Entry {
             Self::Dish(dish) => dish.name().into(),
             Self::Ration(ration) => ration.dish().name().into(),
             Self::Step(text) => text.into(),
+            Self::Supply(supply) => supply.name().into(),
+            Self::Practice(path) if path.ready(garden) => format!("{} · Rang bereit", path.title()),
             Self::Practice(path) => format!("{} · Rang {}", path.title(), path.rank(garden)),
             Self::Destination(bell) => bell.name().into(),
             Self::CombatCard(card) => card.name().into(),
@@ -420,6 +426,7 @@ impl Entry {
             Self::Gear(gear) => gear.name().into(),
             Self::Level(1) => "Ebene 1".into(),
             Self::Level(level) => format!("Glockenrast {level}"),
+            Self::Guide(Guide::TownGarden) => "Eichenhafens Dorfplatz".into(),
             Self::Guide(guide) => guide.title(garden).into(),
             Self::Season(season) if season == Season::at(garden.day) => {
                 format!("{} · Jetzt", season.label())
@@ -428,7 +435,7 @@ impl Entry {
         }
     }
 
-    fn detail(self, page: FarmPage, garden: &Garden, batches: u32) -> String {
+    fn detail(self, page: FarmPage, garden: &Garden, batches: u32, controller: bool) -> String {
         match self {
             Self::Building(_) => "Im Hofraster verschieben und drehen".into(),
             Self::Material(Material::Fertilizer) if page == FarmPage::SeedShop =>
@@ -483,6 +490,7 @@ impl Entry {
             ),
             Self::Ration(_) => "Heute verkauft".into(),
             Self::Step(_) => String::new(),
+            Self::Supply(supply) => garden.town_garden.detail(supply, garden),
             Self::Practice(path) => path.detail(garden),
             Self::Destination(_) => "Wegglocke repariert".into(),
             Self::CombatCard(card) if page == FarmPage::CardShop => {
@@ -509,6 +517,9 @@ impl Entry {
             },
             Self::Level(1) => "Am Eingang beginnen".into(),
             Self::Level(_) => "Hier beginnen und Leben auffüllen".into(),
+            Self::Guide(Guide::Campaign) if controller && matches!(crate::campaign::next(garden),
+                crate::campaign::Step::Tutorial(_) | crate::campaign::Step::Garden) =>
+                crate::campaign::next(garden).hint(garden, true),
             Self::Guide(guide) => guide.detail(garden),
             Self::Season(season) => {
                 let discovery = if garden.seasons.discovered[season as usize] {
@@ -565,6 +576,7 @@ pub enum Choice {
     Abandon,
     Return,
     Guide(GuideTab),
+    TownGarden,
     Logbook,
     Calendar,
 }
@@ -587,6 +599,8 @@ pub struct ItemPicture(usize);
 
 #[derive(Component)]
 pub enum HeatMeter {
+    RowTrack(usize),
+    RowFill(usize),
     Track,
     Target,
     Needle,
@@ -716,6 +730,12 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                                     BorderRadius::all(Val::Px(12.)),
                                 ))
                                 .with_children(|card| {
+                                    card.spawn((HeatMeter::RowTrack(i), Node {
+                                        position_type: PositionType::Absolute, bottom: Val::Px(2.),
+                                        left: Val::Percent(4.), width: Val::Percent(92.), height: Val::Px(3.), ..default()
+                                    }, BackgroundColor(Color::srgb_u8(211, 194, 157)), BorderRadius::all(Val::Px(2.))))
+                                    .with_child((HeatMeter::RowFill(i), Node { height: Val::Percent(100.), ..default() },
+                                        BackgroundColor(Color::srgb_u8(78, 133, 104)), BorderRadius::all(Val::Px(2.))));
                                     card.spawn((
                                         ItemPicture(i),
                                         ImageNode::default(),
@@ -784,6 +804,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                             (Choice::Guide(GuideTab::Town), "Dorf", 76.),
                             (Choice::Guide(GuideTab::Watches), "Wegwachten", 117.),
                             (Choice::Calendar, "Kalender", 104.),
+                            (Choice::TownGarden, "Dorf ausbauen", 146.),
                             (Choice::Logbook, "Hofbuch", 96.),
                         ] {
                             footer
@@ -1120,6 +1141,10 @@ pub fn input(
             menu.open_child(FarmPage::Calendar);
             None
         }
+        Choice::TownGarden if page == FarmPage::SeasonMeeting => {
+            menu.open_child(FarmPage::TownGarden);
+            None
+        }
         Choice::Logbook if matches!(page, FarmPage::Journal(_) | FarmPage::Calendar) => {
             menu.open_child(FarmPage::Logbook);
             None
@@ -1240,7 +1265,7 @@ pub fn input(
             if matches!(
                 page,
                 FarmPage::Journal(_) | FarmPage::Calendar | FarmPage::Harbor { at_site: false }
-            ) =>
+            ) || (page == FarmPage::Logbook && menu.selected == Some(Entry::Guide(Guide::TownGarden))) =>
         {
             let guide = match (page, menu.selected) {
                 (FarmPage::Calendar, _) => Guide::SeasonMeeting,
@@ -1272,6 +1297,18 @@ pub fn input(
             } else {
                 None
             }
+        }
+        Choice::Work if page == FarmPage::TownGarden => {
+            if garden.town_garden.stage == crate::town_garden::Stage::Bloom {
+                Some(crate::town_garden::gather(&mut garden))
+            } else if let Some(Entry::Supply(supply)) = menu.selected {
+                let stage = garden.town_garden.stage;
+                let result = crate::town_garden::deliver(&mut garden, supply);
+                if stage != garden.town_garden.stage {
+                    menu.selected = None;
+                }
+                Some(result)
+            } else { None }
         }
         Choice::Work if page == FarmPage::SeasonMeeting => Some(seasons::contribute(&mut garden)),
         Choice::Work if page == FarmPage::EveningMarket => {
@@ -1526,12 +1563,20 @@ pub fn update(
         frame.width = Val::Px(146. + 13.*pulse);
         illustration.color = Color::srgb(1., 1.-0.06*pulse, 1.-0.13*pulse);
         illustration.image = assets.load(game.illustration());
+    } else if page == FarmPage::TownGarden {
+        frame.display = Display::Flex;
+        frame.width = Val::Px(148.);
+        illustration.color = Color::WHITE;
+        illustration.image = assets.load(garden.town_garden.stage.art());
     } else {
         frame.display = Display::None;
     }
     for (picture, mut image, mut node) in &mut pictures {
         let entry = entry_at(picture.0);
         let slug = match entry {
+            Some(Entry::Guide(Guide::TownGarden)) => Some("sunflower"),
+            Some(Entry::Supply(s)) => Some(s.icon()),
+            Some(Entry::Practice(path)) => Some(path.icon()),
             Some(Entry::Stock(item)) => Some(inventory::product_icon(item)),
             Some(Entry::Dish(dish)) => Some(inventory::product_icon(Product::Prepared(dish))),
             Some(Entry::Ration(ration)) => Some(inventory::product_icon(Product::Prepared(ration.dish()))),
@@ -1574,6 +1619,17 @@ pub fn update(
     let heat = progress.map(|game| game.heat(menu.visible_time));
     for (part, mut node) in &mut meter {
         match part {
+            HeatMeter::RowTrack(i) | HeatMeter::RowFill(i) => {
+                let fraction = match entry_at(*i) {
+                    Some(Entry::Practice(path)) => Some(path.fraction(&garden)),
+                    Some(Entry::Supply(supply)) => Some(garden.town_garden.fraction(supply)),
+                    Some(Entry::Guide(Guide::TownGarden)) if page == FarmPage::Logbook =>
+                        Some(garden.town_garden.stage as u8 as f32 / 3.),
+                    _ => None,
+                };
+                node.display = if fraction.is_some() { Display::Flex } else { Display::None };
+                if matches!(part, HeatMeter::RowFill(_)) { node.width = Val::Percent(100. * fraction.unwrap_or(0.)); }
+            }
             HeatMeter::Track => {
                 node.display = if range.is_some() {
                     Display::Flex
@@ -1591,6 +1647,7 @@ pub fn update(
 
     for (field, mut text) in &mut fields {
         let mut value = match *field {
+            Field::StationProgress if page == FarmPage::TownGarden => garden.town_garden.stage.title().into(),
             Field::StationProgress => progress.map_or_else(String::new, |game| {
                 let (passed, total) = game.progress();
                 format!("{} · {passed} von {total} erledigt", game.dish.method().title())
@@ -1631,6 +1688,7 @@ pub fn update(
                 FarmPage::Cinematic(_) => "",
                 FarmPage::Calendar => "Jahreszeitenkalender",
                 FarmPage::Logbook => "Dein Hofbuch",
+                FarmPage::TownGarden => crate::town_garden::TITLE,
                 FarmPage::SeasonMeeting => Season::at(garden.day).meeting(),
                 FarmPage::Battle => "",
             }
@@ -1750,7 +1808,15 @@ pub fn update(
                 }
                 FarmPage::Harbor { .. } => garden.harbor.phase.label().into(),
                 FarmPage::Cinematic(_) => String::new(),
-                FarmPage::Logbook => "Halte fest, was du auf der Insel ausprobierst. Wähle einen Bereich, um sein nächstes Ziel zu sehen.".into(),
+                FarmPage::Logbook => {
+                    let points = garden.rpg.points;
+                    let rooms = garden.workshop.house + 1;
+                    let point_unit = if points == 1 { "Talentpunkt" } else { "Talentpunkte" };
+                    let room_unit = if rooms == 1 { "Wohnraum" } else { "Wohnräume" };
+                    let known = Card::ALL.into_iter().filter(|&c| garden.rpg.knows(c)).count();
+                    format!("Tanuki · {} Leben · {points} {point_unit}\n{known} / {} Karten gesammelt · {rooms} {room_unit}",
+                        garden.rpg.max_hp(), Card::ALL.len())
+                }
                 FarmPage::Calendar => {
                     let season = Season::at(garden.day);
                     let day = Season::day(garden.day);
@@ -1768,6 +1834,7 @@ pub fn update(
                         next.label()
                     )
                 }
+                FarmPage::TownGarden => garden.town_garden.stage.story().into(),
                 FarmPage::SeasonMeeting => {
                     let season = Season::at(garden.day);
                     format!(
@@ -1821,9 +1888,15 @@ pub fn update(
                 )
             }
             Field::Message if page == FarmPage::Logbook => match selected {
+                Some(Entry::Guide(Guide::TownGarden)) => garden.town_garden.summary(garden.day),
                 Some(Entry::Practice(path)) if path.rank(&garden) < 3 =>
                     format!("Belohnung für Rang {} · {}", path.rank(&garden)+1, path.reward(usize::from(path.rank(&garden)))),
                 _ => String::new(),
+            },
+            Field::Message if page == FarmPage::TownGarden => match selected {
+                Some(Entry::Supply(s)) => s.source().into(),
+                _ if garden.town_garden.stage == crate::town_garden::Stage::Bloom => garden.town_garden.summary(garden.day),
+                _ => format!("Belohnung · {}", garden.town_garden.stage.reward()),
             },
             Field::Message if page == FarmPage::SeasonMeeting => {
                 let season = Season::at(garden.day);
@@ -1853,7 +1926,7 @@ pub fn update(
                 Entry::Design(i) => format!(
                     "{} · {}",
                     CATALOG[i].name,
-                    Entry::Design(i).detail(page, &garden, batches)
+                    Entry::Design(i).detail(page, &garden, batches, controller.active)
                 ),
                 Entry::CombatCard(card) if page == FarmPage::Binder => {
                     format!(
@@ -1891,7 +1964,7 @@ pub fn update(
                 entry_at(i).map_or_else(String::new, |entry| entry.title(&garden))
             }
             Field::CardDetail(i) => entry_at(i).map_or_else(String::new, |entry| {
-                let extra = entry.detail(page, &garden, batches);
+                let extra = entry.detail(page, &garden, batches, controller.active);
                 match entry {
                     Entry::CombatCard(card) if page == FarmPage::Binder => {
                         format!("{} im Deck · {extra}", menu.copies(card))
@@ -1904,6 +1977,7 @@ pub fn update(
             Field::Work => match (page, selected) {
                 (FarmPage::Commissions, Some(Entry::Commission(order))) => order.action(&garden),
                 (FarmPage::Commissions, _) => "Auftrag wählen",
+                (FarmPage::Logbook, Some(Entry::Guide(Guide::TownGarden))) => "Dorfplatz zeigen",
                 (FarmPage::Logbook, _) => "Rang einlösen",
                 (FarmPage::Watch(site), _) => site.action(&garden),
                 (FarmPage::WatchFinale, _) if garden.watches.lights() == Watch::ALL.len() => "Karte übergeben",
@@ -1930,6 +2004,8 @@ pub fn update(
                 (FarmPage::Harbor { at_site: true }, _) => garden.harbor.phase.action(),
                 (FarmPage::Harbor { at_site: false }, _) => "Auf Karte zeigen",
                 (FarmPage::Workbench, Some(Entry::Fittings)) => "Beschläge fertigen",
+                (FarmPage::TownGarden, _) if garden.town_garden.stage == crate::town_garden::Stage::Bloom => "Korb abholen",
+                (FarmPage::TownGarden, _) => "Vorrat beitragen",
                 (FarmPage::SeasonMeeting, _) => "Beitrag abgeben",
                 _ => "Herstellen",
             }
@@ -1968,6 +2044,7 @@ pub fn update(
             Choice::SellOne | Choice::SellAll => (page.selling(), selected.is_some()),
             Choice::Talents => (page == FarmPage::Binder, true),
             Choice::Training => (page == FarmPage::Binder, true),
+            Choice::TownGarden => (page == FarmPage::SeasonMeeting, true),
             Choice::Logbook => (matches!(page, FarmPage::Journal(_) | FarmPage::Calendar), true),
             Choice::Styles => (page == FarmPage::Binder, true),
             Choice::Projects => (
@@ -2046,6 +2123,7 @@ pub fn update(
                     (FarmPage::Commissions, Some(Entry::Commission(order))) => {
                         order.can_work(&garden)
                     }
+                    (FarmPage::Logbook, Some(Entry::Guide(Guide::TownGarden))) => true,
                     (FarmPage::Logbook, Some(Entry::Practice(path))) => path.ready(&garden),
                     (FarmPage::Watch(site), _) => site.ready(&garden),
                     (FarmPage::WatchFinale, _) => !garden.watches.gathered,
@@ -2083,6 +2161,8 @@ pub fn update(
                         guide.target(&garden).is_some()
                     }
                     (FarmPage::Calendar, _) => true,
+                    (FarmPage::TownGarden, Some(Entry::Supply(s))) => garden.town_garden.amount(s, &garden) > 0,
+                    (FarmPage::TownGarden, _) => garden.town_garden.basket_ready(garden.day),
                     (FarmPage::SeasonMeeting, _) => seasons::can_contribute(&garden),
                     (FarmPage::EveningMarket, Some(Entry::Ration(ration))) => {
                         evening_market::can_buy(&garden, ration)
@@ -2113,6 +2193,7 @@ pub fn update(
                             | FarmPage::Journal(_)
                             | FarmPage::Calendar
                             | FarmPage::Logbook
+                            | FarmPage::TownGarden
                             | FarmPage::SeasonMeeting
                             | FarmPage::EveningMarket
                             | FarmPage::Harbor { .. }

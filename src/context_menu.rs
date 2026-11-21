@@ -228,10 +228,10 @@ fn position(
         }
         let (w, h) = (bounds.x, bounds.y);
         let occupied = [
-            rect(0., 0., 261., 281.),
+            rect(0., 0., 261., if hud.tablet_pad { 83. } else { 281. }),
             rect(w - 422., 0., w, 82.),
-            rect(0., h - 140., 145., h),
-            rect(w - 219., h - 227., w, h),
+            rect(0., h - 140., if hud.tablet_pad { 256. } else { 145. }, h),
+            rect(w - 219., h - if hud.tablet_pad { 105. } else { 227. }, w, h),
             rect(w * 0.5 - 165., h - 102., w * 0.5 + 165., h),
         ];
         if occupied

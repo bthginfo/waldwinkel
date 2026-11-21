@@ -72,6 +72,11 @@ impl Path {
         Self::Duel,
     ];
 
+    pub fn icon(self) -> &'static str {
+        match self { Self::Garden => "carrot", Self::Workshop => "boards", Self::Kitchen => "soup",
+            Self::Island => "quartz", Self::Duel => "seal" }
+    }
+
     pub fn title(self) -> &'static str {
         [
             "Gartenbau",
@@ -142,6 +147,12 @@ impl Path {
                 [1, 2, 4][step],
                 "Wegwachten",
             ),
+        })
+    }
+
+    pub fn fraction(self, garden: &Garden) -> f32 {
+        self.target(garden).map_or(1., |(a, goal_a, _, b, goal_b, _)| {
+            (a.min(goal_a) as f32 / goal_a as f32 + b.min(goal_b) as f32 / goal_b as f32) * 0.5
         })
     }
 
