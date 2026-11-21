@@ -314,6 +314,15 @@ fn market_pose(npc: Npc, garden: &Garden) -> Option<Pose> {
 }
 
 pub(crate) fn pose(npc: Npc, garden: &Garden) -> Pose {
+    if npc == Npc::Bo {
+        if garden.fish_supper.at_farm() || garden.fish_supper.waiting_at_farm(garden.day, garden.clock.minute()) {
+            return Pose::stay(crate::adventure::KITCHEN + Vec2::new(1.35, 0.35), "Zu Besuch an deiner Hofküche")
+                .work(if garden.fish_supper.learned() { Duty::Stir } else { Duty::Sort });
+        }
+        if garden.fish_supper.offered_today(garden.day) && evening_market::hours(garden) {
+            return Pose::stay(evening_market::PLACE + Vec2::new(1.25, 0.63), "Serviert Hafenbrühe am Abendmarkt").work(Duty::Stir);
+        }
+    }
     if let Some(state) = market_pose(npc, garden) {
         return state;
     }

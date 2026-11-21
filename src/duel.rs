@@ -704,10 +704,12 @@ pub enum Ration {
     Stew,
     Jam,
     Compote,
+    Broth,
 }
 
 impl Ration {
-    pub const ALL: [Self; 4] = [Self::Soup, Self::Stew, Self::Jam, Self::Compote];
+    pub const MARKET: [Self; 4] = [Self::Soup, Self::Stew, Self::Jam, Self::Compote];
+    pub const ALL: [Self; 5] = [Self::Soup, Self::Stew, Self::Jam, Self::Compote, Self::Broth];
 
     pub fn dish(self) -> crate::processing::Dish {
         use crate::processing::Dish;
@@ -716,6 +718,7 @@ impl Ration {
             Self::Stew => Dish::TomatoStew,
             Self::Jam => Dish::BerryJam,
             Self::Compote => Dish::StrawberryCompote,
+            Self::Broth => Dish::HarborBroth,
         }
     }
 
@@ -725,6 +728,7 @@ impl Ration {
             Self::Stew => "+1 Kraft und +6 Schild",
             Self::Jam => "+6 Schild und ziehe 1 Karte",
             Self::Compote => "+4 Leben und ziehe 2 Karten",
+            Self::Broth => "+6 Leben und +4 Schild",
         }
     }
 
@@ -734,6 +738,7 @@ impl Ration {
             Self::Stew => "Treffer bricht bis zu 8 Rüstung",
             Self::Jam => "+6 Schild extra",
             Self::Compote => "+1 Kraft extra",
+            Self::Broth => return None,
         })
     }
 
@@ -743,6 +748,7 @@ impl Ration {
             Self::Stew => "Tonwächter, Ofen- und erste Glocke · Rüstung brechen",
             Self::Jam => "Nebeleule und Nebelglocke · mehr Schild",
             Self::Compote => "Mooshüter und Moosglocke · mehr Kraft",
+            Self::Broth => "Stärkt und schützt dich in jeder Wacht.",
         }
     }
 }
@@ -869,6 +875,7 @@ impl Battle {
             }
             (Ration::Jam, matched) => (0, 6 + 6 * u16::from(matched), 0, 1),
             (Ration::Compote, matched) => (4, 0, u8::from(matched), 2),
+            (Ration::Broth, _) => (6, 4, 0, 0),
         };
         self.hp = self.hp.saturating_add(heal).min(self.max_hp);
         self.guard = self.guard.saturating_add(guard);

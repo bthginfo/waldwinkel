@@ -249,7 +249,8 @@ impl Npc {
         } else {
             None
         };
-        city.max(story).max(market)
+        let supper = (self == Self::Bo && garden.fish_supper.stage == crate::fish_supper::Stage::Visiting).then_some(Available);
+        city.max(story).max(market).max(supper)
     }
 }
 
@@ -489,6 +490,7 @@ pub enum DialogueButton {
     Story,
     Harbor,
     EveningMarket,
+    FishSupper,
     Plans,
     WatchMap,
 }
@@ -545,6 +547,7 @@ pub fn setup(mut commands: Commands, fonts: Res<UiFonts>) {
                         })
                         .with_children(|buttons| {
                             for (choice, label, width) in [
+                                (DialogueButton::FishSupper, "Hafenbrühe", 174.),
                                 (DialogueButton::Trade, "Handeln", 129.),
                                 (DialogueButton::Pick, "Nächste Ware", 129.),
                                 (DialogueButton::Deal, "Kaufen", 129.),
@@ -655,6 +658,27 @@ pub fn input(
                 npc.quest().map(|quest| quest.advance(&mut garden))
             }
         }
+        DialogueButton::FishSupper if npc == Npc::Bo && !dialog.trading => {
+            use crate::fish_supper::Stage;
+            match garden.fish_supper.stage {
+                Stage::Visiting => Some(crate::fish_supper::learn(&mut garden)),
+                Stage::Cooking => {
+                    dialog.close();
+                    *gesture = Gesture::default();
+                    *controls = Controls::default();
+                    farm_menu.cook_with_bo(&garden, time.elapsed_secs());
+                    None
+                }
+                Stage::Served if garden.fish_supper.offered_today(garden.day) && evening_market::hours(&garden) => {
+                    dialog.close();
+                    *gesture = Gesture::default();
+                    *controls = Controls::default();
+                    farm_menu.show(FarmPage::EveningMarket);
+                    None
+                }
+                _ => None,
+            }
+        }
         DialogueButton::EveningMarket if npc == Npc::Mara && !dialog.trading => {
             if evening_market::trading(&garden) {
                 dialog.close();
@@ -743,6 +767,13 @@ pub fn update(
             DialogueText::Greeting if dialog.trading => {
                 "Wähle eine Ware und bestätige den Handel.".into()
             }
+            DialogueText::Greeting if npc == Npc::Bo && garden.fish_supper.at_farm() =>
+                if garden.fish_supper.learned() { "Ich halte den Topf warm. Hast du den Fisch und die Möhre? Dann stell dich zu mir." }
+                else { "Dein erster Fang! Mein Vater hat aus seinem eine Brühe für den ganzen Kai gekocht. Hier, ich hab eine Möhre mitgebracht. Kochen wir zusammen?" }.into(),
+            DialogueText::Greeting if npc == Npc::Bo && garden.fish_supper.waiting_at_farm(garden.day, garden.clock.minute()) =>
+                "Lass die Brühe noch ein bisschen ziehen. Am nächsten Marktabend stelle ich eine Tafel für unser Rezept auf.".into(),
+            DialogueText::Greeting if npc == Npc::Bo && garden.fish_supper.offered_today(garden.day) && evening_market::hours(&garden) =>
+                "Riechst du den Dill? Seit wir an deinem Hof gekocht haben, gibt es unsere Brühe hier am Brunnen.".into(),
             DialogueText::Greeting if npc == crate::weather::Season::at(garden.day).host()
                 && crate::weather::Season::day(garden.day) >= crate::seasons::MEETING_START => {
                 format!("{} Komm zum Dorftisch am Marktplatz.",
@@ -768,6 +799,13 @@ pub fn update(
             DialogueText::Greeting => npc.greeting().into(),
             DialogueText::Request if dialog.trading => {
                 trade.as_ref().map_or_else(String::new, |t| t.0.clone())
+            }
+            DialogueText::Request if npc == Npc::Bo && garden.fish_supper.at_farm() => {
+                if garden.fish_supper.learned() {
+                    crate::processing::Dish::HarborBroth.supplies(&garden)
+                } else {
+                    "Bos Familienrezept · 1 Fisch oder Hafenhering und 1 Möhre".into()
+                }
             }
             DialogueText::Request if npc == Npc::Mara && evening_market::invited(&garden) => evening_market::detail(&garden),
             DialogueText::Request if region_quest.is_some() => region_quest
@@ -819,11 +857,18 @@ pub fn update(
             DialogueButton::WatchMap if npc == Npc::Bo => "Wegwachten",
             DialogueButton::WatchMap => "Inselkarte",
             DialogueButton::Trade => "Handeln",
+            DialogueButton::FishSupper => match garden.fish_supper.stage {
+                crate::fish_supper::Stage::Visiting => "Rezept lernen",
+                crate::fish_supper::Stage::Cooking => "Mit Bo kochen",
+                _ => "Hafenbrühe ansehen",
+            },
             DialogueButton::EveningMarket => evening_market::action(&garden),
             DialogueButton::Deal if npc == Npc::Miro => "Verkaufen",
             DialogueButton::Deal => "Saat kaufen",
             DialogueButton::Quest if region_quest.is_some() => region_quest.as_ref().unwrap().1,
             DialogueButton::Quest if quest_state == Some(QuestState::Accepted) => "Auftrag abgeben",
+            DialogueButton::Quest if npc == Npc::Bo && garden.fish_supper.at_farm() =>
+                quest.map_or("Auftrag annehmen", Quest::name),
             DialogueButton::Quest => "Auftrag annehmen",
             _ => continue,
         };
@@ -833,6 +878,8 @@ pub fn update(
     }
     for (button, mut node, interaction, mut bg, mut focus) in &mut buttons {
         let shown = match button {
+            DialogueButton::FishSupper => npc == Npc::Bo && !dialog.trading && (garden.fish_supper.at_farm()
+                || garden.fish_supper.offered_today(garden.day) && evening_market::hours(&garden)),
             DialogueButton::Trade => (merchant.is_some() || npc == Npc::Runa) && !dialog.trading,
             DialogueButton::Pick | DialogueButton::Deal | DialogueButton::Back => dialog.trading,
             DialogueButton::Quest => {

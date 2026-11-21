@@ -222,6 +222,7 @@ pub fn update(
         let value = match (caption, awake) {
             (Caption::Title, false) => "Gute Nacht".into(),
             (Caption::Title, true) => format!("Guten Morgen · Tag {}", morning.day),
+            (Caption::Growth, true) if garden.fish_supper.stage == crate::fish_supper::Stage::Visiting => "Bo wartet draußen an deiner Hofküche.".into(),
             (Caption::Growth, true) => match morning.ripe {
                 0 => "06:00 Uhr · Ausgeruht".into(),
                 1 => "06:00 Uhr · Ein Beet ist erntebereit".into(),

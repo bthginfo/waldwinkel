@@ -83,4 +83,44 @@ def models(Model):
     hammer.pole((0., .02, -.105), (0., .08, .194), .027, "a78561", 8)
     hammer.box(0., .074, .201, .204, .091, .096, "68686b", .015)
     hammer.box(.092, .074, .201, .043, .105, .108, "8f8e8b", .015)
-    return [stall, glow, light, spoon, parcel, book, hammer]
+    return [stall, glow, light, spoon, parcel, book, hammer, *broth_models(Model)]
+
+
+def broth_models(Model):
+    """Bo's folding table and the fish board he keeps when Mara expands the stall."""
+    cart = Model("Bos Suppenkarren", "broth_cart")
+    board = Model("Hafentafel mit Kreidefisch", "broth_sign")
+
+    def chalkboard(model, x, z):
+        for dx in (-.205, .205):
+            model.pole((x + dx, z + .075, .025), (x + dx, z, .71), .035, "926744", 6)
+            model.pole((x + dx, z - .18, .025), (x + dx, z, .68), .032, "826247", 6)
+        model.box(x, z, .42, .49, .07, .49, "bc9466")
+        model.box(x, z + .045, .42, .415, .024, .405, "385850", .012)
+        model.ellipsoid(x+.02, z+.064, .46, .10, .014, .043, "e7dfb6")
+        model.face([(x-.055,z+.073,.46),(x-.128,z+.073,.507),(x-.128,z+.073,.416)], "e9dba7")
+        model.box(x, z+.065, .322, .237, .013, .013, "d5bd88", .002)
+    chalkboard(board, 0., 0.)
+    chalkboard(cart, -.60, .40)
+    for x in (-.69, .69):
+        for z in (-.32, .30):
+            cart.box(x,z,.355,.10,.10,.71,"875a41")
+        cart.box(x,0.,.22,.12,.72,.085,"9e7351")
+    for i in range(4):
+        cart.box(0.,-.34+i*.22,.74,1.66,.209,.081,["b58960","c0986c"][i%2])
+    cart.box(.245,.0,.794,.53,.90,.033,"729c91")
+    cart.box(.245,.421,.66,.53,.035,.25,"608c83")
+    for x in (.035,.455):
+        cart.box(x,.441,.66,.026,.014,.24,"e6d7b3")
+    cart.pole((.15,-.015,.81),(.15,-.015,.96),.203,"495852",14,tip=.29)
+    cart.pole((.15,-.015,.96),(.15,-.015,1.095),.29,"b87d58",14,tip=.255)
+    cart.pole((.15,-.015,1.096),(.15,-.015,1.116),.237,"e8a54e",14)
+    for dx in (-.32,.32):
+        cart.box(.15+dx,-.015,1.024,.102,.074,.049,"5b675d")
+    for dx,dz in ((-.105,.05),(.08,-.07)):
+        cart.ellipsoid(.15+dx,dz,1.117,.052,.031,.012,"f4d7ad")
+    cart.pole((.20,-.04,1.11),(.37,-.14,1.37),.018,"785a45",7)
+    for i in range(3):
+        cart.pole((-.43,-.08,.795+i*.047),(-.43,-.08,.874+i*.047),.098,"619793",10,tip=.143)
+        cart.pole((-.43,-.08,.874+i*.047),(-.43,-.08,.88+i*.047),.124,"efe1ba",10)
+    return [cart, board]

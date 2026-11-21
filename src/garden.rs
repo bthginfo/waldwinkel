@@ -22,7 +22,7 @@ use std::{
 pub const PLOT_COUNT: usize = 18;
 pub const FERTILIZER_PRICE: u32 = 4;
 const FERTILIZER_PACK: u32 = 2;
-const SAVE_VERSION: u8 = 16;
+const SAVE_VERSION: u8 = 17;
 pub const MAX_SAVE_SIZE: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -218,6 +218,7 @@ pub struct Garden {
     pub fertilizer: u32,
     pub fertilized: Vec<bool>,
     fine_yields: [[u32; 2]; 6],
+    #[serde(deserialize_with = "crate::processing::read_pantry")]
     prepared: [u32; crate::processing::Dish::ALL.len()],
     materials: [u32; crate::craft::Recipe::ALL.len()],
     pub watches: crate::waywatch::WatchRecord,
@@ -257,6 +258,7 @@ pub struct Garden {
     pub music_muted: bool,
     pub workshop: crate::workshop::Progress,
     pub plan: Option<crate::building_plan::Plan>,
+    pub fish_supper: crate::fish_supper::Supper,
     pub evening_market: crate::evening_market::Progress,
 }
 
@@ -311,6 +313,7 @@ impl Default for Garden {
             music_muted: false,
             workshop: Default::default(),
             plan: None,
+            fish_supper: Default::default(),
             evening_market: Default::default(),
         }
     }
@@ -613,6 +616,7 @@ impl Garden {
     }
 
     pub fn sleep(&mut self) {
+        self.fish_supper.wake();
         self.clock = FarmClock::default();
         self.rpg.rest();
         let rain = Sky::at(self.day) == Sky::Rain;
@@ -770,6 +774,9 @@ impl Garden {
                 .any(|plot| plot.remaining().is_some_and(|(_, wet)| wet))
         {
             garden.onboarding = Onboarding::Harbor;
+        }
+        if header.version < 17 && (garden.fish > 0 || garden.stock(Product::Herring) > 0) {
+            garden.fish_supper.record_catch();
         }
         garden.rpg.normalize();
         garden.version = SAVE_VERSION;

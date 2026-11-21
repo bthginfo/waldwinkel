@@ -15,6 +15,7 @@ mod farm_ui;
 mod feedback;
 mod fieldwork;
 mod figure;
+mod fish_supper;
 mod forest;
 mod furniture;
 mod garden;

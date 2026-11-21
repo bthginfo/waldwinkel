@@ -192,6 +192,7 @@ pub enum Guide {
     Workshop,
     BuildPlan,
     EveningMarket,
+    FishSupper,
     Pier,
     Watch(crate::waywatch::Watch),
     WatchFinale,
@@ -222,6 +223,7 @@ impl Guide {
             ],
             GuideTab::Orders => &[
                 Self::BuildPlan,
+                Self::FishSupper,
                 Self::FirstMorning,
                 Self::Workshop,
                 Self::Pier,
@@ -268,6 +270,7 @@ impl Guide {
             Self::SeasonMeeting => "Dorftisch in Eichenhafen",
             Self::Farm => garden.task().0,
             Self::Workshop => "Die alte Hofwerkbank",
+            Self::FishSupper => crate::fish_supper::TITLE,
             Self::EveningMarket => crate::evening_market::TITLE,
             Self::BuildPlan => garden
                 .plan
@@ -292,6 +295,7 @@ impl Guide {
                 "Erfüllt · Juna hat dir von den Klangsteinen erzählt.".into()
             }
             Self::BuildPlan => garden.plan.map_or_else(String::new, |plan| format!("Angeheftet · {}", plan.summary(garden))),
+            Self::FishSupper => garden.fish_supper.detail().into(),
             Self::EveningMarket => crate::evening_market::detail(garden).lines().next().unwrap_or("").into(),
             Self::Workshop if garden.workshop.restored => {
                 "Erfüllt · Drei Möbelbaupläne gelernt.".into()
@@ -409,6 +413,13 @@ impl Guide {
             },
             Self::Workshop => (!garden.workshop.restored).then_some(Target::Bench),
             Self::BuildPlan => garden.plan.and_then(|plan| plan.target(garden)),
+            Self::FishSupper => match garden.fish_supper.stage {
+                crate::fish_supper::Stage::Unseen => None,
+                crate::fish_supper::Stage::NextMorning => Some(Target::Door),
+                crate::fish_supper::Stage::Visiting => person(Npc::Bo),
+                crate::fish_supper::Stage::Cooking => Some(Target::Kitchen),
+                crate::fish_supper::Stage::Served => Some(Target::EveningMarket),
+            },
             Self::EveningMarket
                 if garden.evening_market.stage == crate::evening_market::Stage::Open =>
             {

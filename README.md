@@ -1,4 +1,4 @@
-# Waldwinkel 1.11.0
+# Waldwinkel 1.12.0
 
 Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in einer zusammenhängenden Landschaft. Wege und Brücken verbinden Farnwald, Muschelbucht, Eichenhafen, Kupferklamm, Windweiden und Nebelmoor. Der Tanuki, die neun Figuren und die 3D-Modelle stammen aus dem beigefügten Blender-Projekt.
 
@@ -6,8 +6,18 @@ Ein Cozy-3D-Spiel aus Bevy und Rust. Der Hof und sechs Ausflugsgebiete liegen in
 
 ## Installieren
 
-- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK 1.11.0](https://raw.githubusercontent.com/bthginfo/waldwinkel/58673690f9377d1522b067fbaf3744bab6eb75dc/Waldwinkel-1.11.0.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
+- Lade die signierte APK im Browser herunter und öffne die Datei auf deinem Android-Gerät unter **Downloads**. [Android-APK 1.12.0](https://raw.githubusercontent.com/bthginfo/waldwinkel/0c7091acd56636c8d4f19b79ae111803fa84e31e/Waldwinkel-1.12.0.apk) · [Alle Versionen](https://github.com/bthginfo/waldwinkel/releases)
 - Voraussetzungen sind Android 8 oder neuer, Vulkan und ein 64-Bit-System (ARM64 oder x86-64). Das Spiel läuft offline. Installiere das Update über die bisherige Version, damit deine Spielstände erhalten bleiben.
+
+## Neu in 1.12.0
+
+- **Eine Schale für den Hafen.** Fang am Hof oder am Fischersteg einen Fisch und schlaf in deiner Hütte. Am nächsten Morgen wartet Hafenmeister Bo an der Hofküche. Wähle **Mit Bo sprechen** im kleinen Menü an der Figur. Er bringt eine Möhre und sein Familienrezept mit. Wenn du deinen Fang schon verkauft hast, wartet Bo, bis du einen neuen mitbringst.
+- **Mit Bo kochen.** Gib einen Fisch oder Hafenhering und eine Möhre in den Topf, rühre dreimal im grünen Bereich und schöpfe die Brühe ab. Drei Illustrationen begleiten die Handgriffe. Das Rezept bleibt in deiner Hofküche. In den Rezept- und Marktlisten erkennst du die Gerichte am selben Bild wie in der Tasche.
+- **Abends in Eichenhafen.** Nach der ersten gemeinsamen Mahlzeit verkauft Bo am Brunnen täglich eine Schale für 18 Münzen, zwischen 18:00 und 21:30 Uhr. Kochst du nach Marktbeginn, startet er am nächsten Abend. Sein eigener Tisch kann schon vor Maras Markteröffnung stehen. Im Kartenkampf gibt eine Portion bis zu 6 Leben zurück und gewährt 4 Schild.
+
+[Bo am Hof](docs/112-bo-am-hof.jpg) · [Gemeinsam kochen](docs/112-hafenbruehe-kochen.jpg) · [Suppenstand](docs/112-suppenstand.jpg) · [Angebot am Abendmarkt](docs/112-abendmarkt.jpg)
+
+Auf einem älteren Hof mit Fisch oder Hafenhering im Vorrat reicht einmal Schlafen für den Besuch. Ist der Vorrat leer, startet der nächste Fang die Geschichte.
 
 ## Neu in 1.11.0
 
@@ -268,9 +278,11 @@ Das Skript schreibt die APK nach `build/android`. NativeActivity startet das Rus
 
 ## Tests
 
+Im Spieltest von 1.12.0 ließen sich Bos Rezept am Hof lernen, die Brühe im Kochspiel abschöpfen und eine Portion am Abendmarkt kaufen. Die Tests decken auch den bereits verkauften ersten Fang, alte Küchenvorräte, die späte Eröffnung und die Wirkung im Duell ab. Beim Android-Update von 1.11.0 auf 1.12.0 blieben zwei bestehende Testspielstände bytegleich.
+
 Beim Spieltest von 1.11.0 ließ sich ein Beet über das Menü am Ziel anlegen, düngen, besäen und gießen. Beim Angeln wechselte die Anzeige von der Wartephase ins Bissfenster. Ein rechtzeitiges Einholen erhöhte den Fischbestand. Zwei bestehende Android-Testspielstände blieben beim Update von 1.10.2 auf 1.11.0 bytegleich.
 
-102 Rust-Tests prüfen den Prolog bis zum Start der Geschichte, die Wegverbindungen, das Speichern, die Menünavigation und die Systeme für Hof, Handwerk und Kampf. Alle 227 GLB-Dateien sind lesbar. Ein Spieltest mit leerem Spielstand führte über die erste Aussaat, zwei Nächte, Werkbank, Ernte und Kochen bis zum Sieg im Übungsduell und zum Beginn der Hauptgeschichte. In weiteren Testspielständen ließ sich ein Möbel versetzen und drehen. Saatgutkauf, Einzelverkauf und die Reparatur des Fischerstegs mit Kupfer wurden im laufenden Spiel geprüft. Beim Update von 1.9.2 auf 1.10.0 blieben zwei Testspielstände auf Android 16 bytegenau erhalten. Beide Räder wurden mit einem virtuellen Xbox-Controller getestet. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen aus.
+106 Rust-Tests prüfen den Prolog bis zum Start der Geschichte, die Wegverbindungen, das Speichern, die Menünavigation und die Systeme für Hof, Handwerk und Kampf. Alle 229 GLB-Dateien sind lesbar. Ein Spieltest mit leerem Spielstand führte über die erste Aussaat, zwei Nächte, Werkbank, Ernte und Kochen bis zum Sieg im Übungsduell und zum Beginn der Hauptgeschichte. In weiteren Testspielständen ließ sich ein Möbel versetzen und drehen. Saatgutkauf, Einzelverkauf und die Reparatur des Fischerstegs mit Kupfer wurden im laufenden Spiel geprüft. Beim Update von 1.9.2 auf 1.10.0 blieben zwei Testspielstände auf Android 16 bytegenau erhalten. Beide Räder wurden mit einem virtuellen Xbox-Controller getestet. Ein Durchlauf durch die gesamte Kampagne mit neuen Spielern und ein Test mit einem physischen Xbox-Controller auf einem Tablet stehen aus.
 
 Die Blender-Landschaften entstanden nach eigenen Bildreferenzen. [Insel und Pässe](art/references/insel.jpg) · [Kupferklamm](art/references/kupferklamm.png) · [Windweiden](art/references/windweiden.png) · [Nebelmoor](art/references/nebelmoor.png)
 

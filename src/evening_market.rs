@@ -32,7 +32,7 @@ pub enum Stage {
 pub struct Progress {
     pub stage: Stage,
     first_evening: u32,
-    sold: [Option<u32>; Ration::ALL.len()],
+    sold: [Option<u32>; Ration::MARKET.len()],
 }
 
 const STALL: [Need; 2] = [
@@ -52,6 +52,14 @@ pub fn hours(garden: &Garden) -> bool {
 pub fn scheduled(garden: &Garden) -> bool {
     garden.evening_market.stage >= Stage::Opening
         && garden.day >= garden.evening_market.first_evening
+}
+
+pub fn stall_present(garden: &Garden) -> bool {
+    garden.fish_supper.listed() || garden.evening_market.stage >= Stage::Tasting
+}
+
+pub fn serving(garden: &Garden) -> bool {
+    hours(garden) && (garden.fish_supper.offered_today(garden.day) || garden.evening_market.stage == Stage::Open)
 }
 
 pub fn trading(garden: &Garden) -> bool {
@@ -177,14 +185,16 @@ pub fn advance(garden: &mut Garden) -> Result<String, String> {
 }
 
 pub fn price(ration: Ration) -> u32 {
-    ration.dish().value() + 6
+    if ration == Ration::Broth { crate::fish_supper::PRICE } else { ration.dish().value() + 6 }
 }
 
 pub fn stocked(garden: &Garden, ration: Ration) -> bool {
+    if ration == Ration::Broth { return crate::fish_supper::stocked(garden); }
     garden.evening_market.sold[ration as usize] != Some(garden.day)
 }
 
 pub fn can_buy(garden: &Garden, ration: Ration) -> bool {
+    if ration == Ration::Broth { return crate::fish_supper::can_buy(garden); }
     trading(garden)
         && stocked(garden, ration)
         && garden.farm.coins >= price(ration)
@@ -192,6 +202,7 @@ pub fn can_buy(garden: &Garden, ration: Ration) -> bool {
 }
 
 pub fn buy(garden: &mut Garden, ration: Ration) -> Result<String, String> {
+    if ration == Ration::Broth { return crate::fish_supper::buy(garden); }
     if !can_buy(garden, ration) {
         return Err(
             "Der Proviant ist heute ausverkauft oder dein Geld reicht gerade nicht.".into(),

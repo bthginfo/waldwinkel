@@ -30,7 +30,7 @@ pub const DOOR: Vec2 = Vec2::new(-2.08, 1.32);
 pub const PORTAL: Vec2 = Vec2::new(9., -8.90);
 pub const PIER: Vec2 = Vec2::new(5.8, 17.25);
 pub const SALE_CHEST: Vec2 = Vec2::new(0.66, 3.58);
-const KITCHEN: Vec2 = Vec2::new(9.12, 1.15);
+pub(crate) const KITCHEN: Vec2 = Vec2::new(9.12, 1.15);
 const PATTERN_STALL: Vec2 = Vec2::new(18.36, 5.49);
 const DUSK_GATE: Vec2 = Vec2::new(-111., -35.);
 const DUSK_ARRIVAL: Vec2 = Vec2::new(-111., -33.54);
@@ -174,8 +174,8 @@ impl Target {
 
     fn restriction(self, garden: &Garden) -> Option<&'static str> {
         match self {
-            Self::EveningMarket if !crate::evening_market::trading(garden) => {
-                Some("Maras Abendmarkt öffnet von 18:00 bis 21:30.")
+            Self::EveningMarket if !crate::evening_market::serving(garden) => {
+                Some(if !garden.fish_supper.listed() && garden.evening_market.stage != crate::evening_market::Stage::Open { "Hilf Mara bei der Eröffnung des Abendmarkts." } else { "Der Abendmarkt öffnet von 18:00 bis 21:30." })
             }
             Self::PatternStall if !garden.clock.market_open() => {
                 Some("Der Bauplanstand ist von 06:00 bis 20:00 geöffnet.")
@@ -742,7 +742,7 @@ impl Adventure {
                     && !inside(KITCHEN, Vec2::new(1.15, 0.64))
                     && !inside(PATTERN_STALL, Vec2::new(0.85, 0.51))
                     && !inside(MEETING_POINT, TABLE_HALF_SIZE)
-                    && !(garden.evening_market.stage >= crate::evening_market::Stage::Tasting
+                    && !(crate::evening_market::stall_present(garden)
                         && inside(
                             crate::evening_market::PLACE,
                             crate::evening_market::HALF_SIZE,
@@ -955,7 +955,7 @@ impl Adventure {
                     .map(Target::HarborFishing),
             )
             .chain(
-                (garden.evening_market.stage >= crate::evening_market::Stage::Tasting)
+                crate::evening_market::stall_present(garden)
                     .then_some(Target::EveningMarket),
             )
             .chain(garden.workshop.forge.then_some(Target::Forge))
@@ -1214,7 +1214,7 @@ impl Adventure {
                 ),
                 Target::SeasonMeeting => (seasons::meeting_status(garden), target.label()),
                 Target::EveningMarket => {
-                    ("Maras Proviant · derzeit geöffnet".into(), target.label())
+                    (if garden.fish_supper.offered_today(garden.day) { "Heute auf der Tafel · Bos Hafenbrühe" } else { "Maras Proviant · derzeit geöffnet" }.into(), target.label())
                 }
                 Target::SeasonFind(_) => (
                     "Saisonfund · Sammlung und Dorftreffen".into(),
@@ -1255,6 +1255,9 @@ impl Adventure {
                         district.hint().into(),
                         if near { "Angekommen" } else { "Hingehen" },
                     )
+                }
+                Target::Person(Npc::Bo) if garden.fish_supper.at_farm() => {
+                    (garden.fish_supper.detail().into(), "Mit Bo sprechen")
                 }
                 Target::Person(person) => (person.whereabouts(garden).into(), target.label()),
                 Target::Find(i) => (FINDS[i].reward(), target.label()),
@@ -2484,11 +2487,7 @@ pub fn interact(
             Some((spot, bite, end)) if spot == target && (bite..=end).contains(&now) => {
                 match target {
                     Target::HarborFishing(spot) => harbor::catch(&mut garden, spot).into(),
-                    _ => {
-                        garden.add_stock(Product::Fish, 1);
-                        garden.ledger.record(crate::commissions::Activity::Fish, 1);
-                        "+1 Fisch".into()
-                    }
+                    _ => harbor::catch(&mut garden, Fishing::Landing).into(),
                 }
             }
             Some(cast @ (spot, bite, _)) if spot == target && now < bite => {
@@ -2567,7 +2566,7 @@ enum Stamp {
         season: Season,
         seasonal_finds: [bool; SITES.len()],
         pier: Phase,
-        evening_market: (bool, bool),
+        evening_market: (bool, bool, bool),
         salvage: bool,
         opening: bool,
         workshop: (bool, bool, bool, u8),
@@ -2633,6 +2632,7 @@ pub fn draw(
             evening_market: (
                 garden.evening_market.stage >= crate::evening_market::Stage::Tasting,
                 crate::evening_market::hours(&garden) && crate::evening_market::scheduled(&garden),
+                garden.fish_supper.listed(),
             ),
             salvage: garden.harbor.salvage_available(),
             opening: garden.harbor.celebrating(garden.day),
@@ -2858,6 +2858,15 @@ pub fn draw(
                             world::exterior_ground(point) + 0.04,
                             i as f32 * 0.31,
                         );
+                    }
+                }
+                if evening_market.2 {
+                    let place = crate::evening_market::PLACE;
+                    let height = world::exterior_ground(place);
+                    if evening_market.0 {
+                        spawn("broth_sign", place + Vec2::new(-0.62, 0.58), height, 0.);
+                    } else {
+                        spawn("broth_cart", place, height, 0.);
                     }
                 }
                 if evening_market.0 {
@@ -3192,6 +3201,28 @@ pub fn animate_animals(time: Res<Time>, mut animals: Query<(&Critter, &mut Trans
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bo_and_his_stations_can_be_approached_on_the_farm_and_market() {
+        use crate::{day::FarmClock, fish_supper::Stage};
+        let trip = Adventure::default();
+        let mut garden = Garden::default();
+        for (stage, station) in [(Stage::Visiting, Target::Kitchen), (Stage::Served, Target::EveningMarket)] {
+            garden.fish_supper.stage = stage;
+            garden.clock = FarmClock::from_minutes(crate::evening_market::OPENS.into());
+            let bo = Target::Person(Npc::Bo);
+            let point = trip.position(bo, &garden);
+            assert!(trip.walkable_without_residents(point, &garden), "{stage:?} position {point:?}");
+            assert!(point.distance(trip.position(station, &garden)) < 2.);
+            for target in [bo, station] {
+                let center = trip.position(target, &garden);
+                assert!((0..16).any(|step| {
+                    let player = center + Vec2::from_angle(step as f32 * std::f32::consts::TAU / 16.) * 1.30;
+                    trip.walkable(player, &garden) && trip.can_reach(target, player, &garden)
+                }), "{stage:?} target {target:?}");
+            }
+        }
+    }
 
     #[test]
     fn reeling_on_the_same_pad_target_keeps_the_original_bite_window() {

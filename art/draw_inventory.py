@@ -266,3 +266,74 @@ def oil(d):
 for slug, picture in [("boards",boards),("tideglass",tideglass),("rivets",rivets),
                       ("canvas",canvas_roll),("lampoil",oil)]:
     draw(slug,picture)
+
+
+def harbor_broth(d):
+    # The bowl repeats the harbor cart's turquoise enamel and cream rim.
+    oval(d,(16,39,81,78),"#477c75")
+    oval(d,(17,29,80,61),"#fff0cc")
+    oval(d,(21,33,76,56),"#db9145")
+    for x,y in [(38,42),(61,41)]:
+        oval(d,(x-6,y-3,x+5,y+3),"#f8dab1")
+    for x,y in [(31,45),(51,37),(56,49)]:
+        line(d,[(x-2,y+1),(x+4,y-1)],"#638851",2)
+    line(d,[(56,44),(72,20)],"#734d35",4)
+    oval(d,(26,58,39,62),"#82b0a0")
+    for x in (32,44):
+        line(d,[(x,30),(x-2,24),(x+1,20),(x,16)],"#d0ddcd",2)
+
+
+draw("harbor_broth", harbor_broth)
+
+
+def broth_lesson(phase):
+    # The same counter stays in view as the board gives way to the pot and bowls.
+    image = Image.new("RGBA", (252, 152), "#557d78")
+    d = ImageDraw.Draw(image)
+    for y in range(0, 90, 17):
+        d.line((0, y, 252, y), fill="#6c9287")
+        for x in range(-30 + (y // 17 % 2) * 22, 253, 44):
+            d.line((x, y, x, y + 16), fill="#62877d")
+    d.rectangle((0, 92, 252, 152), fill="#b78760")
+    for y in (102, 119, 140):
+        d.line((0, y + 3, 252, y - 2), fill="#a87955", width=2)
+    d.rounded_rectangle((4, 4, 247, 147), radius=11, outline="#ead6a9", width=2)
+    for x in (14, 237):
+        for y in (14, 137):
+            d.polygon([(x-2,y),(x,y-3),(x+2,y),(x,y+3)], fill="#e9d6a5")
+
+    def item(slug, size, x, y):
+        with Image.open(OUT / (slug + ".png")) as icon:
+            image.alpha_composite(icon.resize((size, size), Image.Resampling.LANCZOS), (x, y))
+
+    if phase == "board":
+        d.rounded_rectangle((35, 67, 215, 134), 12, fill="#9c6c49")
+        d.rounded_rectangle((35, 63, 215, 128), 12, fill="#d8b282", outline="#e6c695", width=3)
+        item("fish", 95, 38, 41)
+        item("carrot", 65, 121, 55)
+        for x, y in [(164,99), (179,90), (180,105)]:
+            d.ellipse((x-6,y-3,x+6,y+3), fill="#db8246", outline="#af633e")
+    elif phase == "pot":
+        d.ellipse((55, 114, 198, 134), fill="#926b50")
+        d.rounded_rectangle((43, 85, 209, 99), 5, fill="#415e57")
+        d.rounded_rectangle((63, 68, 191, 124), 18, fill="#ae7355", outline="#684f42", width=3)
+        d.ellipse((63, 54, 191, 85), fill="#f4dec2", outline="#835e49", width=2)
+        d.ellipse((69, 58, 185, 81), fill="#df964b")
+        for x, y in [(88,69), (114,64), (144,72)]:
+            d.ellipse((x-5,y-2,x+5,y+2), fill="#fae1b5")
+            d.line((x+5,y+4,x+11,y+1), fill="#6d8659", width=2)
+        d.line((143, 70, 182, 31), fill="#744e39", width=5)
+        d.line((148, 65, 181, 32), fill="#c0905d", width=2)
+        d.arc((73,68,179,81), 28, 140, fill="#f1bf7f", width=2)
+        for x in (95,116):
+            d.arc((x,32,x+12,50), 230, 340, fill="#e1e1c4",width=2)
+            d.arc((x+6,23,x+18,41), 65, 156, fill="#e1e1c4",width=2)
+    else:
+        d.polygon([(39,100),(173,83),(213,120),(79,139)], fill="#70988c")
+        item("harbor_broth", 89, 112, 39)
+        item("harbor_broth", 105, 49, 42)
+    image.convert("RGB").save(OUT.parent / f"broth_{phase}.png", optimize=True)
+
+
+for phase in ("board", "pot", "bowls"):
+    broth_lesson(phase)

@@ -292,7 +292,12 @@ pub fn catch(garden: &mut Garden, spot: Fishing) -> &'static str {
     };
     garden.add_stock(item, 1);
     garden.ledger.record(crate::commissions::Activity::Fish, 1);
-    message
+    if garden.fish_supper.record_catch() {
+        match spot {
+            Fishing::Landing => "+1 Fisch · Dein erster Fang! Bo besucht dich nach dem Schlafen.",
+            Fishing::Seaward => "+1 Hafenhering · Dein erster Fang! Bo besucht dich nach dem Schlafen.",
+        }
+    } else { message }
 }
 
 #[cfg(test)]

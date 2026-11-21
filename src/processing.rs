@@ -36,17 +36,20 @@ pub enum Dish {
     StrawberryCompote,
     HazelFlour,
     SunflowerMeal,
+    HarborBroth,
 }
 
 #[derive(Clone, Copy)]
 enum Ingredient {
     Crop(Crop, u32),
     Stock(Product, u32),
+    Fish,
 }
 
 impl Ingredient {
     fn requirement(self, garden: &Garden) -> (u32, u32, &'static str) {
         match self {
+            Self::Fish => (garden.fish.saturating_add(garden.stock(Product::Herring)), 1, "Fisch oder Hafenhering"),
             Self::Crop(crop, count) => (garden.crop_total(crop), count, crop.name()),
             Self::Stock(item, count) => (garden.stock(item), count, item.name()),
         }
@@ -54,6 +57,7 @@ impl Ingredient {
 
     fn consume(self, garden: &mut Garden) {
         match self {
+            Self::Fish => garden.take_stock(if garden.fish > 0 {Product::Fish} else {Product::Herring}, 1),
             Self::Crop(crop, count) => garden.take_crop(crop, count),
             Self::Stock(item, count) => garden.take_stock(item, count),
         };
@@ -61,17 +65,19 @@ impl Ingredient {
 }
 
 impl Dish {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::CarrotSoup,
         Self::TomatoStew,
         Self::BerryJam,
         Self::StrawberryCompote,
         Self::HazelFlour,
         Self::SunflowerMeal,
+        Self::HarborBroth,
     ];
 
     pub fn name(self) -> &'static str {
         match self {
+            Self::HarborBroth => "Bos Hafenbrühe",
             Self::CarrotSoup => "Möhren-Pilz-Suppe",
             Self::TomatoStew => "Tomateneintopf",
             Self::BerryJam => "Waldbeerkonfitüre",
@@ -83,19 +89,20 @@ impl Dish {
 
     pub fn method(self) -> Method {
         match self {
-            Self::CarrotSoup | Self::TomatoStew => Method::Cook,
+            Self::CarrotSoup | Self::TomatoStew | Self::HarborBroth => Method::Cook,
             Self::BerryJam | Self::StrawberryCompote => Method::Preserve,
             Self::HazelFlour | Self::SunflowerMeal => Method::Mill,
         }
     }
 
     pub fn value(self) -> u32 {
-        [13, 18, 10, 14, 13, 15][self as usize]
+        [13, 18, 10, 14, 13, 15, 14][self as usize]
     }
 
     fn ingredients(self) -> &'static [Ingredient] {
         use Ingredient::{Crop as Field, Stock};
         match self {
+            Self::HarborBroth => &[Ingredient::Fish, Field(Crop::Carrot, 1)],
             Self::CarrotSoup => &[Field(Crop::Carrot, 2), Stock(Product::Mushroom, 1)],
             Self::TomatoStew => &[Field(Crop::Tomato, 2), Stock(Product::Egg, 1)],
             Self::BerryJam => &[Stock(Product::Berry, 2), Stock(Product::Apple, 1)],
@@ -117,7 +124,7 @@ impl Dish {
     }
 
     pub fn ready(self, garden: &Garden) -> bool {
-        self.ingredients().iter().all(|ingredient| {
+        (self != Self::HarborBroth || garden.fish_supper.learned()) && self.ingredients().iter().all(|ingredient| {
             let (stock, count, _) = ingredient.requirement(garden);
             stock >= count
         })
@@ -129,6 +136,18 @@ impl Dish {
             _ => [2, 1, 0],
         }
     }
+}
+
+// The seventh dish was added in save version 17. Keep the six existing indices.
+pub(crate) fn read_pantry<'de, D: serde::Deserializer<'de>>(reader: D) -> Result<[u32; Dish::ALL.len()], D::Error> {
+    use serde::{Deserialize, de::Error};
+    let amounts = Vec::<u32>::deserialize(reader)?;
+    if !(6..=Dish::ALL.len()).contains(&amounts.len()) {
+        return Err(D::Error::custom("Ungültiger Küchenvorrat"));
+    }
+    let mut pantry = [0; Dish::ALL.len()];
+    pantry[..amounts.len()].copy_from_slice(&amounts);
+    Ok(pantry)
 }
 
 pub struct Preparation {
@@ -210,6 +229,17 @@ impl Preparation {
         }
     }
 
+    pub fn illustration(&self) -> &'static str {
+        if self.dish == Dish::HarborBroth {
+            return match self.progress {
+                0 => "ui/broth_board.png",
+                1..=3 => "ui/broth_pot.png",
+                _ => "ui/broth_bowls.png",
+            };
+        }
+        self.dish.method().art()
+    }
+
     pub fn pulse(&self, now: f32) -> f32 {
         self.last_step.map_or(0., |at| (1. - (now-at)/0.38).clamp(0., 1.).powi(2))
     }
@@ -271,7 +301,10 @@ impl Preparation {
         }
         garden.add_stock(Product::Prepared(self.dish), servings);
         garden.logbook.meal(self.dish);
-        if let Some(prologue) = &mut garden.prologue {
+        if self.dish == Dish::HarborBroth {
+            garden.fish_supper.finish_first_meal(garden.day, garden.clock.minute());
+        }
+        if self.dish != Dish::HarborBroth && let Some(prologue) = &mut garden.prologue {
             prologue.cooked = true;
         }
         // A completed action cannot consume ingredients again if another input arrives.
